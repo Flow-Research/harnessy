@@ -1,0 +1,12 @@
+name: mvp-tech-spec
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Distill technical_spec.md into a focused MVP with prioritized work items."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/mvp-tech-spec"
+location: tools/flow-install/skills/mvp-tech-spec

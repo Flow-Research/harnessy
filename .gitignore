@@ -1,0 +1,63 @@
+# === Sub-project repos (separate git repos cloned into workspace) ===
+Flow/
+Focus/
+knowledge-base/
+anytype/
+anytype-automation/
+automerge-go/
+automerge-repo-quickstart/
+flow-demo/
+Flow-bkp/
+research projects/
+test/
+
+# === Personal context (gitignored per personal-context-protocol) ===
+.jarvis/context/preferences.md
+.jarvis/context/patterns.md
+.jarvis/context/calendar.md
+.jarvis/context/recurring.md
+.jarvis/context/focus.md
+.jarvis/context/local.md
+.jarvis/context/private/
+
+# === Agent tool working directories ===
+.claude/
+.opencode/
+
+# === Editor / IDE ===
+.obsidian/
+.jarvis/context/.obsidian/
+.vscode/
+.idea/
+
+# === OS artifacts ===
+.DS_Store
+
+# === Environment files ===
+.env
+.env.local
+.env.*.local
+
+# === Dependencies ===
+node_modules/
+
+# === Build artifacts ===
+dist/
+build/
+.next/
+target/
+
+# === Python ===
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# === Logs ===
+*.log
+
+# === Git / release scratch ===
+.gitmodules

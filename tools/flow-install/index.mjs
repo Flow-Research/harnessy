@@ -1,0 +1,166 @@
+#!/usr/bin/env node
+
+/**
+ * flow-install — Idempotent installer for the Flow framework
+ *
+ * Installs skills, context vault, memory system, lifecycle scripts,
+ * and AGENTS.md section into any project.
+ *
+ * Usage:
+ *   npx flow-install              # Full install (or upgrade)
+ *   npx flow-install --yes        # Non-interactive (CI-safe)
+ *   npx flow-install --skills     # Skills + Claude registration
+ *   npx flow-install --memory     # Memory system
+ *   npx flow-install --agents-md  # AGENTS.md merge
+ *   npx flow-install --dry-run    # Preview changes
+ *   npx flow-install --version    # Show version
+ */
+
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { log, readJsonSafe, writeJson } from "./lib/utils.mjs";
+import { detectProject } from "./lib/detect.mjs";
+import { installSkills, registerClaudeSkills } from "./lib/skills.mjs";
+import { installScripts, patchPackageJson } from "./lib/scripts.mjs";
+import { scaffoldContext } from "./lib/context.mjs";
+import { installMemory } from "./lib/memory.mjs";
+import { mergeAgentsMd } from "./lib/agents-md.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TOTAL_STEPS = 8;
+
+// ---------------------------------------------------------------------------
+// CLI argument parsing
+// ---------------------------------------------------------------------------
+
+const args = new Set(process.argv.slice(2));
+
+const showVersion = args.has("--version") || args.has("-v");
+const dryRun = args.has("--dry-run");
+const yesAll = args.has("--yes");
+
+// Specific step flags (run all if none specified)
+const onlySkills = args.has("--skills");
+const onlyMemory = args.has("--memory");
+const onlyAgentsMd = args.has("--agents-md");
+const hasSpecific = onlySkills || onlyMemory || onlyAgentsMd;
+const runAll = !hasSpecific;
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+const main = async () => {
+  const pkg = await readJsonSafe(path.join(__dirname, "package.json"));
+  const version = pkg?.version || "1.0.0";
+
+  if (showVersion) {
+    console.log(`flow-install v${version}`);
+    return;
+  }
+
+  console.log(`\nflow-install v${version}${dryRun ? " (dry run)" : ""}\n`);
+
+  const projectRoot = process.cwd();
+
+  // ── Step 1: Detect project structure ────────────────────────────────────
+  log.step(1, TOTAL_STEPS, "Detecting project structure");
+  const projectInfo = await detectProject(projectRoot);
+
+  log.info(`Project: ${projectInfo.name}`);
+  log.info(`Type: ${projectInfo.monorepo ? `${projectInfo.monorepo.type} monorepo` : "single app"}`);
+  if (projectInfo.gitOrg) log.info(`Git org: ${projectInfo.gitOrg}`);
+  if (projectInfo.apps.length > 0) log.info(`Apps: ${projectInfo.apps.map((a) => a.dirName).join(", ")}`);
+  if (projectInfo.existing.lockfile) {
+    log.info(`Previous install: v${projectInfo.existing.lockfile.version} (${projectInfo.existing.lockfile.timestamp})`);
+  }
+
+  // ── Step 2: Install shared skills to ~/.agents/skills/ ──────────────────
+  if (runAll || onlySkills) {
+    log.step(2, TOTAL_STEPS, "Installing shared skills to ~/.agents/skills/");
+    const result = await installSkills(__dirname, { dryRun });
+    if (!dryRun) {
+      log.info(`Skills: ${result.installed} installed, ${result.upgraded} upgraded, ${result.skipped} current`);
+    }
+  }
+
+  // ── Step 3: Register skills with Claude Code ────────────────────────────
+  if (runAll || onlySkills) {
+    log.step(3, TOTAL_STEPS, "Registering skills with Claude Code");
+    await registerClaudeSkills({ dryRun });
+  }
+
+  // ── Step 4: Install lifecycle scripts to ~/.scripts/ ────────────────────
+  if (runAll) {
+    log.step(4, TOTAL_STEPS, "Installing lifecycle scripts to ~/.scripts/");
+    await installScripts(__dirname, { dryRun });
+  }
+
+  // ── Step 5: Patch project package.json ──────────────────────────────────
+  if (runAll) {
+    log.step(5, TOTAL_STEPS, "Patching project package.json");
+    await patchPackageJson(projectRoot, { dryRun });
+  }
+
+  // ── Step 6: Scaffold .jarvis/context/ vault ─────────────────────────────
+  if (runAll) {
+    log.step(6, TOTAL_STEPS, "Scaffolding .jarvis/context/ vault");
+    await scaffoldContext(projectRoot, { dryRun });
+  }
+
+  // ── Step 7: Install memory system ───────────────────────────────────────
+  if (runAll || onlyMemory) {
+    log.step(7, TOTAL_STEPS, "Installing memory system");
+    await installMemory(projectRoot, projectInfo, { dryRun });
+  }
+
+  // ── Step 8: Merge AGENTS.md ─────────────────────────────────────────────
+  if (runAll || onlyAgentsMd) {
+    log.step(8, TOTAL_STEPS, "Merging AGENTS.md");
+    await mergeAgentsMd(projectRoot, { dryRun });
+  }
+
+  // ── Write lockfile ──────────────────────────────────────────────────────
+  if (runAll && !dryRun) {
+    const lockfile = {
+      version,
+      timestamp: new Date().toISOString(),
+      project: projectInfo.name,
+      monorepo: projectInfo.monorepo?.type || null,
+      apps: projectInfo.apps.map((a) => a.dirName),
+      gitOrg: projectInfo.gitOrg,
+      components: {
+        skills: true,
+        claude: true,
+        scripts: true,
+        context: true,
+        memory: true,
+        agentsMd: true,
+      },
+    };
+    await writeJson(path.join(projectRoot, "flow-install.lock.json"), lockfile);
+    log.ok("flow-install.lock.json written");
+  }
+
+  // ── Summary ─────────────────────────────────────────────────────────────
+  console.log("");
+  if (dryRun) {
+    log.header("Dry run complete — no files were changed");
+  } else {
+    log.header("Installation complete");
+    console.log("  Next steps:");
+    console.log("    1. Review .jarvis/context/ and fill in project context files");
+    console.log("    2. Review .jarvis/context/scopes/_scopes.yaml and customize scopes");
+    console.log("    3. Review AGENTS.md Flow section");
+    console.log("    4. Commit: flow-install.lock.json, .jarvis/, AGENTS.md changes");
+    console.log("    5. Run: pnpm skills:register (to register project-specific skills)");
+    console.log("");
+  }
+};
+
+main().catch((error) => {
+  log.error(error.message);
+  if (process.env.DEBUG) console.error(error);
+  process.exitCode = 1;
+});

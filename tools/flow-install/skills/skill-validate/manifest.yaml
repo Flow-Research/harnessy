@@ -1,0 +1,12 @@
+name: skill-validate
+type: opencode
+version: 0.1.0
+owner: julian
+status: active
+blast_radius: medium
+description: "Validate skill manifest, catalog entry, and blast-radius gates."
+permissions: ["read"]
+data_categories: ["none"]
+egress: []
+invoke: "/skill-validate"
+location: tools/flow-install/skills/skill-validate

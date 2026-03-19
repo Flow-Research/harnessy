@@ -1,0 +1,12 @@
+name: git-commit
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Interactive git commit flow with branch selection and contextual commit messages."
+permissions: [read, write, execute]
+data_categories: [none]
+egress: []
+invoke: "/git-commit"
+location: tools/flow-install/skills/git-commit

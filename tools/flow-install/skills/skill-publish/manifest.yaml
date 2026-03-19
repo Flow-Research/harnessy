@@ -1,0 +1,12 @@
+name: skill-publish
+type: opencode
+version: 0.1.0
+owner: julian
+status: active
+blast_radius: high
+description: "Publish a skill with approval gates, catalog update, and audit log."
+permissions: ["write"]
+data_categories: ["none"]
+egress: []
+invoke: "/skill-publish"
+location: tools/flow-install/skills/skill-publish

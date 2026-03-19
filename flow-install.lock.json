@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-03-19T23:01:54.579Z",
+  "project": "flow-network",
+  "monorepo": null,
+  "apps": [],
+  "gitOrg": "Flow-Research",
+  "components": {
+    "skills": true,
+    "claude": true,
+    "scripts": true,
+    "context": true,
+    "memory": true,
+    "agentsMd": true
+  }
+}

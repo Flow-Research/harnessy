@@ -1,0 +1,5 @@
+{
+  "placeholder": "${AGENTS_SKILLS_ROOT}",
+  "envVar": "AGENTS_SKILLS_ROOT",
+  "defaultRelativeToHome": ".agents/skills"
+}

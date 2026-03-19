@@ -1,0 +1,68 @@
+{
+  "phase": "COMPLETE",
+  "workspace": "/private/home/Documents/Code/Jarvis",
+  "specs_folder": "/private/home/Documents/Code/Jarvis/specs",
+  "epic": "03_task-creation",
+  "epic_path": "specs/03_task-creation",
+  "git_initialized": true,
+  "semver_initialized": false,
+  "git": {
+    "base_branch": "dev",
+    "epic_branch": "epic/03_task-creation",
+    "epic_merged": true,
+    "merge_commit": "d919af3",
+    "feature_branches_merged": 0
+  },
+  "checkpoints": {
+    "setup": "complete",
+    "epic_select": "complete",
+    "brainstorm": "complete",
+    "prd": "complete",
+    "tech_spec": "complete",
+    "mvp_spec": "skipped",
+    "engineer": "complete",
+    "qa": "complete",
+    "local_run": "complete"
+  },
+  "files": {
+    "brainstorm": "specs/03_task-creation/brainstorm.md",
+    "product_spec": "specs/03_task-creation/product_spec.md",
+    "technical_spec": "specs/03_task-creation/technical_spec.md",
+    "mvp_spec": null,
+    "qa_summary": "specs/03_task-creation/qa/reports/summary.json",
+    "bug_report": "specs/03_task-creation/qa/bugs/bug-report.json",
+    "user_test_script": "specs/03_task-creation/qa/user-test-script.md"
+  },
+  "qa": {
+    "status": "complete",
+    "fix_iterations": 1,
+    "output_folder": "specs/03_task-creation/qa",
+    "test_results": {
+      "unit": { "passed": 238, "failed": 0, "skipped": 6 },
+      "integration": { "passed": 10, "failed": 0, "skipped": 0 }
+    },
+    "coverage": {
+      "average": 52,
+      "by_component": {
+        "task/date_parser.py": 90,
+        "task/editor.py": 100,
+        "task/cli.py": 56,
+        "task/service.py": 71
+      }
+    },
+    "bugs": {
+      "total": 2,
+      "critical": 0,
+      "high": 2,
+      "medium": 0,
+      "low": 0,
+      "fixed": 2,
+      "skipped": 0
+    },
+    "quality_gates": {
+      "pass_rate": { "target": 100, "actual": 100, "passed": true },
+      "coverage": { "target": 80, "actual": 52, "passed": false },
+      "critical_bugs": { "target": 0, "actual": 0, "passed": true }
+    }
+  }
+}

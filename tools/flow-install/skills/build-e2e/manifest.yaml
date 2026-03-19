@@ -1,0 +1,36 @@
+name: build-e2e
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: high
+description: "End-to-end product development orchestrator with human-in-the-loop reviews."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/build-e2e"
+location: tools/flow-install/skills/build-e2e
+checkpoints:
+  - id: brainstorm_complete
+    phase: after_brainstorm
+    checkpoint_type: review
+    message: "Review brainstorm.md before proceeding to PRD"
+  - id: prd_complete
+    phase: after_prd
+    checkpoint_type: review
+    message: "Review product_spec.md before proceeding to Tech Spec"
+  - id: tech_spec_complete
+    phase: after_tech_spec
+    checkpoint_type: review
+    message: "Review technical_spec.md before proceeding to MVP or Implementation"
+  - id: mvp_spec_complete
+    phase: after_mvp_spec
+    checkpoint_type: review
+    message: "Review MVP_technical_spec.md before beginning implementation"
+  - id: qa_complete
+    phase: after_qa
+    checkpoint_type: review
+    message: "Review QA report and decide on bug fixes or continuation"
+tests:
+  smoke: true
+  staging: true
