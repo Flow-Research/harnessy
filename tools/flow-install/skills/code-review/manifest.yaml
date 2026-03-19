@@ -1,0 +1,12 @@
+name: code-review
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Expert code reviewer ensuring implementations are simple, requirement-compliant, and architecturally sound."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/code-review"
+location: tools/flow-install/skills/code-review

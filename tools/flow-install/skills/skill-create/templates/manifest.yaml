@@ -1,0 +1,12 @@
+name: <skill-name>
+type: <opencode|OpenClaw|n8n>
+version: 0.1.0
+owner: <owner>
+status: experimental
+blast_radius: <low|medium|high>
+description: "<short description>"
+permissions: [<explicit, minimal list>]
+data_categories: [<pii|financial|credentials|none>]
+egress: [<allowed outbound destinations>]
+invoke: "/<skill-name>"
+location: plugins/<type>/<skill-name>

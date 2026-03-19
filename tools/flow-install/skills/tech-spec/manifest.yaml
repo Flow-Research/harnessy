@@ -1,0 +1,12 @@
+name: tech-spec
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Generate production-ready technical specifications from product specs."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/tech-spec"
+location: tools/flow-install/skills/tech-spec

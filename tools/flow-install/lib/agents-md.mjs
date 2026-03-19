@@ -1,0 +1,120 @@
+#!/usr/bin/env node
+
+/**
+ * flow-install — AGENTS.md marker-based merge
+ *
+ * Injects or updates a Flow framework section in the project's AGENTS.md
+ * using <!-- flow:start --> and <!-- flow:end --> markers.
+ * All existing project content outside the markers is preserved.
+ */
+
+import fs from "node:fs/promises";
+import path from "node:path";
+import { pathExists, readFileSafe, log } from "./utils.mjs";
+
+// ---------------------------------------------------------------------------
+// Flow framework section markers
+// ---------------------------------------------------------------------------
+
+const FLOW_START = "<!-- flow:start -->";
+const FLOW_END = "<!-- flow:end -->";
+
+// ---------------------------------------------------------------------------
+// Generate the Flow framework section
+// ---------------------------------------------------------------------------
+
+const generateFlowSection = () => `${FLOW_START}
+## Flow Framework
+
+> \`FLOW_SKIP_SUBPROJECTS=true\`
+
+### Skill Usage Protocol
+
+- Check available skills before proceeding on every request.
+- Global skills: \`~/.agents/skills/\`
+- Project skills: \`.agents/skills/\` (if present)
+- Catalog: \`.jarvis/context/skills/_catalog.md\`
+- Register: use the project skill scripts (for example \`pnpm skills:register\` or \`npm run skills:register\`) | Validate: the matching \`skills:validate\` script
+
+### Context Vault
+
+- Project context: \`.jarvis/context/\`
+- Loading order: projects.md -> focus.md -> priorities.md -> goals.md -> decisions.md
+- \`{{global}}\` in context files is Jarvis CLI templating; treat as no-op
+
+### Memory System
+
+- Scope registry: \`.jarvis/context/scopes/_scopes.yaml\`
+- Scope resolution: most-specific match wins; user scope always highest priority
+- Memory types: fact, decision, preference, event
+- One file per scope per type
+
+### Technical Debt Tracking
+
+- Register: \`.jarvis/context/technical-debt.md\`
+- Per-epic: \`.jarvis/context/specs/<epic>/tech_debt.md\`
+- Required fields: ID, status, type, scope, context, impact, resolution, target, links
+
+### Conventions
+
+- No \`.env\` commits — use \`.env.example\`
+- Personal context in \`.jarvis/context/private/<username>/\` (gitignored)
+${FLOW_END}`;
+
+// ---------------------------------------------------------------------------
+// Merge Flow section into existing AGENTS.md
+// ---------------------------------------------------------------------------
+
+export const mergeAgentsMd = async (projectRoot, { dryRun = false } = {}) => {
+  const agentsPath = path.join(projectRoot, "AGENTS.md");
+  const flowSection = generateFlowSection();
+
+  const existing = await readFileSafe(agentsPath);
+
+  if (!existing) {
+    // No AGENTS.md exists — create one with just the Flow section
+    if (dryRun) {
+      log.dryRun("Would create AGENTS.md with Flow framework section");
+      return;
+    }
+    await fs.writeFile(agentsPath, flowSection + "\n", "utf8");
+    log.ok("AGENTS.md created with Flow framework section");
+    return;
+  }
+
+  // Check for existing markers
+  const startIdx = existing.indexOf(FLOW_START);
+  const endIdx = existing.indexOf(FLOW_END);
+
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    // Update existing Flow section
+    const before = existing.slice(0, startIdx);
+    const after = existing.slice(endIdx + FLOW_END.length);
+
+    const updated = before + flowSection + after;
+
+    if (updated === existing) {
+      log.skip("AGENTS.md (Flow section already current)");
+      return;
+    }
+
+    if (dryRun) {
+      log.dryRun("Would update Flow section in AGENTS.md");
+      return;
+    }
+
+    await fs.writeFile(agentsPath, updated, "utf8");
+    log.ok("AGENTS.md: Flow section updated");
+    return;
+  }
+
+  // No markers found — append Flow section
+  if (dryRun) {
+    log.dryRun("Would append Flow framework section to AGENTS.md");
+    return;
+  }
+
+  const appended = existing.trimEnd() + "\n\n" + flowSection + "\n";
+  await fs.writeFile(agentsPath, appended, "utf8");
+  log.ok("AGENTS.md: Flow section appended");
+};

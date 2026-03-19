@@ -1,0 +1,15 @@
+name: engineer
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: high
+description: "Autonomous full-stack development agent that implements technical specifications with high test coverage."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/engineer"
+location: tools/flow-install/skills/engineer
+tests:
+  smoke: true
+  staging: true

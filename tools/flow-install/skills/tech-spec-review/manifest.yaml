@@ -1,0 +1,12 @@
+name: tech-spec-review
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Six-perspective engineering review for technical_spec.md files."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/tech-spec-review"
+location: tools/flow-install/skills/tech-spec-review

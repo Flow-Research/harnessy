@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "timestamp": "2026-03-19T22:21:05.638Z",
+  "project": "Jarvis",
+  "monorepo": null,
+  "apps": [],
+  "gitOrg": null,
+  "components": {
+    "skills": true,
+    "claude": true,
+    "scripts": true,
+    "context": true,
+    "memory": true,
+    "agentsMd": true
+  }
+}

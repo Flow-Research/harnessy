@@ -1,0 +1,27 @@
+{
+  "name": "flow-install",
+  "version": "1.0.0",
+  "description": "Idempotent installer for the Flow framework — skills, context vault, memory system, and agent infrastructure.",
+  "type": "module",
+  "bin": {
+    "flow-install": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "lib/",
+    "templates/",
+    "skills/"
+  ],
+  "keywords": [
+    "flow",
+    "ai-agents",
+    "skills",
+    "memory",
+    "claude-code"
+  ],
+  "author": "julian",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

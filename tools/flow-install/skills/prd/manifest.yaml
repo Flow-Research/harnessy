@@ -1,0 +1,12 @@
+name: prd
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Transform brainstorm.md into a comprehensive Product Specification Document."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/prd"
+location: tools/flow-install/skills/prd

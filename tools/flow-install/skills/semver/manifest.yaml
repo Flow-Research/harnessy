@@ -1,0 +1,12 @@
+name: semver
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Manage semantic versioning with VERSION file + CHANGELOG.md for any codebase."
+permissions: [write]
+data_categories: [none]
+egress: []
+invoke: "/semver"
+location: tools/flow-install/skills/semver

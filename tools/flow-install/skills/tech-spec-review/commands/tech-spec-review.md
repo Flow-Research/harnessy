@@ -1,0 +1,233 @@
+---
+description: Six-perspective engineering review for technical_spec.md files
+argument-hint: "[quick] or path to technical_spec.md"
+---
+
+# Technical Specification Review Board
+
+Panel of expert technical reviewers that stress-tests every aspect of a technical specification before it becomes the implementation blueprint.
+
+## Mission
+
+Review, critique, and refine `technical_spec.md` until it is production-ready — meaning any competent engineering team could build a robust, scalable, secure system directly from this document without ambiguity.
+
+## User Input
+
+$ARGUMENTS
+
+## Command Router
+
+### No arguments → Full review
+
+**Opening:**
+"I'll conduct a comprehensive technical review of your specification using six expert perspectives. What's the path to your technical_spec.md file?"
+
+### `quick` → Abbreviated review
+
+1. Load technical_spec.md
+2. Run Backend Engineer + Security Architect perspectives only
+3. Report critical and major issues
+4. Skip minor issues and full iteration
+
+### Path provided → Review that file
+
+## Inputs
+
+| Document | Required | Purpose |
+|----------|----------|---------|
+| technical_spec.md | **Required** | Primary review target |
+| product_spec.md | Reference | Verify requirements coverage |
+| design_spec.md | Optional | Design alignment check |
+| brainstorm.md | Context | Original intent verification |
+
+## Process Overview
+
+```
+Phase 1: Load & Initial Assessment
+    ↓
+Phase 2: Technical Clarification (if needed)
+    ↓
+Phase 3: Construct Review Plan
+    ↓
+Phase 4: Multi-Perspective Review (6 experts)
+    ↓
+Phase 5: Synthesize & Prioritize
+    ↓
+Phase 6: Iterative Resolution
+    ↓
+Phase 7: Final Validation & Output
+```
+
+## Phase 1: Load & Initial Assessment
+
+1. Load all specification documents from folder
+2. **Verify alignment:** Does technical_spec address everything in product_spec?
+3. **Initial scan for red flags:**
+   - Missing sections
+   - `[TBD]`, `[ASSUMPTION]`, `[NEEDS INPUT]` tags
+   - Vague or ambiguous requirements
+   - Inconsistencies between sections
+   - Over-engineering or under-engineering signals
+4. Catalog all open items requiring resolution
+
+## Phase 4: Multi-Perspective Technical Review
+
+Execute by adopting each expert perspective. Each reviewer examines the ENTIRE specification through their specialized lens.
+
+### 🔷 1. Principal Backend Engineer
+
+**Focus:** System design, API design, business logic, code architecture
+
+**Review Questions:**
+- Is the architecture appropriate for requirements?
+- Are component boundaries well-defined?
+- Are APIs RESTful/consistent with clear contracts?
+- Is data flow logical and efficient?
+- Are edge cases and error scenarios handled?
+- Is the tech stack appropriate and justified?
+- Could I implement this without asking questions?
+
+### 🔷 2. Security Architect
+
+**Focus:** Threat modeling, authentication, authorization, data protection, compliance
+
+**Review Questions:**
+- Is the threat model comprehensive?
+- Are all identified threats mitigated?
+- Is authentication robust (MFA, session management)?
+- Is authorization granular enough (RBAC/ABAC)?
+- Is sensitive data identified and protected?
+- Are injection attacks prevented?
+- Is security testing plan adequate?
+- Are compliance requirements addressed?
+
+### 🔷 3. DevOps / SRE Lead
+
+**Focus:** Infrastructure, deployment, CI/CD, monitoring, reliability, DR
+
+**Review Questions:**
+- Is infrastructure architecture clear and deployable?
+- Is deployment strategy safe (rollback, canary)?
+- Is CI/CD pipeline complete and gated?
+- Is monitoring comprehensive (metrics, logs, traces)?
+- Are alerts actionable with clear thresholds?
+- Is incident response process defined?
+- Is disaster recovery achievable (RTO/RPO)?
+- Are runbooks specified?
+
+### 🔷 4. Database / Data Engineer
+
+**Focus:** Data modeling, schema design, query performance, migrations
+
+**Review Questions:**
+- Are data models normalized appropriately?
+- Are relationships clearly defined with constraints?
+- Are indexes specified for query patterns?
+- Is database choice justified for access patterns?
+- Is migration strategy safe and reversible?
+- Is data retention/archival policy complete?
+- Is PII handling compliant?
+
+### 🔷 5. Integration Specialist
+
+**Focus:** Third-party integrations, API contracts, webhooks, events
+
+**Review Questions:**
+- Are all integrations fully specified?
+- Are rate limits and quotas documented?
+- Is error handling defined for each integration?
+- Are fallback strategies specified?
+- Is event/message schema complete?
+- Are retry policies and dead-letter handling defined?
+
+### 🔷 6. Engineering Manager
+
+**Focus:** Feasibility, timeline, team fit, technical debt
+
+**Review Questions:**
+- Is scope achievable in stated timeline?
+- Is tech stack appropriate for team capabilities?
+- Are estimates realistic?
+- Is phasing logical with proper dependencies?
+- Is technical debt acknowledged and planned?
+- Are testing requirements achievable?
+- Is documentation sufficient for onboarding?
+
+## Phase 5: Synthesize & Prioritize
+
+After all perspectives complete:
+
+1. **Consolidate** all issues into unified list
+2. **De-duplicate** — Merge similar issues from multiple reviewers
+3. **Resolve conflicts** — If reviewers disagree, determine right call
+4. **Prioritize by impact:**
+   - **Critical:** Blocks implementation or creates significant risk — MUST fix
+   - **Major:** Significant gap or flaw — SHOULD fix before approval
+   - **Minor:** Improvement opportunity — FIX if time permits
+
+## Phase 6: Iterative Resolution
+
+**Loop until all critical and major issues resolved:**
+
+1. For issues requiring user input → Present options with decision format
+2. For issues you can resolve → Apply fixes, document changes
+3. After fixes:
+   - Re-review changed sections only
+   - Verify fixes don't introduce new issues
+   - Check cross-references remain consistent
+4. Continue until:
+   - [ ] Zero critical issues
+   - [ ] Zero major issues
+   - [ ] All `[TBD]` resolved or explicitly deferred
+   - [ ] All `[ASSUMPTION]` validated or converted
+   - [ ] All six perspectives approve
+
+## Phase 7: Final Validation & Output
+
+### Pre-Output Checklist
+
+**Completeness:**
+- [ ] Every product_spec feature has implementation path
+- [ ] All APIs specified with full schemas
+- [ ] All data models defined with relationships
+- [ ] All integrations specified with error handling
+- [ ] Security model complete
+- [ ] Infrastructure and deployment specified
+- [ ] Monitoring and alerting defined
+- [ ] CI/CD pipeline complete
+
+**Coherence:**
+- [ ] No internal contradictions
+- [ ] Consistent terminology
+- [ ] Technology choices align across sections
+- [ ] Estimates consistent with scope
+
+**Pragmatism:**
+- [ ] Architecture matches scale requirements
+- [ ] Tech choices appropriate for team
+- [ ] Timeline realistic
+- [ ] MVP clearly distinguished
+
+**Implementability:**
+- [ ] Unfamiliar senior engineer could build from this
+- [ ] No ambiguous requirements
+- [ ] All decision points resolved
+- [ ] Dependencies clear
+
+### Output
+
+1. Write finalized `technical_spec.md`
+2. Produce review summary
+
+## Behavioral Rules
+
+| Rule | Application |
+|------|-------------|
+| **Simulate genuine expertise** | Each perspective catches different issues |
+| **Be rigorous but pragmatic** | Ensure quality without gold-plating |
+| **Don't ask unnecessary questions** | Make sound engineering decisions |
+| **Track everything** | Maintain decision log, don't lose context |
+| **Prioritize ruthlessly** | Focus on critical and major issues |
+| **Be specific in fixes** | Don't just identify problems; specify solutions |
+| **Verify alignment** | Tech spec must trace to product requirements |
+| **Think like an implementer** | Would YOU build from this doc? |

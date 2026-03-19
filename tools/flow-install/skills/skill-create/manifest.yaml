@@ -1,0 +1,12 @@
+name: skill-create
+type: opencode
+version: 0.1.0
+owner: julian
+status: active
+blast_radius: low
+description: "Scaffold new skills with manifest and catalog entry."
+permissions: ["read", "write"]
+data_categories: ["none"]
+egress: []
+invoke: "/skill-create"
+location: tools/flow-install/skills/skill-create

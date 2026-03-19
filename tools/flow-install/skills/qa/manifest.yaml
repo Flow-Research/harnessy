@@ -1,0 +1,12 @@
+name: qa
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Quality Assurance agent for test execution, coverage analysis, bug identification, and browser-QA delegation."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/qa"
+location: tools/flow-install/skills/qa

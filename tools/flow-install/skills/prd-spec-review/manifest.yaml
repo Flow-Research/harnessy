@@ -1,0 +1,12 @@
+name: prd-spec-review
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Multi-perspective quality review for product_spec.md files."
+permissions: [write]
+data_categories: [pii]
+egress: []
+invoke: "/prd-spec-review"
+location: tools/flow-install/skills/prd-spec-review

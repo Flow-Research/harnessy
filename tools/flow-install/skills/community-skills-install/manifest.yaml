@@ -1,0 +1,12 @@
+name: community-skills-install
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Install community skills from antigravity-awesome-skills with bundle filtering and catalog merging."
+permissions: [read, write, execute]
+data_categories: [none]
+egress: [github.com]
+invoke: "/install-skills"
+location: tools/flow-install/skills/community-skills-install
