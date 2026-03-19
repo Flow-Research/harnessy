@@ -239,15 +239,11 @@ depending on the repo
 uv tool install --force "git+https://github.com/Flow-Research/flow-network.git#subdirectory=Jarvis"
 ```
 
-## Verified Rollout Targets
+## Installation Validation
 
-The canonical layout has been applied and verified in:
+The canonical layout has been validated both in fresh installs and in existing repositories.
 
-- `Accelerate Africa`
-- `Awadoc`
-- a fresh smoke-test project
-
-That means the installation model is no longer theoretical; it has been exercised in both real repos and a clean install target.
+That means the installation model is no longer theoretical; it has been exercised in clean bootstrap flows and existing-project installs.
 
 ## Troubleshooting
 
@@ -287,4 +283,4 @@ This repo is the hub/source repo for the Flow harness.
 - bootstrap entry point: `install.sh`
 - Jarvis package source: `Jarvis/`
 
-If you are extending the framework, update the shared source here first, then test installation into a downstream project.
+If you are extending the framework, update the shared source here first, then test installation into a fresh target repo or sandbox project.
