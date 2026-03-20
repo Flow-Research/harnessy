@@ -34,11 +34,24 @@ const TOTAL_STEPS = 8;
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
+
+const getArgValue = (flag) => {
+  const index = argv.indexOf(flag);
+  if (index === -1) return null;
+  return argv[index + 1] ?? null;
+};
 
 const showVersion = args.has("--version") || args.has("-v");
 const dryRun = args.has("--dry-run");
 const yesAll = args.has("--yes");
+const targetArg = getArgValue("--target");
+
+if (args.has("--target") && !targetArg) {
+  console.error("Missing value for --target");
+  process.exit(1);
+}
 
 // Specific step flags (run all if none specified)
 const onlySkills = args.has("--skills");
@@ -62,7 +75,7 @@ const main = async () => {
 
   console.log(`\nflow-install v${version}${dryRun ? " (dry run)" : ""}\n`);
 
-  const projectRoot = process.cwd();
+  const projectRoot = targetArg ? path.resolve(targetArg) : process.cwd();
 
   // ── Step 1: Detect project structure ────────────────────────────────────
   log.step(1, TOTAL_STEPS, "Detecting project structure");
