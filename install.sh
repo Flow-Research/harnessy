@@ -3,12 +3,16 @@ set -euo pipefail
 
 FLOW_REPO_URL="${FLOW_REPO_URL:-https://github.com/Flow-Research/flow-network.git}"
 FLOW_INSTALL_DIR="${FLOW_INSTALL_DIR:-$HOME/flow-network}"
+FLOW_CACHE_DIR="${FLOW_CACHE_DIR:-$HOME/.cache/flow-network}"
 FLOW_NONINTERACTIVE="${FLOW_NONINTERACTIVE:-0}"
 FLOW_SKIP_SUBPROJECTS="${FLOW_SKIP_SUBPROJECTS:-0}"
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]-$0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" && pwd)"
 LOCAL_SOURCE=0
+INSTALL_MODE="bootstrap"
+TARGET_ROOT=""
+INSTALL_COMMUNITY="auto"
 
 if [[ -d "$SCRIPT_DIR/tools/flow-install" && -d "$SCRIPT_DIR/Jarvis" ]]; then
   LOCAL_SOURCE=1
@@ -20,6 +24,74 @@ log() {
 
 need_command() {
   command -v "$1" >/dev/null 2>&1
+}
+
+usage() {
+  cat <<'EOF'
+Flow installer
+
+Usage:
+  ./install.sh [--here] [--target PATH] [--yes] [--no-community] [--community]
+
+Modes:
+  default           Bootstrap a full Flow workspace locally
+  --here            Install Flow into the current repository in-place
+  --target PATH     Install Flow into the specified repository in-place
+
+Flags:
+  --yes             Non-interactive mode
+  --no-community    Skip community skill installation
+  --community       Force community skill installation
+  --help            Show this help
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --here)
+        INSTALL_MODE="in-place"
+        TARGET_ROOT="$(pwd)"
+        ;;
+      --target)
+        if [[ $# -lt 2 ]]; then
+          log "[error] --target requires a path"
+          exit 1
+        fi
+        INSTALL_MODE="in-place"
+        TARGET_ROOT="$2"
+        shift
+        ;;
+      --yes)
+        FLOW_NONINTERACTIVE=1
+        ;;
+      --no-community)
+        INSTALL_COMMUNITY="0"
+        ;;
+      --community)
+        INSTALL_COMMUNITY="1"
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        log "[error] Unknown argument: $1"
+        usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  if [[ "$INSTALL_MODE" == "in-place" ]]; then
+    TARGET_ROOT="$(cd "$TARGET_ROOT" && pwd)"
+    if [[ "$INSTALL_COMMUNITY" == "auto" ]]; then
+      INSTALL_COMMUNITY="0"
+    fi
+  elif [[ "$INSTALL_COMMUNITY" == "auto" ]]; then
+    INSTALL_COMMUNITY="1"
+  fi
 }
 
 install_uv() {
@@ -56,14 +128,19 @@ ensure_node_and_pnpm() {
   fi
 }
 
-clone_or_update_flow() {
+resolve_flow_source() {
   if [[ "$LOCAL_SOURCE" -eq 1 ]]; then
     FLOW_ROOT="$SCRIPT_DIR"
     log "[ok] Using local Flow checkout: $FLOW_ROOT"
     return
   fi
 
-  FLOW_ROOT="$FLOW_INSTALL_DIR"
+  if [[ "$INSTALL_MODE" == "in-place" ]]; then
+    FLOW_ROOT="$FLOW_CACHE_DIR"
+  else
+    FLOW_ROOT="$FLOW_INSTALL_DIR"
+  fi
+
   if [[ -d "$FLOW_ROOT/.git" ]]; then
     log "[info] Updating existing Flow checkout at $FLOW_ROOT"
     git -C "$FLOW_ROOT" pull --ff-only
@@ -80,6 +157,12 @@ install_jarvis() {
 }
 
 install_flow_framework() {
+  if [[ "$INSTALL_MODE" == "in-place" ]]; then
+    log "[info] Installing Flow framework into target repo: $TARGET_ROOT"
+    node "$FLOW_ROOT/tools/flow-install/index.mjs" --yes --target "$TARGET_ROOT"
+    return
+  fi
+
   log "[info] Installing Flow framework into project root"
   (
     cd "$FLOW_ROOT"
@@ -88,6 +171,11 @@ install_flow_framework() {
 }
 
 install_community_skills() {
+  if [[ "$INSTALL_COMMUNITY" != "1" ]]; then
+    log "[skip] Skipping community skill installation"
+    return
+  fi
+
   local installer="$FLOW_ROOT/tools/flow-install/skills/community-skills-install/scripts/main.js"
   if [[ -f "$installer" ]]; then
     log "[info] Installing community skills"
@@ -98,6 +186,11 @@ install_community_skills() {
 }
 
 clone_subprojects() {
+  if [[ "$INSTALL_MODE" == "in-place" ]]; then
+    log "[skip] In-place install selected; not cloning Flow sub-projects"
+    return
+  fi
+
   if [[ "$FLOW_SKIP_SUBPROJECTS" == "1" ]]; then
     log "[skip] Skipping Flow sub-project clone"
     return
@@ -127,23 +220,30 @@ clone_subprojects() {
 }
 
 print_summary() {
+  local installed_root="$FLOW_ROOT"
+  if [[ "$INSTALL_MODE" == "in-place" ]]; then
+    installed_root="$TARGET_ROOT"
+  fi
+
   log ""
   log "Flow installation complete"
-  log "- Flow root: $FLOW_ROOT"
+  log "- Installer source: $FLOW_ROOT"
+  log "- Install target: $installed_root"
   log "- Jarvis: $(command -v jarvis || printf 'not found')"
   log "- Shared skills: $HOME/.agents/skills"
   log "- Lifecycle scripts: $HOME/.scripts"
   log ""
   log "Next steps:"
   log "1. Review .jarvis/context/ and fill in project-specific context files"
-  log "2. Run 'pnpm skills:register' in any project with local .agents/skills/"
+  log "2. Run 'pnpm skills:register' or 'npm run skills:register' in any project with local .agents/skills/"
   log "3. Run 'jarvis status' to verify the CLI install"
 }
 
 main() {
+  parse_args "$@"
   install_uv
   ensure_node_and_pnpm
-  clone_or_update_flow
+  resolve_flow_source
   install_jarvis
   install_flow_framework
   install_community_skills

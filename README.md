@@ -84,13 +84,33 @@ jarvis --help
 
 ### Option 3: Install Flow into an existing project
 
-From inside the target project root:
+From the target project root, use in-place mode:
 
 ```bash
-node /path/to/flow-network/tools/flow-install/index.mjs --yes
+curl -fsSL https://raw.githubusercontent.com/Flow-Research/flow-network/main/install.sh | bash -s -- --here
 ```
 
-Or after cloning this repo locally:
+This mode:
+
+- treats the current directory as the install target
+- installs `jarvis`
+- fetches or updates a cached `flow-network` checkout used as installer source
+- patches the current repository with `AGENTS.md`, `.jarvis/context/`, memory scopes, and package scripts
+- skips community skill installation by default for a lean existing-project install
+
+You can also target another repo explicitly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Flow-Research/flow-network/main/install.sh | bash -s -- --target "/path/to/project"
+```
+
+Local equivalent:
+
+```bash
+node /path/to/flow-network/tools/flow-install/index.mjs --yes --target /path/to/project
+```
+
+Or after cloning this repo locally and running from the project root:
 
 ```bash
 git clone https://github.com/Flow-Research/flow-network.git
