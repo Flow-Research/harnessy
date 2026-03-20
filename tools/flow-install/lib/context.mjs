@@ -29,8 +29,8 @@ const CONTEXT_DIRS = [
 // Scaffold .jarvis/context/
 // ---------------------------------------------------------------------------
 
-export const scaffoldContext = async (projectRoot, { dryRun = false } = {}) => {
-  const contextDir = path.join(projectRoot, ".jarvis", "context");
+export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirRel = ".jarvis/context" } = {}) => {
+  const contextDir = path.join(projectRoot, contextDirRel);
 
   // Create directory structure
   for (const dir of CONTEXT_DIRS) {
@@ -40,10 +40,10 @@ export const scaffoldContext = async (projectRoot, { dryRun = false } = {}) => {
       continue;
     }
     if (dryRun) {
-      log.dryRun(`Would create .jarvis/context/${dir}/`);
+        log.dryRun(`Would create ${contextDirRel}/${dir}/`);
     } else {
       await ensureDir(full);
-      log.ok(`.jarvis/context/${dir}/`);
+        log.ok(`${contextDirRel}/${dir}/`);
     }
   }
 

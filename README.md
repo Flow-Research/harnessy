@@ -95,13 +95,20 @@ This mode:
 - treats the current directory as the install target
 - installs `jarvis`
 - fetches or updates a cached `flow-network` checkout used as installer source
-- patches the current repository with `AGENTS.md`, `.jarvis/context/`, memory scopes, and package scripts
+- prompts once per file type for install destinations unless `--yes` is used
+- patches the current repository with `AGENTS.md`, the context vault, memory scopes, project-local lifecycle scripts, and package scripts
 - skips community skill installation by default for a lean existing-project install
 
 You can also target another repo explicitly:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Flow-Research/flow-network/main/install.sh | bash -s -- --target "/path/to/project"
+```
+
+If you want to rerun the destination prompts for a repo that already has `flow-install.lock.json`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Flow-Research/flow-network/main/install.sh | bash -s -- --here --reconfigure
 ```
 
 Local equivalent:
@@ -182,10 +189,12 @@ These are not part of the shared framework. They are owned by the target project
 
 ### 4. Generated lifecycle scripts
 
-`flow-install` installs helper scripts into:
+`flow-install` installs helper scripts into the project in a configurable folder.
+
+Default:
 
 ```text
-$HOME/.scripts/
+scripts/flow/
 ```
 
 These power:
@@ -194,6 +203,8 @@ These power:
 - `skills:validate`
 - `skills:register:claude`
 - `postinstall`
+
+Global convenience scripts are still installed into `$HOME/.scripts/`, but committed project wiring uses repo-local script paths so CI stays portable.
 
 ### 5. Context vault
 

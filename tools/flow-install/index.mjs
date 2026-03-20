@@ -22,10 +22,11 @@ import { fileURLToPath } from "node:url";
 import { log, readJsonSafe, writeJson } from "./lib/utils.mjs";
 import { detectProject } from "./lib/detect.mjs";
 import { installSkills, registerClaudeSkills } from "./lib/skills.mjs";
-import { installScripts, patchPackageJson } from "./lib/scripts.mjs";
+import { installProjectScripts, installScripts, patchPackageJson } from "./lib/scripts.mjs";
 import { scaffoldContext } from "./lib/context.mjs";
 import { installMemory } from "./lib/memory.mjs";
 import { mergeAgentsMd } from "./lib/agents-md.mjs";
+import { resolveInstallPaths } from "./lib/install-paths.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOTAL_STEPS = 8;
@@ -47,6 +48,7 @@ const showVersion = args.has("--version") || args.has("-v");
 const dryRun = args.has("--dry-run");
 const yesAll = args.has("--yes");
 const targetArg = getArgValue("--target");
+const reconfigure = args.has("--reconfigure");
 
 if (args.has("--target") && !targetArg) {
   console.error("Missing value for --target");
@@ -80,6 +82,10 @@ const main = async () => {
   // ── Step 1: Detect project structure ────────────────────────────────────
   log.step(1, TOTAL_STEPS, "Detecting project structure");
   const projectInfo = await detectProject(projectRoot);
+  const installPaths = await resolveInstallPaths(projectRoot, projectInfo, {
+    yesAll,
+    reconfigure,
+  });
 
   log.info(`Project: ${projectInfo.name}`);
   log.info(`Type: ${projectInfo.monorepo ? `${projectInfo.monorepo.type} monorepo` : "single app"}`);
@@ -108,30 +114,47 @@ const main = async () => {
   if (runAll) {
     log.step(4, TOTAL_STEPS, "Installing lifecycle scripts to ~/.scripts/");
     await installScripts(__dirname, { dryRun });
+    await installProjectScripts(projectRoot, {
+      dryRun,
+      scriptsDirRel: installPaths.scriptsDir,
+    });
   }
 
   // ── Step 5: Patch project package.json ──────────────────────────────────
   if (runAll) {
     log.step(5, TOTAL_STEPS, "Patching project package.json");
-    await patchPackageJson(projectRoot, { dryRun });
+    await patchPackageJson(projectRoot, {
+      dryRun,
+      scriptsDirRel: installPaths.scriptsDir,
+    });
   }
 
   // ── Step 6: Scaffold .jarvis/context/ vault ─────────────────────────────
   if (runAll) {
     log.step(6, TOTAL_STEPS, "Scaffolding .jarvis/context/ vault");
-    await scaffoldContext(projectRoot, { dryRun });
+    await scaffoldContext(projectRoot, {
+      dryRun,
+      contextDirRel: installPaths.contextDir,
+    });
   }
 
   // ── Step 7: Install memory system ───────────────────────────────────────
   if (runAll || onlyMemory) {
     log.step(7, TOTAL_STEPS, "Installing memory system");
-    await installMemory(projectRoot, projectInfo, { dryRun });
+    await installMemory(projectRoot, projectInfo, {
+      dryRun,
+      contextDirRel: installPaths.contextDir,
+    });
   }
 
   // ── Step 8: Merge AGENTS.md ─────────────────────────────────────────────
   if (runAll || onlyAgentsMd) {
     log.step(8, TOTAL_STEPS, "Merging AGENTS.md");
-    await mergeAgentsMd(projectRoot, { dryRun });
+    await mergeAgentsMd(projectRoot, {
+      dryRun,
+      agentsFileRel: installPaths.agentsFile,
+      installPaths,
+    });
   }
 
   // ── Write lockfile ──────────────────────────────────────────────────────
@@ -151,6 +174,7 @@ const main = async () => {
         memory: true,
         agentsMd: true,
       },
+      installPaths,
     };
     await writeJson(path.join(projectRoot, "flow-install.lock.json"), lockfile);
     log.ok("flow-install.lock.json written");

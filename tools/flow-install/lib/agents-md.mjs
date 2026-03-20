@@ -23,7 +23,7 @@ const FLOW_END = "<!-- flow:end -->";
 // Generate the Flow framework section
 // ---------------------------------------------------------------------------
 
-const generateFlowSection = () => `${FLOW_START}
+const generateFlowSection = (installPaths) => `${FLOW_START}
 ## Harnessy Framework
 
 > \`FLOW_SKIP_SUBPROJECTS=true\`
@@ -32,42 +32,42 @@ const generateFlowSection = () => `${FLOW_START}
 
 - Check available skills before proceeding on every request.
 - Global skills: \`~/.agents/skills/\`
-- Project skills: \`.agents/skills/\` (if present)
-- Catalog: \`.jarvis/context/skills/_catalog.md\`
+- Project skills: \`${installPaths.skillsDir}/\` (if present)
+- Catalog: \`${installPaths.contextDir}/skills/_catalog.md\`
 - Register: use the project skill scripts (for example \`pnpm skills:register\` or \`npm run skills:register\`) | Validate: the matching \`skills:validate\` script
 
 ### Context Vault
 
-- Project context: \`.jarvis/context/\`
+- Project context: \`${installPaths.contextDir}/\`
 - Loading order: projects.md -> focus.md -> priorities.md -> goals.md -> decisions.md
 - \`{{global}}\` in context files is Jarvis CLI templating; treat as no-op
 
 ### Memory System
 
-- Scope registry: \`.jarvis/context/scopes/_scopes.yaml\`
+- Scope registry: \`${installPaths.contextDir}/scopes/_scopes.yaml\`
 - Scope resolution: most-specific match wins; user scope always highest priority
 - Memory types: fact, decision, preference, event
 - One file per scope per type
 
 ### Technical Debt Tracking
 
-- Register: \`.jarvis/context/technical-debt.md\`
-- Per-epic: \`.jarvis/context/specs/<epic>/tech_debt.md\`
+- Register: \`${installPaths.contextDir}/technical-debt.md\`
+- Per-epic: \`${installPaths.contextDir}/specs/<epic>/tech_debt.md\`
 - Required fields: ID, status, type, scope, context, impact, resolution, target, links
 
 ### Conventions
 
 - No \`.env\` commits — use \`.env.example\`
-- Personal context in \`.jarvis/context/private/<username>/\` (gitignored)
+- Personal context in \`${installPaths.contextDir}/private/<username>/\` (gitignored)
 ${FLOW_END}`;
 
 // ---------------------------------------------------------------------------
 // Merge Flow section into existing AGENTS.md
 // ---------------------------------------------------------------------------
 
-export const mergeAgentsMd = async (projectRoot, { dryRun = false } = {}) => {
-  const agentsPath = path.join(projectRoot, "AGENTS.md");
-  const flowSection = generateFlowSection();
+export const mergeAgentsMd = async (projectRoot, { dryRun = false, agentsFileRel = "AGENTS.md", installPaths = { contextDir: ".jarvis/context", skillsDir: ".agents/skills" } } = {}) => {
+  const agentsPath = path.join(projectRoot, agentsFileRel);
+  const flowSection = generateFlowSection(installPaths);
 
   const existing = await readFileSafe(agentsPath);
 

@@ -98,8 +98,8 @@ export const generateScopesYaml = (projectInfo) => {
 // Install memory system
 // ---------------------------------------------------------------------------
 
-export const installMemory = async (projectRoot, projectInfo, { dryRun = false } = {}) => {
-  const contextDir = path.join(projectRoot, ".jarvis", "context");
+export const installMemory = async (projectRoot, projectInfo, { dryRun = false, contextDirRel = ".jarvis/context" } = {}) => {
+  const contextDir = path.join(projectRoot, contextDirRel);
   const scopesDir = path.join(contextDir, "scopes");
 
   // Generate scopes
