@@ -233,7 +233,12 @@ Memory file types:
 
 Recommended team workflow:
 
-1. Install Flow into the repo with `flow-install`
+1. From the target repo root, install Flow in place:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Flow-Research/flow-network/main/install.sh | bash -s -- --here
+```
+
 2. Commit generated files:
    - `AGENTS.md`
    - `.jarvis/context/`
@@ -250,6 +255,7 @@ or:
 ```bash
 npm run skills:register
 ```
+
 
 depending on the repo
 
