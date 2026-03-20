@@ -2,7 +2,7 @@
 
 /**
  * flow-install — lifecycle script installation to ~/.scripts/
- *                and project package.json patching
+ *                plus optional repo-local lifecycle scripts for CI-safe project installs
  */
 
 import fs from "node:fs/promises";
@@ -70,11 +70,35 @@ export const installScripts = async (flowInstallRoot, { dryRun = false } = {}) =
   return { installed };
 };
 
+export const installProjectScripts = async (projectRoot, { dryRun = false, scriptsDirRel = "scripts/flow" } = {}) => {
+  const targetDir = path.join(projectRoot, scriptsDirRel);
+  await ensureDir(targetDir);
+
+  const projectTemplates = {
+    "register-skills.mjs": generateRegisterSkills,
+    "validate-skills.mjs": generateValidateSkills,
+    "register-claude-skills.mjs": generateRegisterClaudeSkills,
+    "sync-rules.mjs": generateSyncRules,
+  };
+
+  for (const [filename, generator] of Object.entries(projectTemplates)) {
+    const targetPath = path.join(targetDir, filename);
+    const content = generator();
+    if (dryRun) {
+      log.dryRun(`Would write ${path.join(scriptsDirRel, filename)}`);
+    } else {
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, content, "utf8");
+      log.ok(`${path.join(scriptsDirRel, filename)}`);
+    }
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Patch project package.json to reference ~/.scripts/
 // ---------------------------------------------------------------------------
 
-export const patchPackageJson = async (projectRoot, { dryRun = false } = {}) => {
+export const patchPackageJson = async (projectRoot, { dryRun = false, scriptsDirRel = "scripts/flow" } = {}) => {
   const pkgPath = path.join(projectRoot, "package.json");
   const pkg = await readJsonSafe(pkgPath);
   if (!pkg) {
@@ -84,7 +108,7 @@ export const patchPackageJson = async (projectRoot, { dryRun = false } = {}) => 
 
   if (!pkg.scripts) pkg.scripts = {};
 
-  const scriptsDirRef = '$HOME/.scripts';
+  const scriptsDirRef = scriptsDirRel.replace(/\\/g, "/").replace(/\/$/, "");
 
   const desired = {
     "skills:validate": `node ${scriptsDirRef}/validate-skills.mjs`,

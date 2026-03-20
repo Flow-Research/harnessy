@@ -7,6 +7,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
 
 // ---------------------------------------------------------------------------
 // Filesystem helpers
@@ -68,6 +70,16 @@ export const writeIfMissing = async (filePath, content) => {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content, "utf8");
   return true;
+};
+
+export const promptWithDefault = async (label, defaultValue) => {
+  const rl = readline.createInterface({ input, output });
+  try {
+    const answer = await rl.question(`${label} [${defaultValue}]: `);
+    return answer.trim() || defaultValue;
+  } finally {
+    rl.close();
+  }
 };
 
 // ---------------------------------------------------------------------------

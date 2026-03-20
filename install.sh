@@ -13,6 +13,7 @@ LOCAL_SOURCE=0
 INSTALL_MODE="bootstrap"
 TARGET_ROOT=""
 INSTALL_COMMUNITY="auto"
+FLOW_RECONFIGURE="${FLOW_RECONFIGURE:-0}"
 
 if [[ -d "$SCRIPT_DIR/tools/flow-install" && -d "$SCRIPT_DIR/Jarvis" ]]; then
   LOCAL_SOURCE=1
@@ -31,7 +32,7 @@ usage() {
 Flow installer
 
 Usage:
-  ./install.sh [--here] [--target PATH] [--yes] [--no-community] [--community]
+  ./install.sh [--here] [--target PATH] [--yes] [--reconfigure] [--no-community] [--community]
 
 Modes:
   default           Bootstrap a full Flow workspace locally
@@ -40,6 +41,7 @@ Modes:
 
 Flags:
   --yes             Non-interactive mode
+  --reconfigure     Ask for install destinations again even if saved in lockfile
   --no-community    Skip community skill installation
   --community       Force community skill installation
   --help            Show this help
@@ -64,6 +66,9 @@ parse_args() {
         ;;
       --yes)
         FLOW_NONINTERACTIVE=1
+        ;;
+      --reconfigure)
+        FLOW_RECONFIGURE=1
         ;;
       --no-community)
         INSTALL_COMMUNITY="0"
@@ -157,16 +162,24 @@ install_jarvis() {
 }
 
 install_flow_framework() {
+  local flow_args=()
+  if [[ "$FLOW_NONINTERACTIVE" == "1" ]]; then
+    flow_args+=(--yes)
+  fi
+  if [[ "$FLOW_RECONFIGURE" == "1" ]]; then
+    flow_args+=(--reconfigure)
+  fi
+
   if [[ "$INSTALL_MODE" == "in-place" ]]; then
     log "[info] Installing Flow framework into target repo: $TARGET_ROOT"
-    node "$FLOW_ROOT/tools/flow-install/index.mjs" --yes --target "$TARGET_ROOT"
+    node "$FLOW_ROOT/tools/flow-install/index.mjs" "${flow_args[@]}" --target "$TARGET_ROOT"
     return
   fi
 
   log "[info] Installing Flow framework into project root"
   (
     cd "$FLOW_ROOT"
-    node tools/flow-install/index.mjs --yes
+    node tools/flow-install/index.mjs "${flow_args[@]}"
   )
 }
 
