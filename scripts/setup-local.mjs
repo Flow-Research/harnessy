@@ -130,10 +130,10 @@ const setupPrivateNamespace = async () => {
 };
 
 const setupPersonalContextFiles = async () => {
-  header("Personal Jarvis context files");
+  header("Personal private context files");
 
   const wantPersonal = await confirm(
-    "Create personal context files (preferences, patterns, calendar, recurring, focus)?",
+    "Create personal private context files under .jarvis/context/private/<username>/ (preferences, patterns, calendar, recurring, focus)?",
     true
   );
 
@@ -151,13 +151,13 @@ const setupPersonalContextFiles = async () => {
   ];
 
   for (const file of files) {
-    const filePath = path.join(contextDir, file.name);
+    const filePath = path.join(privateDir, file.name);
     if (await pathExists(filePath)) {
-      log(`${file.name} already exists — skipping.`);
+      log(`private/${username}/${file.name} already exists — skipping.`);
       continue;
     }
     await fs.writeFile(filePath, file.content, "utf8");
-    log(`Created ${file.name}`);
+    log(`Created private/${username}/${file.name}`);
   }
 };
 
@@ -188,7 +188,7 @@ const printSummary = async () => {
   header("Setup complete");
   log("What was configured:");
   log("  - Context directory structure");
-  log("  - Personal context files (gitignored)");
+  log("  - Personal private context files (gitignored)");
   log("  - Private contributor namespace (gitignored)");
   log("");
   log("Next steps:");

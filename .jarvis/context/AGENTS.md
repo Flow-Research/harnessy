@@ -14,9 +14,10 @@ This repo is Flow-managed. Use this file as the canonical Flow agent protocol fo
 ### Session Start
 
 1. Read `.jarvis/context/README.md`
-2. Load context in order: `projects.md` -> `focus.md` -> `priorities.md` -> `goals.md` -> `decisions.md`
-3. Check `.jarvis/context/skills/_catalog.md` for project catalog entries
-4. Prefer deeper sub-project context when working inside a nested app with its own `.jarvis/context/`
+2. Load context in order: `status.md` -> `roadmap.md` -> `team.md` -> `technical-debt.md`
+3. Treat `projects.md` and `decisions.md` as optional supporting docs when present
+4. Check `.jarvis/context/skills/_catalog.md` for project catalog entries
+5. Prefer deeper sub-project context when working inside a nested app with its own `.jarvis/context/`
 
 ### Skills
 
@@ -37,4 +38,4 @@ This repo is Flow-managed. Use this file as the canonical Flow agent protocol fo
 - Never commit `.env` files; use `.env.example`
 - Personal context belongs in `.jarvis/context/private/<username>/`
 - Keep debt tracked in the debt registers, not only in chat or TODO comments
-<!-- flow-context:end -->
+<!-- flow-context:end -->>

@@ -76,7 +76,7 @@ This protocol is designed for future automation via Jarvis CLI:
 1. **Input:** Raw transcript from Fathom (or similar) is passed to an LLM.
 2. **Processing:** LLM extracts structured content following the template above.
 3. **Output:** Markdown file written to the correct `meetings/YYYY/Mon/` path.
-4. **Post-processing:** Optionally update `goals.md`, `decisions.md`, or `focus.md` if meeting produced changes to those.
+4. **Post-processing:** Optionally update `status.md`, `roadmap.md`, `team.md`, or `decisions.md` if the meeting changed canonical workspace truth.
 
 **Planned Jarvis command:**
 ```bash

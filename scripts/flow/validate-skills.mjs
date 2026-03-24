@@ -7,13 +7,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const projectRoot = process.cwd();
-const skillsRoot = path.join(projectRoot, ".agents", "skills");
+const DEFAULT_INSTALL_PATHS = {
+  agentsFile: "AGENTS.md",
+  contextDir: ".jarvis/context",
+  skillsDir: ".agents/skills",
+  scriptsDir: "scripts/flow",
+};
 const required = ["name","type","version","owner","status","blast_radius","description","permissions","data_categories","egress","invoke","location"];
+const readJsonSafe = async (p) => { try { return JSON.parse(await fs.readFile(p, "utf8")); } catch { return null; } };
+const resolveInstallPaths = async () => {
+  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
+};
 
 const run = async () => {
+  const installPaths = await resolveInstallPaths();
+  const skillsRoot = path.resolve(projectRoot, installPaths.skillsDir);
   const errors = [];
   let entries;
-  try { entries = await fs.readdir(skillsRoot, { withFileTypes: true }); } catch { console.log("No .agents/skills/ found."); return; }
+  try { entries = await fs.readdir(skillsRoot, { withFileTypes: true }); } catch { console.log("No project-local skills found at " + skillsRoot + "."); return; }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const mPath = path.join(skillsRoot, entry.name, "manifest.yaml");

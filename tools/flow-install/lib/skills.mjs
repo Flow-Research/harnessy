@@ -20,9 +20,14 @@ import {
   GLOBAL_COMMANDS_DIR,
   GLOBAL_CLAUDE_MARKETPLACE,
   GLOBAL_CLAUDE_SETTINGS,
+  GLOBAL_CLAUDE_SKILLS_DIR,
+  homeDir,
   GLOBAL_OPENCODE_CONFIG,
   log,
 } from "./utils.mjs";
+
+const GLOBAL_CLAUDE_KNOWN_MARKETPLACES = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
+const FLOW_CLAUDE_PLUGIN_ID = "flow-network";
 
 const RESERVED_SCRIPT_NAMES = new Set([
   "register-skills.mjs",
@@ -84,6 +89,32 @@ const installSkillExecutables = async (skillDir, { dryRun = false } = {}) => {
   }
 
   return installed;
+};
+
+const syncClaudeSkillLinks = async (skills, { dryRun = false } = {}) => {
+  if (dryRun) {
+    log.dryRun(`Would sync ${skills.length} Claude slash skill(s) into ~/.claude/skills`);
+    return;
+  }
+
+  await ensureDir(GLOBAL_CLAUDE_SKILLS_DIR);
+
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) continue;
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+
+    await fs.symlink(skill.skillDir, targetPath, "dir").catch(async () => {
+      await copyDir(skill.skillDir, targetPath);
+    });
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -224,44 +255,59 @@ export const registerClaudeSkills = async ({ dryRun = false } = {}) => {
     return;
   }
 
-  // Generate per-skill .claude-plugin/plugin.json
-  for (const skill of skills) {
-    const pluginDir = path.join(skill.skillDir, ".claude-plugin");
-    await ensureDir(pluginDir);
-    await writeJson(path.join(pluginDir, "plugin.json"), {
-      name: skill.name,
-      version: "1.0.0",
-      description: skill.description,
-    });
+  await syncClaudeSkillLinks(skills, { dryRun });
 
-    // Auto-create commands/ if missing
-    const commandsDir = path.join(skill.skillDir, "commands");
-    if (!(await pathExists(commandsDir))) {
-      await ensureDir(commandsDir);
-      const commandContent = `---\ndescription: ${skill.description}\n---\n\n${skill.body}`;
-      await fs.writeFile(path.join(commandsDir, `${skill.name}.md`), commandContent, "utf8");
-    }
+  // Generate one real Claude plugin that bundles all skills
+  const marketplaceDir = path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin");
+  const bundledPluginRoot = path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID);
+  const bundledPluginManifestDir = path.join(bundledPluginRoot, ".claude-plugin");
+  const bundledPluginSkillsDir = path.join(bundledPluginRoot, "skills");
+  await ensureDir(marketplaceDir);
+  await ensureDir(bundledPluginManifestDir);
+  await ensureDir(bundledPluginSkillsDir);
+
+  for (const skill of skills) {
+    const targetPath = path.join(bundledPluginSkillsDir, skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) continue;
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    await fs.symlink(skill.skillDir, targetPath, "dir").catch(async () => {
+      await copyDir(skill.skillDir, targetPath);
+    });
   }
 
-  // Generate marketplace.json
-  const marketplaceDir = path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin");
-  await ensureDir(marketplaceDir);
-
-  const plugins = skills.map((s) => ({
-    name: s.name,
-    description: s.description.slice(0, 120),
+  await writeJson(path.join(bundledPluginManifestDir, "plugin.json"), {
+    name: FLOW_CLAUDE_PLUGIN_ID,
     version: "1.0.0",
-    category: "productivity",
-    source: `../skills/${s.name}`,
-  }));
+    description: "Flow harness skills bundle",
+  });
 
   await writeJson(path.join(marketplaceDir, "marketplace.json"), {
     name: "flow_network",
-    plugins,
+    owner: {
+      name: "Flow Research",
+      email: "support@flowresearch.dev",
+    },
+    plugins: [
+      {
+        name: FLOW_CLAUDE_PLUGIN_ID,
+        description: "Flow harness skills bundle",
+        version: "1.0.0",
+        category: "productivity",
+        source: `./${FLOW_CLAUDE_PLUGIN_ID}`,
+      },
+    ],
   });
 
   // Update ~/.claude/settings.json
   await updateClaudeSettings(skills);
+  await updateClaudeKnownMarketplaces();
 
   log.ok(`Registered ${skills.length} skills with Claude Code`);
 };
@@ -279,24 +325,36 @@ const updateClaudeSettings = async (skills) => {
   // Remove old marketplace references
   delete existing.extraKnownMarketplaces.duru_claude_plugins;
 
-  // Enable all skills
+  // Enable bundled plugin
   if (!existing.enabledPlugins) existing.enabledPlugins = {};
-  for (const skill of skills) {
-    existing.enabledPlugins[`${skill.name}@flow_network`] = true;
-  }
+  existing.enabledPlugins[`${FLOW_CLAUDE_PLUGIN_ID}@flow_network`] = true;
 
   // Clean up old monolithic plugin references
   delete existing.enabledPlugins["flow-skills@flow_network"];
+  for (const skill of skills) {
+    delete existing.enabledPlugins[`${skill.name}@flow_network`];
+  }
 
   await ensureDir(path.dirname(settingsPath));
   await writeJson(settingsPath, existing);
+};
+
+const updateClaudeKnownMarketplaces = async () => {
+  const known = await readJsonSafe(GLOBAL_CLAUDE_KNOWN_MARKETPLACES) || {};
+  known.flow_network = {
+    source: { source: "directory", path: GLOBAL_CLAUDE_MARKETPLACE },
+    installLocation: GLOBAL_CLAUDE_MARKETPLACE,
+    lastUpdated: new Date().toISOString(),
+  };
+  await ensureDir(path.dirname(GLOBAL_CLAUDE_KNOWN_MARKETPLACES));
+  await writeJson(GLOBAL_CLAUDE_KNOWN_MARKETPLACES, known);
 };
 
 // ---------------------------------------------------------------------------
 // OpenCode skill registration
 // ---------------------------------------------------------------------------
 
-export const registerOpenCodeSkills = async (projectRoot, { dryRun = false } = {}) => {
+export const registerOpenCodeSkills = async (projectRoot, { dryRun = false, skillsDirRel = ".agents/skills" } = {}) => {
   const config = await readJsonSafe(GLOBAL_OPENCODE_CONFIG);
   if (!config) {
     log.skip("No OpenCode config found at ~/.config/opencode/opencode.json");
@@ -335,7 +393,7 @@ export const registerOpenCodeSkills = async (projectRoot, { dryRun = false } = {
   }
 
   // Ensure project-local skills dir is registered (if it exists)
-  const projectSkillsDir = path.join(projectRoot, ".agents", "skills");
+  const projectSkillsDir = path.resolve(projectRoot, skillsDirRel);
   if (await pathExists(projectSkillsDir)) {
     const normalizedProjectSkillsDir = await normalizePath(projectSkillsDir);
     if (!paths.includes(normalizedProjectSkillsDir)) {
