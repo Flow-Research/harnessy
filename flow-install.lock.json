@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-03-23T08:43:22.276Z",
+  "timestamp": "2026-03-24T04:56:37.701Z",
   "project": "flow-network",
   "monorepo": null,
   "apps": [],
@@ -28,6 +28,7 @@
     "community-skills-install",
     "context-sync",
     "cto",
+    "dev-container",
     "engineer",
     "git-commit",
     "github-issue-create",
@@ -1314,7 +1315,7 @@
   },
   "contextAgents": {
     "version": "1.0.0",
-    "templateHash": "99325332f3db48f26d643d382823a1b1342f8b23e53c97f6a53bd2e07eff2739",
+    "templateHash": "0f18ec5299bbf2e63c551cb9fdcac70b585b55af865b5b9a9c68f10f637ca40d",
     "status": "update_available",
     "path": ".jarvis/context/AGENTS.md"
   },

@@ -1,0 +1,12 @@
+name: dev-container
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Scaffold and maintain a reusable Docker development container with spec-driven validation across supported base images."
+permissions: ["write"]
+data_categories: ["none"]
+egress: ["docker.io", "ghcr.io"]
+invoke: "/dev-container"
+location: tools/flow-install/skills/dev-container

@@ -12,14 +12,25 @@ const GLOBAL_SKILLS_DIR = path.join(os.homedir(), ".agents", "skills");
 const GLOBAL_COMMANDS_DIR = (process.env.XDG_BIN_HOME || "").trim() || path.join(os.homedir(), ".local", "bin");
 const GLOBAL_CLAUDE_MARKETPLACE = path.join(os.homedir(), ".agents", "claude-marketplace");
 const GLOBAL_CLAUDE_SETTINGS = path.join(os.homedir(), ".claude", "settings.json");
+const GLOBAL_CLAUDE_SKILLS_DIR = path.join(os.homedir(), ".claude", "skills");
 const GLOBAL_OPENCODE_CONFIG = path.join(os.homedir(), ".config", "opencode", "opencode.json");
 const projectRoot = process.cwd();
-const projectSkillsRoot = path.join(projectRoot, ".agents", "skills");
 const RESERVED_SCRIPT_NAMES = new Set(["register-skills.mjs", "validate-skills.mjs", "register-claude-skills.mjs", "verify-harness.mjs", "sync-rules.mjs", "skills-root.mjs", "skills-root.config.json", "parse-frontmatter.mjs"]);
+const DEFAULT_INSTALL_PATHS = {
+  agentsFile: "AGENTS.md",
+  contextDir: ".jarvis/context",
+  skillsDir: ".agents/skills",
+  scriptsDir: "scripts/flow",
+};
 
 const pathExists = async (p) => { try { await fs.access(p); return true; } catch { return false; } };
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
+const resolveInstallPaths = async () => {
+  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
+};
+const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);
 const copyDir = async (src, dest) => {
   await fs.mkdir(dest, { recursive: true });
   for (const entry of await fs.readdir(src, { withFileTypes: true })) {
@@ -90,6 +101,29 @@ const installSkillExecutables = async (skillDir) => {
   return installed;
 };
 
+const syncClaudeSkillLinks = async (skills) => {
+  await fs.mkdir(GLOBAL_CLAUDE_SKILLS_DIR, { recursive: true });
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) {
+          continue;
+        }
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(skill.skillDir, targetPath, "dir");
+    } catch {
+      await fs.cp(skill.skillDir, targetPath, { recursive: true });
+    }
+  }
+};
+
 const registerClaude = async () => {
   const entries = await fs.readdir(GLOBAL_SKILLS_DIR, { withFileTypes: true }).catch(() => []);
   const skills = [];
@@ -105,6 +139,8 @@ const registerClaude = async () => {
     const body = frontmatter?.body || skillMd;
     skills.push({ name: entry.name, description, skillDir, body });
   }
+
+  await syncClaudeSkillLinks(skills);
 
   for (const skill of skills) {
     const pluginDir = path.join(skill.skillDir, ".claude-plugin");
@@ -127,14 +163,38 @@ const registerClaude = async () => {
   }
 
   await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin"), { recursive: true });
+  await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, "skills"), { recursive: true });
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_MARKETPLACE, "skills", skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) {
+          continue;
+        }
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(skill.skillDir, targetPath, 'dir');
+    } catch {
+      await fs.cp(skill.skillDir, targetPath, { recursive: true });
+    }
+  }
   await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin", "marketplace.json"), {
     name: "flow_network",
+    owner: {
+      name: "Flow Research",
+      email: "support@flowresearch.dev",
+    },
     plugins: skills.map((skill) => ({
       name: skill.name,
       description: skill.description.slice(0, 120),
       version: "1.0.0",
       category: "productivity",
-      source: "../skills/" + skill.name,
+      source: "./skills/" + skill.name,
     })),
   });
 
@@ -154,6 +214,8 @@ const registerClaude = async () => {
 
 const registerOpenCode = async () => {
   const config = (await readJsonSafe(GLOBAL_OPENCODE_CONFIG)) || { $schema: "https://opencode.ai/config.json" };
+  const installPaths = await resolveInstallPaths();
+  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
   if (!config.skills) config.skills = {};
   if (!Array.isArray(config.skills.paths)) config.skills.paths = [];
   const normalizePath = async (candidate) => {
@@ -178,6 +240,8 @@ const registerOpenCode = async () => {
 };
 
 const run = async () => {
+  const installPaths = await resolveInstallPaths();
+  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
   await fs.mkdir(GLOBAL_SKILLS_DIR, { recursive: true });
   let copied = 0;
   let commandShims = 0;
@@ -196,7 +260,7 @@ const run = async () => {
       console.log("  OK copied " + entry.name);
     }
   } else {
-    console.log("No .agents/skills/ found. Skipping local skill copy.");
+    console.log("No project-local skills found at " + projectSkillsRoot + ". Skipping local skill copy.");
   }
 
   const claudeCount = await registerClaude();

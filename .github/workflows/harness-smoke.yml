@@ -42,47 +42,10 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Install Jarvis CLI
+      - name: Add local bin to PATH
         run: |
-          uv tool install --force ./Jarvis
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Seed OpenCode config
+      - name: Run Flow install evaluation harness
         run: |
-          mkdir -p "$HOME/.config/opencode"
-          cat > "$HOME/.config/opencode/opencode.json" <<'EOF'
-          {
-            "$schema": "https://opencode.ai/config.json",
-            "skills": {
-              "paths": []
-            }
-          }
-          EOF
-
-      - name: Prepare fixture repos
-        run: |
-          cp -R tests/fixtures/harness-smoke/base /tmp/flow-harness-base
-          cp -R tests/fixtures/harness-smoke/local-skill /tmp/flow-harness-local
-          git -C /tmp/flow-harness-base init
-          git -C /tmp/flow-harness-local init
-
-      - name: Verify base fixture with full community install
-        run: |
-          node tools/flow-install/index.mjs --yes --target /tmp/flow-harness-base
-          (cd /tmp/flow-harness-base && node "$GITHUB_WORKSPACE/tools/flow-install/skills/community-skills-install/scripts/main.js" --full)
-          test -f /tmp/flow-harness-base/.jarvis/context/AGENTS.md
-          grep -q '.jarvis/context/AGENTS.md' /tmp/flow-harness-base/AGENTS.md
-          ! grep -q 'Memory System' /tmp/flow-harness-base/AGENTS.md
-          grep -q '<!-- flow-context:start -->' /tmp/flow-harness-base/.jarvis/context/AGENTS.md
-          test -f "$HOME/.agents/community-install.json"
-          pnpm --dir /tmp/flow-harness-base harness:verify
-
-      - name: Verify local-skill fixture parity
-        run: |
-          node tools/flow-install/index.mjs --yes --target /tmp/flow-harness-local
-          pnpm --dir /tmp/flow-harness-local skills:register
-          test -f /tmp/flow-harness-local/.jarvis/context/AGENTS.md
-          grep -q '.jarvis/context/AGENTS.md' /tmp/flow-harness-local/AGENTS.md
-          ! grep -q 'Memory System' /tmp/flow-harness-local/AGENTS.md
-          grep -q '<!-- flow-context:start -->' /tmp/flow-harness-local/.jarvis/context/AGENTS.md
-          pnpm --dir /tmp/flow-harness-local harness:verify
+          FLOW_EVAL_FULL_COMMUNITY=1 bash tests/harness/run-flow-install-eval.sh

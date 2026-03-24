@@ -1,0 +1,115 @@
+{
+  "name": "dev-baseline",
+  "build": {
+    "base_family": "debian",
+    "base_image": "debian:bookworm-slim",
+    "package_manager": "apt",
+    "image_tag": "flow-dev-container:latest",
+    "feature_packs": [
+      "docker"
+    ]
+  },
+  "user": {
+    "name": "dev",
+    "uid": 1000,
+    "gid": 1000,
+    "enable_sudo": true,
+    "groups_contains": [
+      "sudo"
+    ]
+  },
+  "checks": {
+    "system_packages": [
+      "bash",
+      "ca-certificates",
+      "coreutils",
+      "curl",
+      "fd-find",
+      "findutils",
+      "build-essential",
+      "docker.io",
+      "docker-compose",
+      "git",
+      "grep",
+      "gzip",
+      "jq",
+      "make",
+      "nodejs",
+      "npm",
+      "openssh-client",
+      "python3",
+      "python3-pip",
+      "ripgrep",
+      "sed",
+      "sudo",
+      "tar",
+      "unzip",
+      "wget",
+      "zip"
+    ],
+    "binaries": [
+      {
+        "name": "docker",
+        "version_command": "docker --version",
+        "expect_regex": "Docker version"
+      },
+      {
+        "name": "git",
+        "version_command": "git --version",
+        "expect_regex": "git version"
+      },
+      {
+        "name": "python3",
+        "version_command": "python3 --version",
+        "expect_regex": "Python 3\\."
+      },
+      {
+        "name": "node",
+        "version_command": "node --version",
+        "expect_regex": "v"
+      },
+      {
+        "name": "npm",
+        "version_command": "npm --version",
+        "expect_regex": "^[0-9]"
+      },
+      {
+        "name": "bash",
+        "version_command": "bash --version",
+        "expect_regex": "GNU bash|version"
+      }
+    ],
+    "env": [
+      {
+        "name": "WORKSPACE_DIR",
+        "equals": "/workspace"
+      },
+      {
+        "name": "PACKAGE_MANAGER",
+        "equals": "apt"
+      }
+    ],
+    "paths": [
+      {
+        "path": "/opt/devcontainer",
+        "type": "dir"
+      },
+      {
+        "path": "/workspace",
+        "type": "dir"
+      }
+    ],
+    "commands": [
+      {
+        "name": "python stdlib usable",
+        "run": "python3 -c \"import json, ssl; print('python-ok')\"",
+        "expect_regex": "python-ok"
+      },
+      {
+        "name": "npm usable",
+        "run": "npm --version",
+        "expect_regex": "^[0-9]"
+      }
+    ]
+  }
+}

@@ -12,11 +12,6 @@
 /test/
 
 # === Personal context (gitignored per personal-context-protocol) ===
-.jarvis/context/preferences.md
-.jarvis/context/patterns.md
-.jarvis/context/calendar.md
-.jarvis/context/recurring.md
-.jarvis/context/focus.md
 .jarvis/context/local.md
 .jarvis/context/private/
 

@@ -50,11 +50,12 @@ export const mergeAgentsMd = async (projectRoot, { dryRun = false, agentsFileRel
   if (!existing) {
     // No AGENTS.md exists — create one with just the Flow section
     if (dryRun) {
-      log.dryRun("Would create AGENTS.md with Flow framework section");
+      log.dryRun(`Would create ${agentsFileRel} with Flow framework section`);
       return;
     }
+    await fs.mkdir(path.dirname(agentsPath), { recursive: true });
     await fs.writeFile(agentsPath, flowSection + "\n", "utf8");
-    log.ok("AGENTS.md created with Flow framework section");
+    log.ok(`${agentsFileRel} created with Flow framework section`);
     return;
   }
 
@@ -75,22 +76,22 @@ export const mergeAgentsMd = async (projectRoot, { dryRun = false, agentsFileRel
     }
 
     if (dryRun) {
-      log.dryRun("Would update Flow section in AGENTS.md");
+      log.dryRun(`Would update Flow section in ${agentsFileRel}`);
       return;
     }
 
     await fs.writeFile(agentsPath, updated, "utf8");
-    log.ok("AGENTS.md: Flow section updated");
+    log.ok(`${agentsFileRel}: Flow section updated`);
     return;
   }
 
   // No markers found — append Flow section
   if (dryRun) {
-    log.dryRun("Would append Flow framework section to AGENTS.md");
+    log.dryRun(`Would append Flow framework section to ${agentsFileRel}`);
     return;
   }
 
   const appended = existing.trimEnd() + "\n\n" + flowSection + "\n";
   await fs.writeFile(agentsPath, appended, "utf8");
-  log.ok("AGENTS.md: Flow section appended");
+  log.ok(`${agentsFileRel}: Flow section appended`);
 };

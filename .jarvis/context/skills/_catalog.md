@@ -668,6 +668,24 @@ depends_on: [spec-to-regression, api-integration-codegen, browser-integration-co
 created: 2026-03-23
 updated: 2026-03-23
 ---
+name: dev-container
+type: opencode
+version: 0.1.0
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Scaffold and maintain a reusable Docker development container with spec-driven validation across supported base images."
+location: tools/flow-install/skills/dev-container
+invoke: "/dev-container"
+permissions: [write]
+data_categories: [none]
+egress: [docker.io, ghcr.io]
+phase: P2
+tags: [docker, devcontainer, validation, scaffolding]
+depends_on: [docker-expert]
+created: 2026-03-23
+updated: 2026-03-23
+---
 
 ## Notes
 
