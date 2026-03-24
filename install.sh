@@ -208,9 +208,16 @@ install_community_skills() {
   fi
 
   local installer="$FLOW_ROOT/tools/flow-install/skills/community-skills-install/scripts/main.js"
+  local install_context="$FLOW_ROOT"
+  if [[ "$INSTALL_MODE" == "in-place" ]]; then
+    install_context="$TARGET_ROOT"
+  fi
   if [[ -f "$installer" ]]; then
     log "[info] Installing community skills"
-    node "$installer" --full
+    (
+      cd "$install_context"
+      node "$installer" --full
+    )
   else
     log "[warn] Community skills installer not found at $installer"
   fi

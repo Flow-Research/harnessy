@@ -161,6 +161,8 @@ jarvis --help
 | `pnpm skills:register` | Copy project-local skills into `~/.agents/skills/` and refresh OpenCode + Claude registration |
 | `pnpm skills:register:claude` | Rebuild Claude marketplace metadata from `~/.agents/skills/` |
 | `pnpm harness:verify` | Verify repo, OpenCode, and Claude harness parity |
+| `pnpm harness:eval` | Run isolated fixture-based Flow installation acceptance checks |
+| `pnpm harness:eval:remote` | Run remote-style Docker bootstrap validation using `install.sh` |
 | `uv tool install --force ./Jarvis` | Install the local Jarvis CLI build |
 | `node tools/flow-install/index.mjs --yes` | Install Flow into the current repo |
 | `node tools/flow-install/index.mjs --dry-run` | Preview install changes |
@@ -227,6 +229,13 @@ Run:
 ```bash
 pnpm skills:register
 pnpm harness:verify
+```
+
+For installation acceptance testing:
+
+```bash
+pnpm harness:eval
+pnpm harness:eval:remote
 ```
 
 `pnpm harness:verify` checks:
