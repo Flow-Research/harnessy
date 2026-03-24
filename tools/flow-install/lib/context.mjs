@@ -7,7 +7,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { pathExists, writeIfMissing, ensureDir, log } from "./utils.mjs";
+import { pathExists, ensureDir, log } from "./utils.mjs";
 
 // ---------------------------------------------------------------------------
 // Directory structure for the context vault
@@ -63,6 +63,9 @@ export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirR
   const stubs = {
     "README.md": generateContextReadme(),
     "local.md.example": generateLocalMdExample(),
+    "status.md": generateStatusTemplate(),
+    "roadmap.md": generateRoadmapTemplate(),
+    "team.md": generateTeamTemplate(),
     "technical-debt.md": generateTechDebtTemplate(),
   };
 
@@ -77,18 +80,6 @@ export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirR
     } else {
       await fs.writeFile(filePath, content, "utf8");
       log.ok(filename);
-    }
-  }
-
-  // Create personal context files (never overwrite)
-  const personalFiles = ["preferences", "patterns", "calendar", "recurring", "focus"];
-  for (const name of personalFiles) {
-    const filePath = path.join(contextDir, `${name}.md`);
-    if (await pathExists(filePath)) continue;
-    if (dryRun) {
-      log.dryRun(`Would create ${name}.md`);
-    } else {
-      await writeIfMissing(filePath, `# ${name.charAt(0).toUpperCase() + name.slice(1)}\n\nPersonal ${name} context.\n`);
     }
   }
 
@@ -156,12 +147,16 @@ This directory is the canonical knowledge base for this project. AI agents, Jarv
 
 ## Loading Order
 
-1. \`projects.md\` — What exists, where it lives, current status
-2. \`focus.md\` — What we're actively working on right now
-3. \`priorities.md\` — Priority ordering when conflicts arise
-4. \`goals.md\` — Current sprint and phase goals
-5. \`decisions.md\` — Settled architectural decisions
-6. \`AGENTS.md\` — Full Flow agent protocol for this installed repo
+1. \`status.md\` — Canonical current-state document for active work and execution truth
+2. \`roadmap.md\` — Canonical phase ordering, milestones, and deferred work
+3. \`team.md\` — Canonical ownership and coordination guide
+4. \`technical-debt.md\` — Canonical debt register for intentional shortcuts and cleanup
+
+## Optional Supporting Docs
+
+- \`projects.md\` — Workspace or repo inventory when present
+- \`decisions.md\` — Settled architectural decisions when present
+- \`AGENTS.md\` — Full Flow agent protocol for this installed repo
 
 ## Memory System
 
@@ -211,6 +206,71 @@ _No open debt items._
 ## Resolved
 
 _No resolved debt items._
+`;
+}
+
+function generateStatusTemplate() {
+  return `# Status
+
+## Current Focus
+
+- _Add the active work stream here._
+
+## Active Work
+
+- _List the in-flight initiatives that reflect current execution truth._
+
+## Blockers
+
+- _List blockers or write "None"._
+
+## Constraints
+
+- _List important constraints or write "None"._
+
+## Next Review
+
+- _Add the next date or milestone when this file should be refreshed._
+`;
+}
+
+function generateRoadmapTemplate() {
+  return `# Roadmap
+
+## Now
+
+- _List the current phase and immediate milestones._
+
+## Next
+
+- _List the next phase or the next major deliverables._
+
+## Later
+
+- _List deferred work, dependencies, or future milestones._
+
+## Notes
+
+- _Capture sequencing assumptions and open roadmap questions._
+`;
+}
+
+function generateTeamTemplate() {
+  return `# Team
+
+## Ownership
+
+| Area | Owner | Notes |
+|------|-------|-------|
+| _Example_ | _Name_ | _Responsibility summary_ |
+
+## Coordination
+
+- _Describe how work is delegated, reviewed, and handed off._
+
+## Escalation
+
+- _Describe who to involve when blocked on product, design, or engineering._
 `;
 }
 

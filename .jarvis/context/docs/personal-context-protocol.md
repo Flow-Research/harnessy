@@ -13,10 +13,9 @@ and is never committed.
 
 | Layer | Location | Git Status | Contains |
 |---|---|---|---|
-| Shared project context | `.jarvis/context/**` (tracked files) | Tracked | Architecture, specs, plans, decisions, goals, priorities, constraints, blockers, partners, delegation, projects |
-| Personal Jarvis root files | `.jarvis/context/{preferences,patterns,calendar,recurring,focus}.md` | Gitignored | Individual work style, schedule, personal task tracking |
+| Shared project context | `.jarvis/context/**` (tracked files) | Tracked | Projects, status, roadmap, team, architecture, specs, plans, standards, decisions, debt |
 | Machine-specific overrides | `.jarvis/context/local.md` | Gitignored | External project paths, local tool locations, machine-specific config |
-| Private contributor space | `.jarvis/context/private/<username>/` | Gitignored | Free-form personal notes, drafts, scratch space |
+| Private contributor space | `.jarvis/context/private/<username>/` | Gitignored | Personal focus, schedule, work style, private notes, drafts, scratch space |
 
 ## Setup
 
@@ -24,7 +23,7 @@ Run `pnpm setup` to configure personal context interactively. The setup script w
 
 1. Create `local.md` from the template, prompting for external project paths
 2. Create your `private/<username>/` namespace
-3. Optionally create personal Jarvis root files
+3. Optionally create personal notes inside your private namespace
 
 You can also set up manually:
 
@@ -47,6 +46,16 @@ You can also set up manually:
 
     - Node version manager: nvm / fnm / volta
     - Python environment: uv
+
+## Personal Note Layout
+
+Contributors who want private equivalents of older root-note patterns should create them inside their private namespace, for example:
+
+- `.jarvis/context/private/<username>/focus.md`
+- `.jarvis/context/private/<username>/preferences.md`
+- `.jarvis/context/private/<username>/calendar.md`
+
+These are intentionally outside the shared canonical root set.
 
 ## Rules for AGENTS.md
 

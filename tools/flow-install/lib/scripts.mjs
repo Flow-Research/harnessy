@@ -7,6 +7,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import {
   readJsonSafe,
   writeJson,
@@ -151,14 +152,25 @@ const GLOBAL_SKILLS_DIR = path.join(os.homedir(), ".agents", "skills");
 const GLOBAL_COMMANDS_DIR = (process.env.XDG_BIN_HOME || "").trim() || path.join(os.homedir(), ".local", "bin");
 const GLOBAL_CLAUDE_MARKETPLACE = path.join(os.homedir(), ".agents", "claude-marketplace");
 const GLOBAL_CLAUDE_SETTINGS = path.join(os.homedir(), ".claude", "settings.json");
+const GLOBAL_CLAUDE_SKILLS_DIR = path.join(os.homedir(), ".claude", "skills");
 const GLOBAL_OPENCODE_CONFIG = path.join(os.homedir(), ".config", "opencode", "opencode.json");
 const projectRoot = process.cwd();
-const projectSkillsRoot = path.join(projectRoot, ".agents", "skills");
 const RESERVED_SCRIPT_NAMES = new Set(["register-skills.mjs", "validate-skills.mjs", "register-claude-skills.mjs", "verify-harness.mjs", "sync-rules.mjs", "skills-root.mjs", "skills-root.config.json", "parse-frontmatter.mjs"]);
+const DEFAULT_INSTALL_PATHS = {
+  agentsFile: "AGENTS.md",
+  contextDir: ".jarvis/context",
+  skillsDir: ".agents/skills",
+  scriptsDir: "scripts/flow",
+};
 
 const pathExists = async (p) => { try { await fs.access(p); return true; } catch { return false; } };
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
+const resolveInstallPaths = async () => {
+  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
+};
+const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);
 const copyDir = async (src, dest) => {
   await fs.mkdir(dest, { recursive: true });
   for (const entry of await fs.readdir(src, { withFileTypes: true })) {
@@ -229,6 +241,31 @@ const installSkillExecutables = async (skillDir) => {
   return installed;
 };
 
+const syncClaudeSkillLinks = async (skills) => {
+  await fs.mkdir(GLOBAL_CLAUDE_SKILLS_DIR, { recursive: true });
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) {
+          continue;
+        }
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(skill.skillDir, targetPath, "dir");
+    } catch {
+      await fs.cp(skill.skillDir, targetPath, { recursive: true });
+    }
+  }
+};
+
+const FLOW_CLAUDE_PLUGIN_ID = "flow-network";
+
 const registerClaude = async () => {
   const entries = await fs.readdir(GLOBAL_SKILLS_DIR, { withFileTypes: true }).catch(() => []);
   const skills = [];
@@ -245,36 +282,48 @@ const registerClaude = async () => {
     skills.push({ name: entry.name, description, skillDir, body });
   }
 
-  for (const skill of skills) {
-    const pluginDir = path.join(skill.skillDir, ".claude-plugin");
-    await fs.mkdir(pluginDir, { recursive: true });
-    await writeJson(path.join(pluginDir, "plugin.json"), {
-      name: skill.name,
-      version: "1.0.0",
-      description: skill.description,
-    });
-
-    const commandsDir = path.join(skill.skillDir, "commands");
-    if (!(await pathExists(commandsDir))) {
-      await fs.mkdir(commandsDir, { recursive: true });
-      await fs.writeFile(
-        path.join(commandsDir, skill.name + ".md"),
-        "---\\ndescription: " + skill.description + "\\n---\\n\\n" + skill.body,
-        "utf8",
-      );
-    }
-  }
+  await syncClaudeSkillLinks(skills);
 
   await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin"), { recursive: true });
+  await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, ".claude-plugin"), { recursive: true });
+  await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, "skills"), { recursive: true });
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, "skills", skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) {
+          continue;
+        }
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(skill.skillDir, targetPath, 'dir');
+    } catch {
+      await fs.cp(skill.skillDir, targetPath, { recursive: true });
+    }
+  }
+  await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, ".claude-plugin", "plugin.json"), {
+    name: FLOW_CLAUDE_PLUGIN_ID,
+    version: "1.0.0",
+    description: "Flow harness skills bundle",
+  });
   await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin", "marketplace.json"), {
     name: "flow_network",
-    plugins: skills.map((skill) => ({
-      name: skill.name,
-      description: skill.description.slice(0, 120),
+    owner: {
+      name: "Flow Research",
+      email: "support@flowresearch.dev",
+    },
+    plugins: [{
+      name: FLOW_CLAUDE_PLUGIN_ID,
+      description: "Flow harness skills bundle",
       version: "1.0.0",
       category: "productivity",
-      source: "../skills/" + skill.name,
-    })),
+      source: "./" + FLOW_CLAUDE_PLUGIN_ID,
+    }],
   });
 
   const settings = (await readJsonSafe(GLOBAL_CLAUDE_SETTINGS)) || {};
@@ -284,8 +333,9 @@ const registerClaude = async () => {
   };
   delete settings.extraKnownMarketplaces.duru_claude_plugins;
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  for (const skill of skills) settings.enabledPlugins[skill.name + "@flow_network"] = true;
+  settings.enabledPlugins[FLOW_CLAUDE_PLUGIN_ID + "@flow_network"] = true;
   delete settings.enabledPlugins["flow-skills@flow_network"];
+  for (const skill of skills) delete settings.enabledPlugins[skill.name + "@flow_network"];
   await writeJson(GLOBAL_CLAUDE_SETTINGS, settings);
 
   return skills.length;
@@ -293,6 +343,8 @@ const registerClaude = async () => {
 
 const registerOpenCode = async () => {
   const config = (await readJsonSafe(GLOBAL_OPENCODE_CONFIG)) || { $schema: "https://opencode.ai/config.json" };
+  const installPaths = await resolveInstallPaths();
+  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
   if (!config.skills) config.skills = {};
   if (!Array.isArray(config.skills.paths)) config.skills.paths = [];
   const normalizePath = async (candidate) => {
@@ -317,6 +369,8 @@ const registerOpenCode = async () => {
 };
 
 const run = async () => {
+  const installPaths = await resolveInstallPaths();
+  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
   await fs.mkdir(GLOBAL_SKILLS_DIR, { recursive: true });
   let copied = 0;
   let commandShims = 0;
@@ -335,7 +389,7 @@ const run = async () => {
       console.log("  OK copied " + entry.name);
     }
   } else {
-    console.log("No .agents/skills/ found. Skipping local skill copy.");
+    console.log("No project-local skills found at " + projectSkillsRoot + ". Skipping local skill copy.");
   }
 
   const claudeCount = await registerClaude();
@@ -361,13 +415,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const projectRoot = process.cwd();
-const skillsRoot = path.join(projectRoot, ".agents", "skills");
+const DEFAULT_INSTALL_PATHS = {
+  agentsFile: "AGENTS.md",
+  contextDir: ".jarvis/context",
+  skillsDir: ".agents/skills",
+  scriptsDir: "scripts/flow",
+};
 const required = ["name","type","version","owner","status","blast_radius","description","permissions","data_categories","egress","invoke","location"];
+const readJsonSafe = async (p) => { try { return JSON.parse(await fs.readFile(p, "utf8")); } catch { return null; } };
+const resolveInstallPaths = async () => {
+  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
+};
 
 const run = async () => {
+  const installPaths = await resolveInstallPaths();
+  const skillsRoot = path.resolve(projectRoot, installPaths.skillsDir);
   const errors = [];
   let entries;
-  try { entries = await fs.readdir(skillsRoot, { withFileTypes: true }); } catch { console.log("No .agents/skills/ found."); return; }
+  try { entries = await fs.readdir(skillsRoot, { withFileTypes: true }); } catch { console.log("No project-local skills found at " + skillsRoot + "."); return; }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const mPath = path.join(skillsRoot, entry.name, "manifest.yaml");
@@ -400,6 +466,8 @@ import path from "node:path";
 const GLOBAL_SKILLS_DIR = path.join(os.homedir(), ".agents", "skills");
 const GLOBAL_CLAUDE_MARKETPLACE = path.join(os.homedir(), ".agents", "claude-marketplace");
 const GLOBAL_CLAUDE_SETTINGS = path.join(os.homedir(), ".claude", "settings.json");
+const GLOBAL_CLAUDE_SKILLS_DIR = path.join(os.homedir(), ".claude", "skills");
+const FLOW_CLAUDE_PLUGIN_ID = "flow-network";
 
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
@@ -426,6 +494,27 @@ const parseFrontmatter = (content) => {
   return { data: parseSimpleYaml(content.slice(4, endIdx)), body: content.slice(endIdx + 4).trim() };
 };
 
+const syncClaudeSkillLinks = async (skills) => {
+  await fs.mkdir(GLOBAL_CLAUDE_SKILLS_DIR, { recursive: true });
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) continue;
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(skill.skillDir, targetPath, 'dir');
+    } catch {
+      await fs.cp(skill.skillDir, targetPath, { recursive: true });
+    }
+  }
+};
+
 const run = async () => {
   const entries = await fs.readdir(GLOBAL_SKILLS_DIR, { withFileTypes: true }).catch(() => []);
   const skills = [];
@@ -442,36 +531,42 @@ const run = async () => {
     skills.push({ name: entry.name, description, skillDir, body });
   }
 
-  for (const skill of skills) {
-    const pluginDir = path.join(skill.skillDir, ".claude-plugin");
-    await fs.mkdir(pluginDir, { recursive: true });
-    await writeJson(path.join(pluginDir, "plugin.json"), {
-      name: skill.name,
-      version: "1.0.0",
-      description: skill.description,
-    });
-
-    const commandsDir = path.join(skill.skillDir, "commands");
-    if (!(await pathExists(commandsDir))) {
-      await fs.mkdir(commandsDir, { recursive: true });
-      await fs.writeFile(
-        path.join(commandsDir, skill.name + ".md"),
-        "---\\ndescription: " + skill.description + "\\n---\\n\\n" + skill.body,
-        "utf8",
-      );
-    }
-  }
+  await syncClaudeSkillLinks(skills);
 
   await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin"), { recursive: true });
+  await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, ".claude-plugin"), { recursive: true });
+  await fs.mkdir(path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, "skills"), { recursive: true });
+  for (const skill of skills) {
+    const targetPath = path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, "skills", skill.name);
+    try {
+      const existing = await fs.lstat(targetPath);
+      if (existing.isSymbolicLink()) {
+        const existingTarget = await fs.readlink(targetPath);
+        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
+        if (resolvedExisting === skill.skillDir) continue;
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    } catch {}
+    try {
+      await fs.symlink(skill.skillDir, targetPath, 'dir');
+    } catch {
+      await fs.cp(skill.skillDir, targetPath, { recursive: true });
+    }
+  }
+  await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID, ".claude-plugin", "plugin.json"), {
+    name: FLOW_CLAUDE_PLUGIN_ID,
+    version: "1.0.0",
+    description: "Flow harness skills bundle",
+  });
   await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin", "marketplace.json"), {
     name: "flow_network",
-    plugins: skills.map((skill) => ({
-      name: skill.name,
-      description: skill.description.slice(0, 120),
+    plugins: [{
+      name: FLOW_CLAUDE_PLUGIN_ID,
+      description: "Flow harness skills bundle",
       version: "1.0.0",
       category: "productivity",
-      source: "../skills/" + skill.name,
-    })),
+      source: "./" + FLOW_CLAUDE_PLUGIN_ID,
+    }],
   });
 
   const settings = (await readJsonSafe(GLOBAL_CLAUDE_SETTINGS)) || {};
@@ -481,9 +576,19 @@ const run = async () => {
   };
   delete settings.extraKnownMarketplaces.duru_claude_plugins;
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  for (const skill of skills) settings.enabledPlugins[skill.name + "@flow_network"] = true;
+  settings.enabledPlugins[FLOW_CLAUDE_PLUGIN_ID + "@flow_network"] = true;
   delete settings.enabledPlugins["flow-skills@flow_network"];
+  for (const skill of skills) delete settings.enabledPlugins[skill.name + "@flow_network"];
   await writeJson(GLOBAL_CLAUDE_SETTINGS, settings);
+
+  const knownMarketplacesPath = path.join(os.homedir(), ".claude", "plugins", "known_marketplaces.json");
+  const knownMarketplaces = (await readJsonSafe(knownMarketplacesPath)) || {};
+  knownMarketplaces.flow_network = {
+    source: { source: "directory", path: GLOBAL_CLAUDE_MARKETPLACE },
+    installLocation: GLOBAL_CLAUDE_MARKETPLACE,
+    lastUpdated: new Date().toISOString(),
+  };
+  await writeJson(knownMarketplacesPath, knownMarketplaces);
 
   console.log("Claude Code refreshed for " + skills.length + " skill(s)");
 };
@@ -505,16 +610,27 @@ import path from "node:path";
 const projectRoot = process.cwd();
 const home = os.homedir();
 const GLOBAL_SKILLS_DIR = path.join(home, ".agents", "skills");
+const GLOBAL_CLAUDE_SKILLS_DIR = path.join(home, ".claude", "skills");
 const GLOBAL_COMMUNITY_METADATA = path.join(home, ".agents", "community-install.json");
 const GLOBAL_CLAUDE_MARKETPLACE = path.join(home, ".agents", "claude-marketplace", ".claude-plugin", "marketplace.json");
 const GLOBAL_CLAUDE_SETTINGS = path.join(home, ".claude", "settings.json");
 const GLOBAL_OPENCODE_CONFIG = path.join(home, ".config", "opencode", "opencode.json");
-const projectSkillsRoot = path.join(projectRoot, ".agents", "skills");
+const DEFAULT_INSTALL_PATHS = {
+  agentsFile: "AGENTS.md",
+  contextDir: ".jarvis/context",
+  skillsDir: ".agents/skills",
+  scriptsDir: "scripts/flow",
+};
 
 const pathExists = async (p) => { try { await fs.access(p); return true; } catch { return false; } };
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
 const normalizePath = async (candidate) => { try { return await fs.realpath(candidate); } catch { return path.resolve(candidate); } };
+const resolveInstallPaths = async () => {
+  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
+};
+const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);
 const checks = [];
 const pass = (label, detail = "") => checks.push({ ok: true, label, detail });
 const warn = (label, detail = "") => checks.push({ ok: true, level: "WARN", label, detail });
@@ -534,31 +650,44 @@ const findExecutable = async (name) => {
 };
 
 const run = async () => {
-  await requirePath("AGENTS.md exists", path.join(projectRoot, "AGENTS.md"));
-  const agents = await readFileSafe(path.join(projectRoot, "AGENTS.md"));
+  const installPaths = await resolveInstallPaths();
+  const agentsPath = resolveProjectPath(installPaths.agentsFile);
+  const contextDir = resolveProjectPath(installPaths.contextDir);
+  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
+  const scriptsDir = resolveProjectPath(installPaths.scriptsDir);
+  const expectedContextAgentsRef = installPaths.contextDir.replace(/\\\\/g, "/") + "/AGENTS.md";
+  const expectedRegisterScript = "node " + installPaths.scriptsDir.replace(/\\\\/g, "/") + "/register-skills.mjs";
+  const expectedVerifyScript = "node " + installPaths.scriptsDir.replace(/\\\\/g, "/") + "/verify-harness.mjs";
+
+  await requirePath("AGENTS.md exists", agentsPath);
+  const agents = await readFileSafe(agentsPath);
   if (agents?.includes("<!-- flow:start -->") && agents?.includes("<!-- flow:end -->")) pass("AGENTS.md Flow section present");
   else fail("AGENTS.md Flow section present");
 
-  await requirePath("Context README exists", path.join(projectRoot, ".jarvis", "context", "README.md"));
-  await requirePath("Context AGENTS exists", path.join(projectRoot, ".jarvis", "context", "AGENTS.md"));
-  await requirePath("Memory scopes exist", path.join(projectRoot, ".jarvis", "context", "scopes", "_scopes.yaml"));
-  if (agents?.includes(".jarvis/context/AGENTS.md")) pass("AGENTS.md points to context AGENTS");
+  await requirePath("Context README exists", path.join(contextDir, "README.md"));
+  await requirePath("Context AGENTS exists", path.join(contextDir, "AGENTS.md"));
+  await requirePath("Memory scopes exist", path.join(contextDir, "scopes", "_scopes.yaml"));
+  if (agents?.includes(expectedContextAgentsRef)) pass("AGENTS.md points to context AGENTS", expectedContextAgentsRef);
   else fail("AGENTS.md points to context AGENTS");
   await requirePath("Install lockfile exists", path.join(projectRoot, "flow-install.lock.json"));
-  await requirePath("register-skills script exists", path.join(projectRoot, "scripts", "flow", "register-skills.mjs"));
-  await requirePath("verify-harness script exists", path.join(projectRoot, "scripts", "flow", "verify-harness.mjs"));
+  await requirePath("register-skills script exists", path.join(scriptsDir, "register-skills.mjs"));
+  await requirePath("validate-skills script exists", path.join(scriptsDir, "validate-skills.mjs"));
+  await requirePath("register-claude-skills script exists", path.join(scriptsDir, "register-claude-skills.mjs"));
+  await requirePath("verify-harness script exists", path.join(scriptsDir, "verify-harness.mjs"));
+  await requirePath("sync-rules script exists", path.join(scriptsDir, "sync-rules.mjs"));
 
   const jarvisPath = await findExecutable("jarvis");
   if (jarvisPath) pass("jarvis is available in PATH", jarvisPath);
   else fail("jarvis is available in PATH");
 
   const pkg = await readJsonSafe(path.join(projectRoot, "package.json"));
-  if (pkg?.scripts?.["skills:register"]) pass("package.json skills:register configured", pkg.scripts["skills:register"]);
-  else fail("package.json skills:register configured");
-  if (pkg?.scripts?.["harness:verify"]) pass("package.json harness:verify configured", pkg.scripts["harness:verify"]);
-  else fail("package.json harness:verify configured");
+  if (pkg?.scripts?.["skills:register"] === expectedRegisterScript) pass("package.json skills:register configured", pkg.scripts["skills:register"]);
+  else fail("package.json skills:register configured", pkg?.scripts?.["skills:register"] || "missing");
+  if (pkg?.scripts?.["harness:verify"] === expectedVerifyScript) pass("package.json harness:verify configured", pkg.scripts["harness:verify"]);
+  else fail("package.json harness:verify configured", pkg?.scripts?.["harness:verify"] || "missing");
 
   await requirePath("Global skills directory exists", GLOBAL_SKILLS_DIR);
+  await requirePath("Claude user skills directory exists", GLOBAL_CLAUDE_SKILLS_DIR);
 
   const opencode = await readJsonSafe(GLOBAL_OPENCODE_CONFIG);
   const opencodePaths = [];
@@ -566,7 +695,7 @@ const run = async () => {
   const normalizedGlobal = await normalizePath(GLOBAL_SKILLS_DIR);
   if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode has global skills path", normalizedGlobal);
   else fail("OpenCode has global skills path", normalizedGlobal);
-  if (!(await pathExists(projectSkillsRoot))) pass("Project-local skills path optional (no .agents/skills present)");
+  if (!(await pathExists(projectSkillsRoot))) pass("Project-local skills path optional", projectSkillsRoot);
   else {
     const normalizedProjectSkillsRoot = await normalizePath(projectSkillsRoot);
     if (opencodePaths.includes(normalizedProjectSkillsRoot)) pass("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
@@ -575,10 +704,16 @@ const run = async () => {
 
   const claudeSettings = await readJsonSafe(GLOBAL_CLAUDE_SETTINGS);
   const marketplace = await readJsonSafe(GLOBAL_CLAUDE_MARKETPLACE);
+  const marketplacePlugins = new Set(Array.isArray(marketplace?.plugins) ? marketplace.plugins.map((plugin) => plugin.name) : []);
+  const enabledPlugins = claudeSettings?.enabledPlugins || {};
   if (claudeSettings?.extraKnownMarketplaces?.flow_network?.source?.path) pass("Claude marketplace configured", claudeSettings.extraKnownMarketplaces.flow_network.source.path);
   else fail("Claude marketplace configured");
   if (Array.isArray(marketplace?.plugins) && marketplace.plugins.length > 0) pass("Claude marketplace has plugins", String(marketplace.plugins.length));
   else fail("Claude marketplace has plugins");
+  if (marketplacePlugins.has("flow-network")) pass("Claude marketplace contains Flow bundle plugin", "flow-network");
+  else fail("Claude marketplace contains Flow bundle plugin", "flow-network");
+  if (enabledPlugins["flow-network@flow_network"] === true) pass("Claude enabled Flow bundle plugin", "flow-network@flow_network");
+  else fail("Claude enabled Flow bundle plugin", "flow-network@flow_network");
 
   const localEntries = await fs.readdir(projectSkillsRoot, { withFileTypes: true }).catch(() => []);
   const localSkills = localEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -589,33 +724,27 @@ const run = async () => {
     if (components[component] === true) pass("Lockfile component recorded", component);
     else fail("Lockfile component recorded", component);
   }
-  if (lockfile?.contextAgents?.path === ".jarvis/context/AGENTS.md") pass("Lockfile context AGENTS path recorded", lockfile.contextAgents.path);
-  else fail("Lockfile context AGENTS path recorded");
+  if (lockfile?.contextAgents?.path === expectedContextAgentsRef) pass("Lockfile context AGENTS path recorded", lockfile.contextAgents.path);
+  else fail("Lockfile context AGENTS path recorded", lockfile?.contextAgents?.path || "missing");
   if (lockfile?.contextAgents?.version) pass("Lockfile context AGENTS version recorded", lockfile.contextAgents.version);
   else fail("Lockfile context AGENTS version recorded");
 
-  const marketplacePlugins = new Set(Array.isArray(marketplace?.plugins) ? marketplace.plugins.map((plugin) => plugin.name) : []);
-  const enabledPlugins = claudeSettings?.enabledPlugins || {};
   const flowCoreSkills = Array.isArray(lockfile?.flowCoreSkills) ? lockfile.flowCoreSkills : [];
   if (flowCoreSkills.length === 0) {
     warn("Flow core skills inventory unavailable", "No flowCoreSkills recorded in flow-install.lock.json");
   }
   for (const skill of flowCoreSkills) {
     const globalSkillDir = path.join(GLOBAL_SKILLS_DIR, skill);
+    const claudeSkillDir = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill);
     const skillMdPath = path.join(globalSkillDir, "SKILL.md");
-    const pluginPath = path.join(globalSkillDir, ".claude-plugin", "plugin.json");
     if (await pathExists(globalSkillDir)) pass("Flow core skill installed globally", skill);
     else fail("Flow core skill installed globally", skill);
     if (await pathExists(skillMdPath)) pass("Flow core skill has SKILL.md", skill);
     else fail("Flow core skill has SKILL.md", skill);
     if (opencodePaths.includes(normalizedGlobal) && await pathExists(skillMdPath)) pass("OpenCode can resolve Flow core skill", skill);
     else fail("OpenCode can resolve Flow core skill", skill);
-    if (await pathExists(pluginPath)) pass("Claude plugin metadata exists for Flow core skill", skill);
-    else fail("Claude plugin metadata exists for Flow core skill", skill);
-    if (marketplacePlugins.has(skill)) pass("Claude marketplace contains Flow core skill", skill);
-    else fail("Claude marketplace contains Flow core skill", skill);
-    if (enabledPlugins[skill + "@flow_network"] === true) pass("Claude enabled Flow core skill", skill);
-    else fail("Claude enabled Flow core skill", skill);
+    if (await pathExists(claudeSkillDir)) pass("Claude slash skill installed", skill);
+    else fail("Claude slash skill installed", skill);
   }
 
   const communityConfig = (lockfile?.communitySkills && lockfile.communitySkills.mode !== "none")
@@ -646,8 +775,8 @@ const run = async () => {
   }
   for (const skill of expectedCommunitySkills) {
     const globalSkillDir = path.join(GLOBAL_SKILLS_DIR, skill);
+    const claudeSkillDir = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill);
     const skillMdPath = path.join(globalSkillDir, "SKILL.md");
-    const pluginPath = path.join(globalSkillDir, ".claude-plugin", "plugin.json");
     const missing = !(await pathExists(globalSkillDir));
     if (missing && communityConfig.strict) fail("Required community skill installed globally", skill);
     else if (missing) warn("Optional community skill missing globally", skill);
@@ -662,29 +791,19 @@ const run = async () => {
       else if (communityConfig.strict) fail("OpenCode can resolve community skill", skill);
       else warn("OpenCode can resolve community skill", skill);
 
-      if (await pathExists(pluginPath)) pass("Claude plugin metadata exists for community skill", skill);
-      else if (communityConfig.strict) fail("Claude plugin metadata exists for community skill", skill);
-      else warn("Claude plugin metadata exists for community skill", skill);
-
-      if (marketplacePlugins.has(skill)) pass("Claude marketplace contains community skill", skill);
-      else if (communityConfig.strict) fail("Claude marketplace contains community skill", skill);
-      else warn("Claude marketplace contains community skill", skill);
-
-      if (enabledPlugins[skill + "@flow_network"] === true) pass("Claude enabled community skill", skill);
-      else if (communityConfig.strict) fail("Claude enabled community skill", skill);
-      else warn("Claude enabled community skill", skill);
+      if (await pathExists(claudeSkillDir)) pass("Claude slash skill installed for community skill", skill);
+      else if (communityConfig.strict) fail("Claude slash skill installed for community skill", skill);
+      else warn("Claude slash skill installed for community skill", skill);
     }
   }
 
   for (const skill of localSkills) {
     if (await pathExists(path.join(GLOBAL_SKILLS_DIR, skill))) pass("Global copy exists for local skill", skill);
     else fail("Global copy exists for local skill", skill);
+    if (await pathExists(path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill))) pass("Claude slash skill installed for local skill", skill);
+    else fail("Claude slash skill installed for local skill", skill);
     if (opencodePaths.includes(await normalizePath(projectSkillsRoot))) pass("OpenCode can resolve local skill", skill);
     else fail("OpenCode can resolve local skill", skill);
-    if (claudeSettings?.enabledPlugins?.[skill + "@flow_network"]) pass("Claude enabled local skill", skill);
-    else fail("Claude enabled local skill", skill);
-    if (marketplacePlugins.has(skill)) pass("Claude marketplace contains local skill", skill);
-    else fail("Claude marketplace contains local skill", skill);
   }
 
   const failures = checks.filter((check) => !check.ok);
@@ -719,6 +838,7 @@ import path from "node:path";
 const home = os.homedir();
 await fs.mkdir(path.join(home, ".agents", "skills"), { recursive: true }).catch(() => {});
 await fs.mkdir(path.join(home, ".agents", "claude-marketplace", ".claude-plugin"), { recursive: true }).catch(() => {});
+await fs.mkdir(path.join(home, ".claude", "skills"), { recursive: true }).catch(() => {});
 `;
 }
 

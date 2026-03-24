@@ -24,7 +24,7 @@ node tools/flow-install/index.mjs --yes
 
 ## Context Loading
 
-Read `.jarvis/context/README.md` for the knowledge base protocol. Start with `projects.md`, `focus.md`, `priorities.md` for orientation.
+Read `.jarvis/context/README.md` for the knowledge base protocol. Start with `projects.md`, `status.md`, and `roadmap.md` for orientation.
 
 ## Key Commands
 
@@ -65,7 +65,7 @@ Read `.jarvis/context/README.md` for the knowledge base protocol. Start with `pr
 
 - Machine-specific config lives in `.jarvis/context/local.md` (gitignored). See `local.md.example` for the template.
 - Per-contributor private space: `.jarvis/context/private/<username>/` (gitignored).
-- Personal Jarvis files (`preferences.md`, `patterns.md`, `calendar.md`, `recurring.md`, `focus.md`) are gitignored.
+- Personal contributor notes should live under `.jarvis/context/private/<username>/` rather than shared root files.
 - Full protocol: `.jarvis/context/docs/personal-context-protocol.md`.
 - **Rule:** AGENTS.md must contain zero absolute filesystem paths. Reference `local.md` for per-machine values.
 

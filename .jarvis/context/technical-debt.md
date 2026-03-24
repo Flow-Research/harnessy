@@ -1,6 +1,6 @@
 # Technical Debt Register — Flow Network
 
-Project-level debt tracker. Every item follows the standard in `docs/technical-debt-tracking-standard.md`.
+Project-level debt tracker. Every item follows the standard in `docs/standards/technical-debt-tracking-standard.md`.
 
 ## Active Debt
 

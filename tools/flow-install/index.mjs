@@ -130,7 +130,10 @@ const main = async () => {
   if (runAll || onlySkills) {
     log.step(3, TOTAL_STEPS, "Registering skills with agents");
     await registerClaudeSkills({ dryRun });
-    await registerOpenCodeSkills(projectRoot, { dryRun });
+    await registerOpenCodeSkills(projectRoot, {
+      dryRun,
+      skillsDirRel: installPaths.skillsDir,
+    });
   }
 
   // ── Step 4: Install lifecycle scripts to ~/.scripts/ ────────────────────

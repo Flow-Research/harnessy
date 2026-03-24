@@ -1,0 +1,27 @@
+ARG BASE_IMAGE=debian:bookworm-slim
+FROM ${BASE_IMAGE}
+
+ARG PACKAGE_MANAGER=apt
+ARG FEATURE_PACKS=""
+ARG DEV_USERNAME=dev
+ARG DEV_UID=1000
+ARG DEV_GID=1000
+ARG ENABLE_SUDO=true
+
+ENV DEVCONTAINER_ROOT=/opt/devcontainer \
+    WORKSPACE_DIR=/workspace \
+    FEATURE_PACKS=${FEATURE_PACKS} \
+    PACKAGE_MANAGER=${PACKAGE_MANAGER}
+
+COPY . ${DEVCONTAINER_ROOT}
+
+RUN chmod +x ${DEVCONTAINER_ROOT}/scripts/*.sh ${DEVCONTAINER_ROOT}/scripts/installers/*.sh && \
+    ${DEVCONTAINER_ROOT}/scripts/install-system-packages.sh "${PACKAGE_MANAGER}" "${FEATURE_PACKS}" && \
+    ${DEVCONTAINER_ROOT}/scripts/create-user.sh "${PACKAGE_MANAGER}" "${DEV_USERNAME}" "${DEV_UID}" "${DEV_GID}" "${ENABLE_SUDO}" && \
+    mkdir -p ${WORKSPACE_DIR} && \
+    chown -R ${DEV_UID}:${DEV_GID} ${WORKSPACE_DIR} ${DEVCONTAINER_ROOT}
+
+USER ${DEV_USERNAME}
+WORKDIR ${WORKSPACE_DIR}
+
+CMD ["bash"]

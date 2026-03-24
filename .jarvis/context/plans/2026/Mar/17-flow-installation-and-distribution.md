@@ -125,7 +125,7 @@ Flow-Research/flow-network (hub repo)
 │
 ├── .jarvis/context/             # Shared context vault (tracked)
 │   ├── README.md
-│   ├── projects.md, priorities.md, goals.md, decisions.md, ...
+│   ├── projects.md, status.md, roadmap.md, team.md, decisions.md, ...
 │   ├── docs/
 │   ├── plans/
 │   ├── skills/_catalog.md
@@ -159,11 +159,6 @@ flow-demo/
 Flow-bkp/
 
 # Personal context (gitignored per personal-context-protocol)
-.jarvis/context/preferences.md
-.jarvis/context/patterns.md
-.jarvis/context/calendar.md
-.jarvis/context/recurring.md
-.jarvis/context/focus.md
 .jarvis/context/local.md
 .jarvis/context/private/
 
