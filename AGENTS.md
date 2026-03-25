@@ -12,7 +12,7 @@
 ## Installation
 
 ```bash
-# Full Harnessy workspace bootstrap (after publishing flow-network)
+# Full Harnessy workspace bootstrap (after publishing flow-harness)
 ./install.sh
 
 # Install Jarvis CLI from this workspace

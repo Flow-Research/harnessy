@@ -13,7 +13,7 @@ scopes:
     parent: null
     path: "scopes/org/"
 
-  - id: "project:flow-network"
+  - id: "project:flow-harness"
     type: project
     parent: "org:Flow-Research"
     path: "scopes/project/"

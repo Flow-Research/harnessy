@@ -2,11 +2,11 @@
 set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUNDLE_ROOT="${FLOW_EVAL_CONTAINER_ROOT:-$HOME/containers/flow-network/install-eval}"
+BUNDLE_ROOT="${FLOW_EVAL_CONTAINER_ROOT:-$HOME/containers/flow-harness/install-eval}"
 IMAGE_TAG="${FLOW_EVAL_IMAGE_TAG:-flow-install-eval:latest}"
 PORT="${FLOW_EVAL_HTTP_PORT:-38123}"
 SNAPSHOT_DIR="${FLOW_EVAL_SNAPSHOT_DIR:-$(mktemp -d /tmp/flow-remote-install-XXXXXX)}"
-INSTALL_DIR_IN_CONTAINER='${HOME}/flow-network'
+INSTALL_DIR_IN_CONTAINER='${HOME}/flow-harness'
 
 cleanup() {
   if [[ -n "${HTTP_PID:-}" ]]; then
@@ -53,7 +53,7 @@ sleep 2
 
 DOCKER_ARGS=(
   run --rm --init
-  -v "$SNAPSHOT_DIR:/source/flow-network:ro"
+  -v "$SNAPSHOT_DIR:/source/flow-harness:ro"
 )
 
 docker "${DOCKER_ARGS[@]}" "$IMAGE_TAG" bash -lc '
@@ -70,13 +70,13 @@ EOF
 EOF
   export PATH="$HOME/.local/bin:$PATH"
   npm install -g --prefix "$HOME/.local" opencode-ai @anthropic-ai/claude-code >/dev/null
-  FLOW_INSTALL_DIR="$HOME/flow-network" \
+  FLOW_INSTALL_DIR="$HOME/flow-harness" \
   FLOW_NONINTERACTIVE=1 \
   FLOW_SKIP_SUBPROJECTS=1 \
-  FLOW_REPO_URL="file:///source/flow-network" \
+  FLOW_REPO_URL="file:///source/flow-harness" \
   bash -lc "$(curl -fsSL http://host.docker.internal:'"$PORT"'/install.sh)"
   jarvis --help >/dev/null
-  pnpm --dir "$HOME/flow-network" harness:verify
+  pnpm --dir "$HOME/flow-harness" harness:verify
   opencode run --format json "/brainstorm" > /tmp/opencode-flow-skill.json
   python3 - /tmp/opencode-flow-skill.json <<"PY"
 import json, sys
@@ -130,7 +130,7 @@ if "Hypothesis" not in text and "A/B" not in text and "test" not in text.lower()
 PY
   echo "PASS claude executed community slash skill"
   if [[ "${FLOW_REMOTE_EVAL_FULL_COMMUNITY:-0}" == "1" ]]; then
-    cd "$HOME/flow-network"
+    cd "$HOME/flow-harness"
     node tools/flow-install/skills/community-skills-install/scripts/main.js --full
     pnpm harness:verify
   fi

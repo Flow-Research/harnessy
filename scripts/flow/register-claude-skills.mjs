@@ -12,8 +12,8 @@ const GLOBAL_SKILLS_DIR = path.join(HOME, ".agents", "skills");
 const GLOBAL_CLAUDE_MARKETPLACE = path.join(HOME, ".agents", "claude-marketplace");
 const GLOBAL_CLAUDE_SETTINGS = path.join(HOME, ".claude", "settings.json");
 const GLOBAL_CLAUDE_INSTALLED_PLUGINS = path.join(HOME, ".claude", "plugins", "installed_plugins.json");
-const GLOBAL_CLAUDE_PLUGIN_CACHE = path.join(HOME, ".claude", "plugins", "cache", "flow_network");
-const FLOW_CLAUDE_PLUGIN_ID = "flow-network";
+const GLOBAL_CLAUDE_PLUGIN_CACHE = path.join(HOME, ".claude", "plugins", "cache", "flow_harness");
+const FLOW_CLAUDE_PLUGIN_ID = "flow-harness";
 
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
@@ -82,7 +82,7 @@ const run = async () => {
     description: "Harnessy skills bundle",
   });
   await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin", "marketplace.json"), {
-    name: "flow_network",
+    name: "flow_harness",
     plugins: [{
       name: FLOW_CLAUDE_PLUGIN_ID,
       description: "Harnessy skills bundle",
@@ -94,19 +94,19 @@ const run = async () => {
 
   const settings = (await readJsonSafe(GLOBAL_CLAUDE_SETTINGS)) || {};
   if (!settings.extraKnownMarketplaces) settings.extraKnownMarketplaces = {};
-  settings.extraKnownMarketplaces.flow_network = {
+  settings.extraKnownMarketplaces.flow_harness = {
     source: { source: "directory", path: GLOBAL_CLAUDE_MARKETPLACE },
   };
   delete settings.extraKnownMarketplaces.duru_claude_plugins;
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  settings.enabledPlugins[FLOW_CLAUDE_PLUGIN_ID + "@flow_network"] = true;
-  delete settings.enabledPlugins["flow-skills@flow_network"];
-  for (const skill of skills) delete settings.enabledPlugins[skill.name + "@flow_network"];
+  settings.enabledPlugins[FLOW_CLAUDE_PLUGIN_ID + "@flow_harness"] = true;
+  delete settings.enabledPlugins["flow-skills@flow_harness"];
+  for (const skill of skills) delete settings.enabledPlugins[skill.name + "@flow_harness"];
   await writeJson(GLOBAL_CLAUDE_SETTINGS, settings);
 
   const knownMarketplacesPath = path.join(HOME, ".claude", "plugins", "known_marketplaces.json");
   const knownMarketplaces = (await readJsonSafe(knownMarketplacesPath)) || {};
-  knownMarketplaces.flow_network = {
+  knownMarketplaces.flow_harness = {
     source: { source: "directory", path: GLOBAL_CLAUDE_MARKETPLACE },
     installLocation: GLOBAL_CLAUDE_MARKETPLACE,
     lastUpdated: new Date().toISOString(),
@@ -114,11 +114,11 @@ const run = async () => {
   await writeJson(knownMarketplacesPath, knownMarketplaces);
 
   // --- Clean stale artifacts from old per-skill registration approach ---
-  const bundledKey = FLOW_CLAUDE_PLUGIN_ID + "@flow_network";
+  const bundledKey = FLOW_CLAUDE_PLUGIN_ID + "@flow_harness";
 
   const installed = await readJsonSafe(GLOBAL_CLAUDE_INSTALLED_PLUGINS);
   if (installed?.plugins) {
-    const staleKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_network") && k !== bundledKey);
+    const staleKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_harness") && k !== bundledKey);
     if (staleKeys.length > 0) {
       for (const k of staleKeys) delete installed.plugins[k];
       await writeJson(GLOBAL_CLAUDE_INSTALLED_PLUGINS, installed);

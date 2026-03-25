@@ -28,7 +28,7 @@ import {
 import { runCleanup, buildCleanupContext } from "./cleanup.mjs";
 
 const GLOBAL_CLAUDE_KNOWN_MARKETPLACES = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
-const FLOW_CLAUDE_PLUGIN_ID = "flow-network";
+const FLOW_CLAUDE_PLUGIN_ID = "flow-harness";
 
 const RESERVED_SCRIPT_NAMES = new Set([
   "register-skills.mjs",
@@ -291,7 +291,7 @@ export const registerClaudeSkills = async ({ dryRun = false } = {}) => {
   });
 
   await writeJson(path.join(marketplaceDir, "marketplace.json"), {
-    name: "flow_network",
+    name: "flow_harness",
     owner: {
       name: "Flow Research",
       email: "support@flowresearch.dev",
@@ -322,19 +322,19 @@ const updateClaudeSettings = async (skills) => {
   const settingsPath = GLOBAL_CLAUDE_SETTINGS;
   const existing = await readJsonSafe(settingsPath) || {};
 
-  // Remove all flow_network marketplace/plugin references
+  // Remove all flow_harness marketplace/plugin references
   // Symlinks in ~/.claude/skills/ are the primary discovery mechanism
   if (existing.extraKnownMarketplaces) {
-    delete existing.extraKnownMarketplaces.flow_network;
+    delete existing.extraKnownMarketplaces.flow_harness;
     delete existing.extraKnownMarketplaces.duru_claude_plugins;
   }
 
   if (!existing.enabledPlugins) existing.enabledPlugins = {};
-  // Clean up all flow_network plugin references (bundled and individual)
-  delete existing.enabledPlugins[`${FLOW_CLAUDE_PLUGIN_ID}@flow_network`];
-  delete existing.enabledPlugins["flow-skills@flow_network"];
+  // Clean up all flow_harness plugin references (bundled and individual)
+  delete existing.enabledPlugins[`${FLOW_CLAUDE_PLUGIN_ID}@flow_harness`];
+  delete existing.enabledPlugins["flow-skills@flow_harness"];
   for (const skill of skills) {
-    delete existing.enabledPlugins[`${skill.name}@flow_network`];
+    delete existing.enabledPlugins[`${skill.name}@flow_harness`];
   }
 
   await ensureDir(path.dirname(settingsPath));
@@ -343,7 +343,7 @@ const updateClaudeSettings = async (skills) => {
 
 const updateClaudeKnownMarketplaces = async () => {
   const known = await readJsonSafe(GLOBAL_CLAUDE_KNOWN_MARKETPLACES) || {};
-  known.flow_network = {
+  known.flow_harness = {
     source: { source: "directory", path: GLOBAL_CLAUDE_MARKETPLACE },
     installLocation: GLOBAL_CLAUDE_MARKETPLACE,
     lastUpdated: new Date().toISOString(),
