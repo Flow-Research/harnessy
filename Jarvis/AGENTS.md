@@ -34,8 +34,8 @@ Do not treat source updates as complete until the installed CLI and installed sk
 # Local workspace install
 uv tool install --force ./Jarvis
 
-# GitHub install (after publishing flow-network)
-uv tool install --force "git+https://github.com/Flow-Research/flow-network#subdirectory=Jarvis"
+# GitHub install (after publishing flow-harness)
+uv tool install --force "git+https://github.com/Flow-Research/flow-harness#subdirectory=Jarvis"
 ```
 
 ### Running Commands
