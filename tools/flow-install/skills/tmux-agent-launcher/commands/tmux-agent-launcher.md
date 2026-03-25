@@ -1,6 +1,6 @@
 ---
 description: Launch Claude or OpenCode in a named tmux session
-argument-hint: "--runner <claude|opencode> <session-name> [options]"
+argument-hint: "--runner <claude|opencode> <session-name> [options] [-- <runner-args>...]"
 ---
 
 # Command Contract: tmux-agent-launcher
@@ -18,10 +18,10 @@ Start `claude` or `opencode` in a new tmux session, or attach to an existing nam
 ## Invocation
 
 ```bash
-tmux-agent-launcher --runner <claude|opencode> <session-name> [options]
+tmux-agent-launcher --runner <claude|opencode> <session-name> [options] [-- <runner-args>...]
 tmux-agent-launcher attach <session-name> [--dry-run] [--json]
 tmux-agent-launcher list [--json]
-t --runner <claude|opencode> <session-name> [options]
+t --runner <claude|opencode> <session-name> [options] [-- <runner-args>...]
 t attach <session-name> [--dry-run] [--json]
 t list [--json]
 ```
@@ -45,6 +45,7 @@ Flow also installs a short alias command, `t`, from the same skill.
 | `--dry-run` | no | Print the resolved launch plan without creating a tmux session |
 | `--json` | no | Emit machine-readable JSON |
 | `--help` | no | Show usage |
+| `-- <args>...` | no | Pass all remaining arguments to the runner command (e.g., `-- --prompt "do X"`) |
 
 ## Modes
 
@@ -76,7 +77,7 @@ Prints a concise success message with the session name, runner, and working dire
   "cwd": "/abs/path",
   "attach": false,
   "dry_run": false,
-  "command": ["tmux", "new-session", "-d", "-s", "agent-name", "-c", "/abs/path", "bash", "-lc", "claude"]
+  "command": ["tmux", "new-session", "-d", "-s", "agent-name", "-c", "/abs/path", "bash", "-lc", "claude --prompt 'review the PR'"]
 }
 ```
 
@@ -130,6 +131,8 @@ tmux-agent-launcher attach reviewer --dry-run --json
 tmux-agent-launcher list
 tmux-agent-launcher list --json
 t --runner claude reviewer
+t --runner claude reviewer -- --prompt "review the PR" --allowedTools "Read,Bash"
+t --runner opencode worker -- --model sonnet
 t list
 ```
 

@@ -1,6 +1,6 @@
 name: tmux-agent-launcher
 type: opencode
-version: 0.1.2
+version: 0.1.3
 install_scope: global
 owner: julian
 status: experimental

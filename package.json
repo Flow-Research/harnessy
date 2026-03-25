@@ -1,5 +1,5 @@
 {
-  "name": "flow-network",
+  "name": "flow-harness",
   "private": true,
   "description": "Flow Network — agent harness for any project",
   "scripts": {

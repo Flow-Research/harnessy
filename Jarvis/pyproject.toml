@@ -38,10 +38,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Flow-Research/flow-network"
-Repository = "https://github.com/Flow-Research/flow-network"
-Issues = "https://github.com/Flow-Research/flow-network/issues"
-Documentation = "https://github.com/Flow-Research/flow-network/tree/main/Jarvis"
+Homepage = "https://github.com/Flow-Research/flow-harness"
+Repository = "https://github.com/Flow-Research/flow-harness"
+Issues = "https://github.com/Flow-Research/flow-harness/issues"
+Documentation = "https://github.com/Flow-Research/flow-harness/tree/main/Jarvis"
 
 [project.optional-dependencies]
 dev = [
