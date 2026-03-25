@@ -3,7 +3,7 @@ name: tmux-agent-launcher
 description: "Launch Claude or OpenCode in a named tmux session from the command line or agent workflows."
 disable-model-invocation: true
 allowed-tools: Read, Bash
-argument-hint: "--runner <claude|opencode> <session-name> [options]"
+argument-hint: "--runner <claude|opencode> <session-name> [options] [-- <runner-args>...]"
 ---
 
 # Tmux Agent Launcher
@@ -21,6 +21,7 @@ Launch `claude` or `opencode` inside a named tmux session, attach to an existing
 - optional `--cwd <path>`
 - optional `--attach`
 - optional `--dry-run`
+- optional `-- <runner-args>...`: arguments passed directly to the claude or opencode CLI
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/tmux-agent-launcher/`.
 

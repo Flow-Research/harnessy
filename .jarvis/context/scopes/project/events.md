@@ -1,6 +1,6 @@
 # Events
 
-> Scoped to: project:flow-network
+> Scoped to: project:flow-harness
 > Memory type: events
 > One entry per `---` block with YAML frontmatter (created_at, status, source)
 

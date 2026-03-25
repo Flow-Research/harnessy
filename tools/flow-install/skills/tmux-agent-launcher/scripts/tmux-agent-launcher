@@ -6,7 +6,7 @@ SCRIPT_NAME=$(basename "$0")
 usage() {
   cat <<'EOF'
 Usage:
-  tmux-agent-launcher --runner <claude|opencode> <session-name> [options]
+  tmux-agent-launcher --runner <claude|opencode> <session-name> [options] [-- <runner-args>...]
   tmux-agent-launcher attach <session-name> [--dry-run] [--json]
   tmux-agent-launcher list [--json]
 
@@ -19,6 +19,7 @@ Options:
   --dry-run         Print the launch plan without creating a tmux session
   --json            Emit machine-readable JSON
   --help            Show this help text
+  -- <args>...      Pass remaining arguments to the runner command
 EOF
 }
 
@@ -49,6 +50,7 @@ DRY_RUN=0
 JSON_MODE=0
 SESSION_NAME=""
 MODE="launch"
+RUNNER_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -87,6 +89,11 @@ while [[ $# -gt 0 ]]; do
     --help)
       usage
       exit 0
+      ;;
+    --)
+      shift
+      RUNNER_ARGS=("$@")
+      break
       ;;
     --*)
       fail 2 "Unknown option: $1"
@@ -159,6 +166,15 @@ case "$RUNNER" in
     ;;
 esac
 
+RUNNER_BASE_COMMAND="$RUNNER_COMMAND"
+
+# Append runner args (everything after --) with proper shell escaping
+if [[ ${#RUNNER_ARGS[@]} -gt 0 ]]; then
+  for arg in "${RUNNER_ARGS[@]}"; do
+    RUNNER_COMMAND+=" $(printf '%q' "$arg")"
+  done
+fi
+
 require_command python3
 
 if [[ ! -d "$CWD" ]]; then
@@ -181,7 +197,7 @@ fi
 
 if [[ "$DRY_RUN" == "0" ]]; then
   require_command tmux
-  command -v "$RUNNER_COMMAND" >/dev/null 2>&1 || fail 3 "Missing runner command: $RUNNER_COMMAND"
+  command -v "$RUNNER_BASE_COMMAND" >/dev/null 2>&1 || fail 3 "Missing runner command: $RUNNER_BASE_COMMAND"
   if tmux has-session -t "$SESSION_NAME" >/dev/null 2>&1; then
     fail 4 "tmux session already exists: $SESSION_NAME"
   fi
