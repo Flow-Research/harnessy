@@ -1,4 +1,4 @@
-# Flow Network — Agent Instructions
+# Harnessy — Agent Instructions
 
 ## Workspace Structure
 
