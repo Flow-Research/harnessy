@@ -1,6 +1,6 @@
-# Flow Network
+# Harnessy
 
-Flow Network is a reusable agent harness for software projects.
+Harnessy is a reusable agent harness for software projects.
 
 It gives any repository a working AI operating layer with:
 
