@@ -205,6 +205,15 @@ The user can always override with `--branch <name>`.
 
 ## Preflight Blockers
 
+Before checking blockers, run the shared dependency validator:
+
+```bash
+bash "${AGENTS_SKILLS_ROOT}/_shared/check-dependencies.sh" \
+    --manifest "${AGENTS_SKILLS_ROOT}/context-sync/manifest.yaml"
+```
+
+If any required dependency is missing (e.g., `gh`, `git`), report the missing tools with their platform-specific install commands and ask the user's permission to install. If `gh` is missing and the user declines, warn that PR operations will be unavailable but allow `pull` and `status` to proceed.
+
 Abort before any write operation when any of the following is true:
 - not a git repository
 - detached HEAD
@@ -212,7 +221,7 @@ Abort before any write operation when any of the following is true:
 - missing target branch for `pull`
 - ongoing merge, rebase, cherry-pick, revert, or bisect
 - unmerged entries in the index
-- missing `gh` CLI for `push`
+- missing `gh` CLI for `push` (after dependency check offered installation)
 - missing GitHub authentication for PR operations in `push`
 - missing local verification tooling required by the configured verification profile
 
