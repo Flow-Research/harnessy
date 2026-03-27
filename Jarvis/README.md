@@ -31,13 +31,13 @@ jarvis --help
 ### Using uv in a local checkout
 
 ```bash
-git clone https://github.com/Flow-Research/flow-harness.git
-cd flow-harness/Jarvis
+git clone https://github.com/Flow-Research/harnessy.git
+cd harnessy/Jarvis
 uv sync
 uv run jarvis --help
 ```
 
-### GitHub install (after publishing `flow-harness`)
+### GitHub install (after publishing `harnessy`)
 
 ```bash
 uv tool install --force "git+https://github.com/Flow-Research/harnessy.git#subdirectory=jarvis-cli"
@@ -47,8 +47,8 @@ jarvis --help
 ### Using pip
 
 ```bash
-git clone https://github.com/Flow-Research/flow-harness.git
-cd flow-harness/Jarvis
+git clone https://github.com/Flow-Research/harnessy.git
+cd harnessy/Jarvis
 pip install -e .
 
 jarvis --help
