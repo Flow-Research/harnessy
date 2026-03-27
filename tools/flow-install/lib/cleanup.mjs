@@ -126,6 +126,99 @@ export const CLEANUP_TASKS = [
   },
 
   {
+    name: "legacy-flow-harness-migration",
+    description: "Migrate from old flow-harness plugin ID to harnessy (repo renamed)",
+
+    check: async (ctx) => {
+      let staleCount = 0;
+      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", "flow-harness");
+      if (await pathExists(oldMarketplaceDir)) staleCount++;
+      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", "flow_harness");
+      if (await pathExists(oldCacheDir)) staleCount++;
+      const settings = await readJsonSafe(path.join(homeDir, ".claude", "settings.json"));
+      if (settings?.enabledPlugins?.["flow-harness@flow_harness"]) staleCount++;
+      if (settings?.extraKnownMarketplaces?.flow_harness) staleCount++;
+      const known = await readJsonSafe(path.join(homeDir, ".claude", "plugins", "known_marketplaces.json"));
+      if (known?.flow_harness) staleCount++;
+      const installed = await readJsonSafe(ctx.paths.installedPlugins);
+      if (installed?.plugins) {
+        const oldKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_harness"));
+        staleCount += oldKeys.length;
+      }
+      // Check for old cache directory
+      const oldInstallCache = path.join(homeDir, ".cache", "flow-harness");
+      if (await pathExists(oldInstallCache)) staleCount++;
+      if (staleCount === 0) return { stale: false };
+      return { stale: true, count: staleCount, details: `${staleCount} legacy flow-harness artifact(s)` };
+    },
+
+    clean: async (ctx) => {
+      let cleaned = 0;
+
+      // Remove old marketplace dir
+      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", "flow-harness");
+      if (await pathExists(oldMarketplaceDir)) {
+        await fs.rm(oldMarketplaceDir, { recursive: true, force: true });
+        cleaned++;
+      }
+
+      // Remove old plugin cache
+      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", "flow_harness");
+      if (await pathExists(oldCacheDir)) {
+        await fs.rm(oldCacheDir, { recursive: true, force: true });
+        cleaned++;
+      }
+
+      // Clean settings.json
+      const settingsPath = path.join(homeDir, ".claude", "settings.json");
+      const settings = await readJsonSafe(settingsPath);
+      if (settings) {
+        let changed = false;
+        if (settings.enabledPlugins?.["flow-harness@flow_harness"]) {
+          delete settings.enabledPlugins["flow-harness@flow_harness"];
+          changed = true; cleaned++;
+        }
+        // Also clean any individual skill entries under the old marketplace
+        if (settings.enabledPlugins) {
+          for (const key of Object.keys(settings.enabledPlugins)) {
+            if (key.endsWith("@flow_harness")) {
+              delete settings.enabledPlugins[key];
+              changed = true; cleaned++;
+            }
+          }
+        }
+        if (settings.extraKnownMarketplaces?.flow_harness) {
+          delete settings.extraKnownMarketplaces.flow_harness;
+          changed = true; cleaned++;
+        }
+        if (changed) await writeJson(settingsPath, settings);
+      }
+
+      // Clean known_marketplaces.json
+      const knownPath = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
+      const known = await readJsonSafe(knownPath);
+      if (known?.flow_harness) {
+        delete known.flow_harness;
+        await writeJson(knownPath, known);
+        cleaned++;
+      }
+
+      // Clean installed_plugins.json
+      const installed = await readJsonSafe(ctx.paths.installedPlugins);
+      if (installed?.plugins) {
+        const oldKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_harness"));
+        if (oldKeys.length > 0) {
+          for (const k of oldKeys) delete installed.plugins[k];
+          await writeJson(ctx.paths.installedPlugins, installed);
+          cleaned += oldKeys.length;
+        }
+      }
+
+      return { cleaned, details: "legacy flow-harness artifacts removed (repo renamed to harnessy)" };
+    },
+  },
+
+  {
     name: "installed-plugins",
     description: "Remove individual @harnessy entries from installed_plugins.json",
 

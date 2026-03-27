@@ -704,7 +704,44 @@ const main = async () => {
     }
   }
 
-  // 3. marketplace/skills/
+  // 3. legacy flow-harness migration (repo renamed to harnessy)
+  const legacyMarketplace = path.join(GLOBAL_CLAUDE_MARKETPLACE, "flow-harness");
+  if (await pathExists(legacyMarketplace)) {
+    if (dryRun) { console.log("  Would remove legacy flow-harness marketplace dir"); }
+    else { await fs.rm(legacyMarketplace, { recursive: true, force: true }); console.log("  Removed legacy flow-harness marketplace dir"); }
+  }
+  const legacyCache = path.join(HOME, ".claude", "plugins", "cache", "flow_harness");
+  if (await pathExists(legacyCache)) {
+    if (dryRun) { console.log("  Would remove legacy flow_harness plugin cache"); }
+    else { await fs.rm(legacyCache, { recursive: true, force: true }); console.log("  Removed legacy flow_harness plugin cache"); }
+  }
+  const settingsPath = path.join(HOME, ".claude", "settings.json");
+  const settings = await readJsonSafe(settingsPath);
+  if (settings) {
+    let settingsChanged = false;
+    if (settings.enabledPlugins) {
+      for (const key of Object.keys(settings.enabledPlugins)) {
+        if (key.endsWith("@flow_harness")) { delete settings.enabledPlugins[key]; settingsChanged = true; }
+      }
+    }
+    if (settings.extraKnownMarketplaces?.flow_harness) { delete settings.extraKnownMarketplaces.flow_harness; settingsChanged = true; }
+    if (settingsChanged) { if (!dryRun) await writeJson(settingsPath, settings); console.log("  " + (dryRun ? "Would clean" : "Cleaned") + " flow_harness refs from settings.json"); }
+  }
+  const knownPath = path.join(HOME, ".claude", "plugins", "known_marketplaces.json");
+  const known = await readJsonSafe(knownPath);
+  if (known?.flow_harness) {
+    if (!dryRun) { delete known.flow_harness; await writeJson(knownPath, known); }
+    console.log("  " + (dryRun ? "Would remove" : "Removed") + " flow_harness from known_marketplaces.json");
+  }
+  if (installed?.plugins) {
+    const legacyKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_harness"));
+    if (legacyKeys.length > 0) {
+      if (!dryRun) { for (const k of legacyKeys) delete installed.plugins[k]; await writeJson(GLOBAL_CLAUDE_INSTALLED_PLUGINS, installed); }
+      console.log("  " + (dryRun ? "Would remove" : "Removed") + " " + legacyKeys.length + " flow_harness entries from installed_plugins.json");
+    }
+  }
+
+  // 4. marketplace/skills/
   const oldDir = path.join(GLOBAL_CLAUDE_MARKETPLACE, "skills");
   if (await pathExists(oldDir)) {
     if (dryRun) { console.log("  Would remove stale marketplace/skills/ directory"); }
