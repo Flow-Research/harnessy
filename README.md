@@ -1,14 +1,14 @@
-# Flow Harness
+# Harnessy
 
-Flow Harness is a reusable agent harness for software projects.
+Harnessy is a reusable agent harness for software projects.
 
 It gives any repository a working AI operating layer with:
 
 - `jarvis` CLI in the user's PATH
-- shared Flow skills installed globally
+- shared Harnessy skills installed globally
 - project-specific skills vendored in `.agents/skills/`
 - lifecycle scripts for skill registration, validation, and local setup
-- verification tooling for OpenCode and Claude Code parity
+- verification tooling for maintaining compatibility with coding agents like OpenCode and Claude Code
 - a scoped memory system in `.jarvis/context/scopes/`
 - personal context and private space under `.jarvis/context/`
 - a shared context vault and knowledge base protocol
