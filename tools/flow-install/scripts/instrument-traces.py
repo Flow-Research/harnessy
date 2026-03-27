@@ -98,11 +98,12 @@ TIER2 = [
     "brainstorm", "prd", "tech-spec", "design-spec", "mvp-tech-spec",
     "qa", "git-commit", "ci-watch", "ci-logs", "ci-rerun",
     "skill-create", "dev-container", "local-run", "semver",
+    "cto", "github-issue-create", "jarvis", "tmux-agent-launcher",
 ]
 
-SKIP = {"skill-feedback", "tmux-agent-launcher", "jarvis", "cto", "github-issue-create",
-        "issue-flow",  # already instrumented
-        "_shared", "community-skills-install"}
+SKIP = {"skill-feedback",  # IS the feedback system — tracing itself would be circular
+        "issue-flow",  # already instrumented manually with full protocol
+        "_shared", "community-skills-install", "alpine-dev-container"}
 
 
 # ─── Templates ───────────────────────────────────────────────────────────────
