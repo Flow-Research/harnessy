@@ -90,7 +90,7 @@ Ask the user: "Which proposals do you want to apply? (all / numbers / none)"
 
 Improvements are applied to the **installed copy** at `${AGENTS_SKILLS_ROOT}/<skill-name>/` (`~/.agents/skills/<skill-name>/`). This is the copy agents read at runtime, so improvements take effect immediately.
 
-The source of truth in the Flow repo (`tools/flow-install/skills/<skill-name>/`) is NOT modified. When the improvement is proven stable, promote it back to Flow via the normal contribution path (PR to `Flow-Research/flow-harness`).
+The source of truth in the Flow repo (`tools/flow-install/skills/<skill-name>/`) is NOT modified. When the improvement is proven stable, promote it back to Flow via the normal contribution path (PR to `Flow-Research/harnessy`).
 
 For each accepted proposal:
 
@@ -136,7 +136,7 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/promote_check.py" check \
     --source-root "<flow-repo>/tools/flow-install/skills"
 ```
 
-Use the Flow repo root from the current working directory if `tools/flow-install/skills/` exists, otherwise fall back to `$HOME/.cache/flow-harness/tools/flow-install/skills`.
+Use the Flow repo root from the current working directory if `tools/flow-install/skills/` exists, otherwise fall back to `$HOME/.cache/harnessy/tools/flow-install/skills`.
 
 ### 9. Report
 

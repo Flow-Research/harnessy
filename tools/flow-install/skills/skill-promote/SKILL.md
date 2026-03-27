@@ -44,7 +44,7 @@ If no unpromoted improvements exist, report "No unpromoted improvements for `<sk
 Find the Flow repo root. Check in order:
 1. Current working directory — if it contains `tools/flow-install/skills/`, use it
 2. `$FLOW_REPO_ROOT` environment variable
-3. `$HOME/.cache/flow-harness/` (cached installer source)
+3. `$HOME/.cache/harnessy/` (cached installer source)
 
 If the Flow repo can't be found, report the error and ask the user to cd into it or set `FLOW_REPO_ROOT`.
 
