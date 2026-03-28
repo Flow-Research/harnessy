@@ -207,7 +207,15 @@ const main = async () => {
     const previouslyDeclined = autoflowInstalled === false;
 
     if (alreadyInstalled && !reconfigure) {
-      log.skip("Autoflow CI already installed");
+      // Previously accepted — silently update templates (supports flow:sync with --yes)
+      const templatesDir = path.join(__dirname, "templates");
+      const workflowTarget = path.join(projectRoot, ".github", "workflows", "autoflow.yml");
+      const templateSource = path.join(templatesDir, "autoflow.yml");
+      if (await pathExists(templateSource)) {
+        await ensureDir(path.join(projectRoot, ".github", "workflows"));
+        await fs.copyFile(templateSource, workflowTarget);
+      }
+      log.skip("Autoflow CI already installed (templates updated)");
     } else if (previouslyDeclined && !reconfigure) {
       log.skip("Autoflow CI previously declined (use --reconfigure to re-ask)");
     } else if (yesAll) {
