@@ -83,23 +83,37 @@ fi
 # ── Phase 2.5: Optional tool installation ────────────────────────────────────
 if [[ "$INSTALL_OPENCODE" == "1" ]]; then
   log "Phase 2.5a: Installing OpenCode CLI"
-  if npm install -g @anthropic/opencode 2>&1; then
-    pass "OpenCode CLI installed"
-    # Create minimal OpenCode config
-    mkdir -p "$HOME/.config/opencode"
-    echo '{"$schema":"https://opencode.ai/config.json"}' > "$HOME/.config/opencode/opencode.json"
-    pass "OpenCode config initialized"
+  if curl -fsSL https://opencode.ai/install | bash 2>&1; then
+    # Add opencode to PATH for this session
+    export PATH="$HOME/.opencode/bin:$PATH"
+    if command -v opencode &>/dev/null; then
+      pass "OpenCode CLI installed: $(opencode --version 2>/dev/null || echo 'unknown version')"
+      # Create minimal OpenCode config so flow-install can register skills
+      mkdir -p "$HOME/.config/opencode"
+      echo '{"$schema":"https://opencode.ai/config.json"}' > "$HOME/.config/opencode/opencode.json"
+      pass "OpenCode config initialized"
+    else
+      fail "OpenCode installer ran but binary not found in PATH"
+      FAILURES=$((FAILURES + 1))
+    fi
   else
-    warn "OpenCode CLI installation failed (may not be publicly available)"
+    fail "OpenCode CLI installation failed"
+    FAILURES=$((FAILURES + 1))
   fi
 fi
 
 if [[ "$INSTALL_CLAUDE" == "1" ]]; then
   log "Phase 2.5b: Installing Claude Code CLI"
-  if npm install -g @anthropic/claude-code 2>&1; then
-    pass "Claude Code CLI installed"
+  if npm install -g @anthropic-ai/claude-code 2>&1; then
+    if command -v claude &>/dev/null; then
+      pass "Claude Code CLI installed: $(claude --version 2>/dev/null || echo 'unknown version')"
+    else
+      fail "Claude Code npm install succeeded but binary not found in PATH"
+      FAILURES=$((FAILURES + 1))
+    fi
   else
-    warn "Claude Code CLI installation failed (may require auth or not be publicly available)"
+    fail "Claude Code CLI installation failed"
+    FAILURES=$((FAILURES + 1))
   fi
 fi
 
@@ -197,40 +211,51 @@ else
 fi
 
 # ── Phase 6: Optional tool verification ─────────────────────────────────────
+# When --with-opencode or --with-claude was explicitly requested, these are
+# HARD FAILS — the user asked for it, so it must work.
+
 if [[ "$INSTALL_OPENCODE" == "1" ]]; then
   log "Phase 6a: OpenCode verification"
   if command -v opencode &>/dev/null; then
-    pass "OpenCode CLI in PATH"
-    # Check OpenCode config was updated by flow-install
-    if [[ -f "$HOME/.config/opencode/opencode.json" ]]; then
-      if grep -q "skills" "$HOME/.config/opencode/opencode.json" 2>/dev/null; then
-        pass "OpenCode skills.paths configured"
-      else
-        warn "OpenCode skills.paths not configured (may need manual registration)"
-      fi
+    pass "OpenCode CLI in PATH: $(opencode --version 2>/dev/null || echo '?')"
+  else
+    fail "OpenCode CLI not in PATH (--with-opencode was requested)"
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  # Check OpenCode config was updated by flow-install
+  if [[ -f "$HOME/.config/opencode/opencode.json" ]]; then
+    if grep -q "skills" "$HOME/.config/opencode/opencode.json" 2>/dev/null; then
+      pass "OpenCode skills.paths configured by flow-install"
+      # Count configured paths
+      OPENCODE_PATHS=$(python3 -c "import json; d=json.load(open('$HOME/.config/opencode/opencode.json')); print(len(d.get('skills',{}).get('paths',[])))" 2>/dev/null || echo "0")
+      pass "OpenCode skills paths: $OPENCODE_PATHS"
     else
-      fail "OpenCode config missing after flow-install"
+      fail "OpenCode skills.paths not configured after flow-install"
       FAILURES=$((FAILURES + 1))
     fi
   else
-    warn "OpenCode CLI not in PATH (installation may have failed)"
+    fail "OpenCode config missing after flow-install"
+    FAILURES=$((FAILURES + 1))
   fi
 fi
 
 if [[ "$INSTALL_CLAUDE" == "1" ]]; then
   log "Phase 6b: Claude Code verification"
   if command -v claude &>/dev/null; then
-    pass "Claude Code CLI in PATH"
+    pass "Claude Code CLI in PATH: $(claude --version 2>/dev/null || echo '?')"
   else
-    warn "Claude Code CLI not in PATH (installation may have failed)"
+    fail "Claude Code CLI not in PATH (--with-claude was requested)"
+    FAILURES=$((FAILURES + 1))
   fi
 
-  # Check Claude skills symlinks regardless (flow-install creates them)
+  # Check Claude skills symlinks
   CLAUDE_LINKS=$(find ~/.claude/skills/ -maxdepth 1 -type l 2>/dev/null | wc -l)
   if [[ "$CLAUDE_LINKS" -gt 30 ]]; then
     pass "Claude skill symlinks: $CLAUDE_LINKS"
   else
-    warn "Expected 30+ Claude skill symlinks, found $CLAUDE_LINKS"
+    fail "Expected 30+ Claude skill symlinks, found $CLAUDE_LINKS (--with-claude was requested)"
+    FAILURES=$((FAILURES + 1))
   fi
 fi
 
