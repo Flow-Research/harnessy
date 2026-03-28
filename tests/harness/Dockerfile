@@ -35,5 +35,4 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 WORKDIR /workspace
 
 # Default: run the CI verification script
-ENTRYPOINT ["/bin/bash"]
-CMD ["/source/harnessy/tests/harness/run-ci-verify.sh"]
+CMD ["bash", "/source/harnessy/tests/harness/run-ci-verify.sh"]
