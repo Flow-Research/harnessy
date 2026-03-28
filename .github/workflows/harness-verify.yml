@@ -1,0 +1,85 @@
+name: Harness Verification (Docker)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/flow-install/**'
+      - 'install.sh'
+      - 'program.md'
+      - 'tests/harness/**'
+      - '.github/workflows/harness-verify.yml'
+
+  push:
+    branches: [main]
+    paths:
+      - 'tools/flow-install/**'
+      - 'install.sh'
+
+  workflow_dispatch:
+    inputs:
+      with_opencode:
+        description: 'Install and test OpenCode CLI'
+        type: boolean
+        default: false
+      with_claude:
+        description: 'Install and test Claude Code CLI'
+        type: boolean
+        default: false
+
+concurrency:
+  group: harness-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-verify-base:
+    name: Base Verification (no agent CLIs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build verification image
+        run: docker build -t harnessy-verify tests/harness/
+
+      - name: Run harness verification
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          docker run --rm \
+            -v "${WORKSPACE}:/source/harnessy:ro" \
+            -e SKIP_COMMUNITY=1 \
+            harnessy-verify \
+            bash /source/harnessy/tests/harness/run-ci-verify.sh
+
+  docker-verify-agents:
+    name: Full Verification (with agent CLIs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only run when explicitly requested via manual dispatch with at least one CLI flag
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.with_opencode == 'true' || github.event.inputs.with_claude == 'true')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build verification image
+        run: docker build -t harnessy-verify tests/harness/
+
+      - name: Run harness verification with agent CLIs
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          WITH_OPENCODE: ${{ github.event.inputs.with_opencode || 'false' }}
+          WITH_CLAUDE: ${{ github.event.inputs.with_claude || 'false' }}
+        run: |
+          FLAGS=""
+          if [ "${WITH_OPENCODE}" = "true" ]; then FLAGS="${FLAGS} --with-opencode"; fi
+          if [ "${WITH_CLAUDE}" = "true" ]; then FLAGS="${FLAGS} --with-claude"; fi
+          docker run --rm \
+            -v "${WORKSPACE}:/source/harnessy:ro" \
+            -e SKIP_COMMUNITY=1 \
+            harnessy-verify \
+            bash /source/harnessy/tests/harness/run-ci-verify.sh ${FLAGS}
