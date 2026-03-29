@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-03-27T17:10:05.392Z",
+  "timestamp": "2026-03-28T22:03:57.554Z",
   "project": "harnessy",
   "monorepo": null,
   "apps": [],
@@ -12,10 +12,12 @@
     "scripts": true,
     "context": true,
     "memory": true,
-    "agentsMd": true
+    "agentsMd": true,
+    "autoflow": false
   },
   "flowCoreSkills": [
     "api-integration-codegen",
+    "autoflow",
     "brainstorm",
     "browser-integration-codegen",
     "browser-qa",
@@ -44,6 +46,9 @@
     "qa",
     "semver",
     "skill-create",
+    "skill-feedback",
+    "skill-improve",
+    "skill-promote",
     "skill-publish",
     "skill-validate",
     "spec-to-regression",
