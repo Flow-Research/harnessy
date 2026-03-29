@@ -19,6 +19,7 @@
 .claude/
 .opencode/
 .jarvis/context/autoflow/
+.goal-agent/
 
 # === Editor / IDE ===
 .obsidian/
