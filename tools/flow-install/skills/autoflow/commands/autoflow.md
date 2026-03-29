@@ -26,7 +26,7 @@ All autoflow operational state lives per-project at `.jarvis/context/autoflow/`:
 ```
 .jarvis/context/autoflow/
 ├── state.json            # Loop state: status, checkpoint, issues processed
-├── queue.json            # Approved issue queue with prioritization reasoning
+├── queue.json            # Approved execution plan: waves, packets, dependencies, holdbacks
 ├── pool.json             # Concurrency pool state (if max_concurrent > 1)
 ├── runs.ndjson           # Run-by-run log with extended metrics
 ├── improvements.ndjson   # Improvement cycle log with ratchet decisions
@@ -45,9 +45,9 @@ Begin the autonomous loop. Executes the full startup sequence:
 1. Read `program.md`
 2. Prompt for approval checkpoint (trust level)
 3. Fetch and deep-inspect eligible issues
-4. Prioritize against project strategy
-5. Present ranked queue for human approval
-6. Begin experiment loop on approved queue
+4. Build a dependency-aware execution plan against project strategy and architecture coherence rules
+5. Present the proposed waves, packets, and holdbacks for human approval
+6. Begin experiment loop on approved runnable issues
 
 ### `status`
 
@@ -91,7 +91,7 @@ Read `program.md` from the repository root. Parse all sections:
 - `Quality Standards` → thresholds for refinement loops, first-pass rate, max failures
 - `Skill Improvement Rules` → auto-accept criteria, human review triggers, evaluation window
 - `Escalation Policy` → failure limits, revert triggers, pause conditions
-- `Loop Cadence` → concurrency, improvement frequency, max issues per session
+- `Loop Cadence` → concurrency, improvement frequency, drain and stop conditions
 
 If `program.md` is missing, HARD STOP.
 
@@ -155,7 +155,7 @@ Read from `.jarvis/context/`:
 
 These provide the strategic lens for prioritization.
 
-### Startup Step 5: Evaluate and Prioritize
+### Startup Step 5: Build Execution Plan
 
 For each eligible issue, assess:
 
@@ -163,49 +163,91 @@ For each eligible issue, assess:
 |--------|--------|
 | **Strategic alignment** | Does it advance current roadmap priorities? |
 | **Dependency order** | Does it block or depend on other eligible issues? |
+| **Architecture overlap** | Does it touch the same models, contracts, schema, abstractions, or auth boundaries as another issue? |
 | **Readiness** | Well-specified? Clear acceptance criteria? No open questions? |
 | **Complexity estimate** | Bug fix vs. feature — affects time budget and risk |
 | **Risk** | Does it touch high blast_radius areas? |
 
-Produce a ranked queue with one-line reasoning per issue.
+Use a hybrid dependency model:
+- explicit issue links and issue-body references first
+- conservative inferred dependencies when issues overlap on shared domain models, API contracts, schema, migrations, auth, shared abstractions, or verification surfaces
 
-### Startup Step 6: Present Queue for Approval
+Autoflow must then build:
+- **serial foundation issues** — prerequisites for shared contracts or risky overlapping work
+- **parallel packets** — bounded groups of issues that are safe to run together
+- **holdbacks** — issues blocked by unresolved dependencies, ambiguity, or high coherence risk
 
-Present the ranked queue to the human:
+Each packet must include one-line rationale covering why it is safe to parallelize.
+
+### Startup Step 6: Present Execution Plan for Approval
+
+Present the dependency-aware execution plan to the human:
 
 ```
-Proposed work queue (N eligible issues):
+Proposed execution plan (N eligible issues):
 
- 1. #42 — Add input validation to registration flow
-    Strategic: Blocks #48 (registration epic). Well-specified. Low complexity.
+Wave 0 — Serial foundation
+  #42 — Add input validation to registration flow
+    Why first: Establishes shared validation contract used by #48.
 
- 2. #45 — Fix auth redirect on expired sessions
-    Strategic: User-facing bug, aligns with stability priority. No dependencies.
+Wave 1 — Parallel packet A
+  #45 — Fix auth redirect on expired sessions
+    Why parallel-safe: Separate user-facing bug path, no shared contract dependency.
+  #51 — Improve admin empty-state copy
+    Why parallel-safe: UI-only change, isolated verification path.
 
- 3. #48 — Registration flow end-to-end
-    Strategic: Registration epic milestone. Depends on #42. Medium complexity.
+Wave 2 — Dependent follow-up
+  #48 — Registration flow end-to-end
+    Why later: Depends on Wave 0 validation contract.
+
+Holdbacks
+  #57 — Billing sync edge cases
+    Why held: Touches shared finance workflow and requires human policy judgment.
 
 Approval checkpoint: after-spec
-Session limit: 20 issues
+Max concurrent active issues: 3
 
-Approve this order? (y / reorder / skip issues)
+Approve this plan? (y / adjust waves / adjust concurrency / skip issues)
 ```
 
 The human can:
-- **Approve** (`y`) — process in this order
-- **Reorder** — specify a different order
+- **Approve** (`y`) — process using this plan
+- **Adjust waves** — change sequencing or packetization
+- **Adjust concurrency** — lower or raise bounded parallelism for this session
 - **Skip** — remove specific issues from this session
 
-Store the approved queue in `.jarvis/context/autoflow/queue.json`:
+Store the approved execution plan in `.jarvis/context/autoflow/queue.json`:
 
 ```json
 {
   "session_id": "session_<YYYYMMDD>_<NNN>",
   "approved_at": "<ISO 8601>",
   "approval_checkpoint": "after-spec",
-  "queue": [
-    { "number": 42, "title": "...", "priority_reason": "Blocks #48, registration epic" },
-    { "number": 45, "title": "...", "priority_reason": "User-facing bug, stability" }
+  "max_concurrent": 3,
+  "waves": [
+    {
+      "id": "wave_0",
+      "mode": "serial",
+      "reason": "foundation",
+      "issues": [
+        { "number": 42, "title": "...", "plan_reason": "Defines shared validation contract" }
+      ]
+    },
+    {
+      "id": "wave_1",
+      "mode": "parallel",
+      "reason": "independent packet",
+      "issues": [
+        { "number": 45, "title": "...", "plan_reason": "Separate bugfix path" },
+        { "number": 51, "title": "...", "plan_reason": "UI-only isolated work" }
+      ]
+    }
+  ],
+  "holdbacks": [
+    { "number": 57, "title": "...", "holdback_reason": "Needs human policy judgment" }
+  ],
+  "dependency_edges": [
+    { "from": 42, "to": 48, "type": "explicit", "reason": "Validation contract prerequisite" }
   ],
   "skipped": [51],
   "context_files_read": ["status.md", "roadmap.md"]
@@ -222,9 +264,9 @@ After the startup sequence completes, the experiment loop begins.
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                         AUTOFLOW STATE MACHINE                          │
 │                                                                         │
-│  STARTUP ──→ LOAD_PROGRAM ──→ NEXT_FROM_QUEUE ──→ CHECK_LIMITS         │
+│  STARTUP ──→ LOAD_PROGRAM ──→ NEXT_RUNNABLE ──→ CHECK_DRAIN_STATE      │
 │                                    │                    │               │
-│                              (queue empty)         (limit hit)          │
+│                              (none runnable)      (no runnable work)    │
 │                                    ↓                    ↓               │
 │                                  PAUSE               PAUSE              │
 │                                                                         │
@@ -256,12 +298,12 @@ After the startup sequence completes, the experiment loop begins.
 | From | To | Condition |
 |------|----|-----------|
 | STARTUP | LOAD_PROGRAM | Startup sequence complete (queue approved) |
-| LOAD_PROGRAM | NEXT_FROM_QUEUE | `program.md` parsed successfully |
+| LOAD_PROGRAM | NEXT_RUNNABLE | `program.md` parsed successfully |
 | LOAD_PROGRAM | HARD_STOP | `program.md` not found |
-| NEXT_FROM_QUEUE | CHECK_LIMITS | Next issue available in queue |
-| NEXT_FROM_QUEUE | PAUSE | Queue exhausted |
-| CHECK_LIMITS | RUN_ISSUE | Within session limits |
-| CHECK_LIMITS | PAUSE | Session max exceeded |
+| NEXT_RUNNABLE | CHECK_DRAIN_STATE | Next approved runnable issue available |
+| NEXT_RUNNABLE | PAUSE | No runnable issues remain |
+| CHECK_DRAIN_STATE | RUN_ISSUE | Runnable issue exists within approved concurrency/wave constraints |
+| CHECK_DRAIN_STATE | PAUSE | All remaining issues are waiting_human, held back, escalated, or completed |
 | RUN_ISSUE | CAPTURE_METRICS | Issue-flow completed or failed |
 | RUN_ISSUE | WAITING | Issue paused at human gate (pool mode) |
 | CAPTURE_METRICS | EVALUATE_QUALITY | Metrics captured |
@@ -277,16 +319,26 @@ After the startup sequence completes, the experiment loop begins.
 
 ### State: LOAD_PROGRAM
 
-Re-read `program.md` on every iteration (human may have updated thresholds). Do NOT re-read the queue — issue order is locked to the approved queue from startup.
+Re-read `program.md` on every iteration (human may have updated thresholds). Do NOT re-plan silently — the approved execution plan from startup remains the source of truth unless a human explicitly changes it.
 
-### State: NEXT_FROM_QUEUE
+### State: NEXT_RUNNABLE
 
-Pop the next issue from `.jarvis/context/autoflow/queue.json`. If queue is empty, transition to PAUSE.
+Select the next issue from the approved execution plan that is both:
+- unstarted or resumable
+- not blocked by an incomplete dependency edge
+- allowed by the current wave/packet constraints
 
-### State: CHECK_LIMITS
+If no runnable issue exists, transition to PAUSE.
 
-Read `.jarvis/context/autoflow/runs.ndjson` to count issues processed in the current session.
-If count >= `max issues per session` from program.md → transition to PAUSE.
+### State: CHECK_DRAIN_STATE
+
+Before dispatch, verify whether the remaining issues are:
+- completed
+- escalated
+- held_back
+- waiting_human
+
+If every remaining issue is in one of those states and no runnable issue remains, transition to PAUSE and report the waiting-human review queue.
 
 ### State: RUN_ISSUE
 
@@ -333,7 +385,7 @@ if elapsed > time_budget_seconds from program.md:
 
 **Human gate handling in pool mode**:
 - If `max_concurrent == 1`: wait for user input at active human gates
-- If `max_concurrent > 1`: move issue to WAITING state, pop next from queue
+- If `max_concurrent > 1`: move issue to WAITING state, then continue dispatching other approved runnable issues only if their dependencies and wave constraints remain satisfied
 
 ### State: CAPTURE_METRICS
 
@@ -432,7 +484,7 @@ Auto-accept rules from `program.md` apply:
 
 #### Sub-state: EVALUATION_WINDOW
 
-Process the next N issues from the queue (evaluation window from program.md, default 3) with the improved skill. Normal RUN_ISSUE → CAPTURE_METRICS flow.
+Process the next N approved runnable issues from the execution plan (evaluation window from program.md, default 3) with the improved skill. Normal RUN_ISSUE → CAPTURE_METRICS flow.
 
 #### Sub-state: RATCHET_DECIDE
 
@@ -468,13 +520,13 @@ Record to `.jarvis/context/autoflow/improvements.ndjson`:
 
 ### State: LOOP
 
-Return to LOAD_PROGRAM. Re-read `program.md`, pop next issue from queue, continue.
+Return to LOAD_PROGRAM. Re-read `program.md`, select the next runnable issue from the approved plan, continue.
 
 ---
 
 ## Pool Protocol (Throughput)
 
-When `max_concurrent > 1` in `program.md`, autoflow runs a concurrency pool.
+When `max_concurrent > 1` in `program.md`, autoflow runs a bounded concurrency pool against the approved execution plan.
 
 ### Pool State
 
@@ -483,9 +535,16 @@ Tracked in `.jarvis/context/autoflow/pool.json`:
 ```json
 {
   "max_concurrent": 3,
+  "waves": [
+    { "id": "wave_0", "mode": "serial", "issues": [42], "status": "active" },
+    { "id": "wave_1", "mode": "parallel", "issues": [45, 51], "status": "pending" }
+  ],
   "active": [
     { "issue_number": 42, "status": "running", "worktree": "../project-worktrees/42_feature", "started_at": "..." },
     { "issue_number": 57, "status": "waiting_human", "worktree": "../project-worktrees/57_fix", "gate": "prd_approval" }
+  ],
+  "holdbacks": [
+    { "issue_number": 48, "reason": "blocked by #42" }
   ],
   "completed_this_session": 5
 }
@@ -493,11 +552,13 @@ Tracked in `.jarvis/context/autoflow/pool.json`:
 
 ### Pool Rules
 
-1. **Dispatch**: If `active.length < max_concurrent` and queue has items, start next issue in its own worktree
-2. **Human gate at checkpoint**: When an issue hits an active human gate (at or after checkpoint), move to `waiting_human` and dispatch next
+1. **Dispatch**: If `active.length < max_concurrent` and the approved plan has a runnable issue, start it in its own worktree
+2. **Human gate at checkpoint**: When an issue hits an active human gate (at or after checkpoint), move it to `waiting_human` and continue only with other runnable issues from the approved plan
 3. **Completion**: When a `waiting_human` issue gets approval, it resumes
-4. **Improvement cycles are SERIAL**: No new issues dispatched during improvement
-5. **Worktree isolation**: Each issue gets its own worktree
+4. **Wave discipline**: Do not start a later-wave issue while its upstream foundation issue remains unresolved unless the approved plan explicitly allows it
+5. **Architecture coherence bias**: If multiple issues overlap on shared models, schema, auth, or abstractions, default to serial unless the approved plan explicitly marks the packet parallel-safe
+6. **Improvement cycles are SERIAL**: No new issues dispatched during improvement
+7. **Worktree isolation**: Each issue gets its own worktree
 
 ---
 
@@ -526,7 +587,6 @@ Tracked in `.jarvis/context/autoflow/pool.json`:
 
 - `program.md` not found
 - GitHub CLI not authenticated
-- Max issues per session exceeded without human check-in
 - Escalation policy triggered a full stop
 - Unrecoverable git state (worktree corruption, merge conflicts)
 - Hard constraint gate failure during evaluation
@@ -535,7 +595,7 @@ Tracked in `.jarvis/context/autoflow/pool.json`:
 
 ## Output Contract
 
-For `start`: startup sequence output (checkpoint, prioritized queue, approval), then each issue as it begins/completes with ratchet score.
+For `start`: startup sequence output (checkpoint, dependency-aware execution plan, approval), then each issue as it begins/completes with ratchet score.
 For `status`: current state, checkpoint, queue position, ratchet score, pool state.
 For `metrics`: ratchet score breakdown + hard gate status + legacy quality metrics.
 For `history`: formatted run log with outcomes, ratchet scores, improvement decisions.
@@ -544,7 +604,7 @@ For `history`: formatted run log with outcomes, ratchet scores, improvement deci
 
 ## Safety Rules
 
-1. Never process more issues than `max_issues_per_session` without human check-in.
+1. Never dispatch work outside the human-approved execution plan.
 2. Never auto-accept skill improvements for high blast_radius skills.
 3. Never bypass quality gates — only human gates can be bypassed via approval checkpoint.
 4. Never modify evaluation infrastructure (`_shared/*.py`, `_shared/*.md`).
@@ -556,3 +616,5 @@ For `history`: formatted run log with outcomes, ratchet scores, improvement deci
 10. Enforce time budgets — runs exceeding budget are timed_out.
 11. Respect `max_autonomy` from program.md — never allow a checkpoint beyond this level.
 12. `human-bypassed` traces do not count as "human rescue" in the ratchet `h` variable.
+13. Prefer serial foundation-first sequencing whenever shared models, schema, auth, or abstractions would otherwise drift.
+14. Use parallel packets only when the approved plan explicitly marks them safe and coherent.

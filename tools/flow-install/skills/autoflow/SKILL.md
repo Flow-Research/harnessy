@@ -14,11 +14,11 @@ Discover skills that opt into the autoresearch pattern (via `autoresearch.enable
 
 ## How It Works
 
-1. **Configure** — human picks an approval checkpoint (trust level) and reviews a strategy-prioritized issue queue
+1. **Configure** — human picks an approval checkpoint (trust level) and reviews an execution plan with sequencing and parallelization rationale
 2. **Discover** autoresearch-enabled skills by scanning `manifest.yaml` files for `autoresearch.enabled: true`
 3. **Load** `program.md` (human control surface) for thresholds, constraints, and cadence
-4. **Prioritize** — deep-inspect eligible issues, evaluate against project strategy context, present ranked queue
-5. **Run** experiments: process issues through the target skill with human gates auto-approved below the checkpoint
+4. **Plan** — deep-inspect eligible issues, infer explicit and implicit dependencies, build serial waves and bounded parallel packets, then present the plan for approval
+5. **Run** experiments: process approved runnable issues through the target skill with human gates auto-approved below the checkpoint and park issues at waiting-human checkpoints without stalling the whole drain
 6. **Measure** with the multiplicative composite score: `S = f^α · p^β · q^γ · (1-r)^δ`
 7. **Improve** after every completed issue when thresholds are breached: snapshot → skill-improve → evaluation window → ratchet decide
 8. **Keep or revert** — binary decision, no ambiguity, hard constraint gates as vetoes
@@ -52,6 +52,7 @@ Default and max autonomy configured in `program.md`. Quality gates are never byp
 - Improvement history with keep/revert decisions and evidence
 - Escalation notifications when thresholds or constraints are breached
 - Pool state (when running concurrently)
+- Approved execution plan with dependency and packet rationale
 
 ## The Autoresearch Protocol
 

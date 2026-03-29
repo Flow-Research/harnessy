@@ -21,7 +21,15 @@ Higher is better. Range: 0.0–1.0.
 
 Process issues labeled `autoflow` in this repository.
 Skip issues labeled `blocked`, `wontfix`, or `duplicate`.
-Process in order: oldest first (FIFO).
+Do not rely on FIFO alone. At `/autoflow start`, build and approve a dependency-aware execution plan covering serial prerequisites, bounded parallel packets, and holdbacks.
+
+## Execution Planning At Start
+
+- Present an execution plan for approval, not just a flat queue
+- Use hybrid dependency detection: explicit issue links first, conservative inferred coupling second
+- Default to serial when issues overlap on shared models, schema, auth, contracts, or reusable abstractions
+- Allow bounded parallel packets only when Autoflow can justify that they preserve architecture coherence, simplicity, and verification quality
+- Continue draining approved runnable issues until none remain; stop when all remaining issues are completed, escalated, held back, or waiting at required human gates
 
 ## Constraints
 
@@ -60,15 +68,15 @@ Process in order: oldest first (FIFO).
 - If an issue fails 2 consecutive phases: **pause** and comment on the GitHub issue
 - If skill improvement degrades metrics across 3 runs: **revert** and notify
 - If no eligible issues remain: **pause** the loop and report summary
-- If a phase requires human approval (human gate at a pause point): **pause** and wait
+- If a phase requires human approval (human gate at a pause point): move that issue to `waiting_human`; pause the whole loop only if no other approved runnable issues remain
 - Never force-approve a human gate — always wait for explicit human instruction
 
 ## Loop Cadence
 
-- Process **1 issue at a time** (sequential for v1)
+- Maximum concurrent active issues: **3** by default
 - No cooldown between issues
 - Improvement cycle every **5 completed issues** (or when any gate exceeds the refinement threshold)
-- Maximum **20 issues per autonomous session** before mandatory human check-in
+- No fixed issue cap per autonomous session; the human-approved plan and required human gates are the controlling checkpoints
 
 ## Reporting
 
