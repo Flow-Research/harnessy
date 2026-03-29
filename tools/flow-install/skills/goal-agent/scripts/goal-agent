@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+"""
+Goal Agent — Setup and launcher for the two-intelligence orchestrator.
+
+Usage:
+  goal-agent run <goal-file> [--background] [--session <name>] [--max-iterations N] [--budget N] [--setup-only]
+  goal-agent status [<run-id>]
+  goal-agent list
+  goal-agent resume <run-id>
+
+This script handles pre-flight setup: goal validation, UUID generation,
+state directory creation, and optional background launch via tmux.
+The actual orchestration intelligence lives in the SKILL.md and command contract.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCRIPT_NAME = os.path.basename(__file__)
+STATE_ROOT = ".goal-agent"
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def fail(message: str, code: int = 1):
+    print(json.dumps({"ok": False, "error": {"code": code, "message": message}}))
+    sys.exit(code)
+
+
+def parse_goal_file(path: str) -> dict:
+    """Parse a goal markdown file and extract structured sections."""
+    text = Path(path).read_text()
+
+    # Extract title
+    title_match = re.search(r"^#\s+Goal:\s*(.+)$", text, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else "Untitled Goal"
+
+    # Extract sections by ## headings
+    sections = {}
+    current_section = None
+    current_lines = []
+
+    for line in text.splitlines():
+        heading_match = re.match(r"^##\s+(.+)$", line)
+        if heading_match:
+            if current_section:
+                sections[current_section.lower()] = "\n".join(current_lines).strip()
+            current_section = heading_match.group(1)
+            current_lines = []
+        elif current_section:
+            current_lines.append(line)
+
+    if current_section:
+        sections[current_section.lower()] = "\n".join(current_lines).strip()
+
+    # Parse constraints
+    constraints = {
+        "max_iterations": 10,
+        "budget_per_phase": 2.0,
+        "total_budget": 10.0,
+        "model": "sonnet",
+        "allowed_tools": "Bash,Read,Write,Edit,Glob,Grep",
+    }
+
+    constraints_text = sections.get("constraints", "")
+    for line in constraints_text.splitlines():
+        line = line.strip().lstrip("- ")
+        if "max iterations" in line.lower():
+            match = re.search(r"(\d+)", line)
+            if match:
+                constraints["max_iterations"] = int(match.group(1))
+        elif "budget per phase" in line.lower():
+            match = re.search(r"\$?([\d.]+)", line)
+            if match:
+                constraints["budget_per_phase"] = float(match.group(1))
+        elif "total budget" in line.lower():
+            match = re.search(r"\$?([\d.]+)", line)
+            if match:
+                constraints["total_budget"] = float(match.group(1))
+        elif "model" in line.lower():
+            match = re.search(r":\s*(\S+)", line)
+            if match:
+                constraints["model"] = match.group(1)
+        elif "allowed tools" in line.lower():
+            match = re.search(r":\s*(.+)", line)
+            if match:
+                constraints["allowed_tools"] = match.group(1).strip()
+
+    # Extract verification commands
+    verification_commands = []
+    verification_text = sections.get("verification", "")
+    in_code_block = False
+    for line in verification_text.splitlines():
+        if line.strip().startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block and line.strip() and not line.strip().startswith("#"):
+            verification_commands.append(line.strip())
+
+    # Extract file checks
+    file_checks = []
+    for line in verification_text.splitlines():
+        match = re.search(r"\[.\]\s+`(.+?)`\s+exists", line)
+        if match:
+            file_checks.append(match.group(1))
+
+    return {
+        "title": title,
+        "sections": sections,
+        "constraints": constraints,
+        "verification_commands": verification_commands,
+        "file_checks": file_checks,
+    }
+
+
+def validate_goal(parsed: dict) -> list[str]:
+    """Return list of validation errors (empty = valid)."""
+    errors = []
+    if not parsed.get("sections", {}).get("objective"):
+        errors.append("Missing required section: ## Objective")
+    if not parsed.get("verification_commands") and not parsed.get("file_checks"):
+        errors.append("Missing verification: need at least one command or file check in ## Verification")
+    return errors
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+def cmd_run(args):
+    goal_file = os.path.abspath(args.goal_file)
+
+    if not os.path.isfile(goal_file):
+        fail(f"Goal file not found: {goal_file}", 2)
+
+    parsed = parse_goal_file(goal_file)
+    errors = validate_goal(parsed)
+    if errors:
+        fail(f"Invalid goal file: {'; '.join(errors)}", 2)
+
+    # Override constraints from CLI args
+    if args.max_iterations is not None:
+        parsed["constraints"]["max_iterations"] = args.max_iterations
+    if args.budget is not None:
+        parsed["constraints"]["total_budget"] = args.budget
+
+    # Generate IDs
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    worker_session_id = str(uuid.uuid4())
+
+    # Create state directory
+    state_dir = os.path.join(STATE_ROOT, run_id)
+    os.makedirs(state_dir, exist_ok=True)
+
+    # Write initial state
+    state = {
+        "run_id": run_id,
+        "worker_session_id": worker_session_id,
+        "goal_file": goal_file,
+        "goal_title": parsed["title"],
+        "status": "initialized",
+        "current_phase": 0,
+        "total_phases": 0,
+        "iteration": 0,
+        "max_iterations": parsed["constraints"]["max_iterations"],
+        "budget_used_estimate": 0.0,
+        "budget_limit": parsed["constraints"]["total_budget"],
+        "model": parsed["constraints"]["model"],
+        "allowed_tools": parsed["constraints"]["allowed_tools"],
+        "phases": [],
+        "verification_commands": parsed["verification_commands"],
+        "file_checks": parsed["file_checks"],
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "last_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    state_path = os.path.join(state_dir, "state.json")
+    with open(state_path, "w") as f:
+        json.dump(state, f, indent=2)
+
+    if args.dry_run:
+        print(json.dumps({
+            "ok": True,
+            "action": "dry_run",
+            "run_id": run_id,
+            "goal_title": parsed["title"],
+            "constraints": parsed["constraints"],
+            "verification_commands": parsed["verification_commands"],
+            "file_checks": parsed["file_checks"],
+            "state_dir": state_dir,
+        }, indent=2))
+        return
+
+    if args.setup_only:
+        # Output context for the orchestrator skill to consume
+        print(json.dumps({
+            "ok": True,
+            "action": "setup_complete",
+            "run_id": run_id,
+            "worker_session_id": worker_session_id,
+            "goal_file": goal_file,
+            "state_dir": os.path.abspath(state_dir),
+            "constraints": parsed["constraints"],
+        }, indent=2))
+        return
+
+    if args.background:
+        session_name = args.session or f"goal-{run_id}"
+        cwd = os.getcwd()
+
+        # Check for tmux
+        if not shutil.which("tmux"):
+            fail("tmux is required for --background mode", 3)
+
+        # Launch claude in interactive mode with the goal-agent slash command as initial prompt.
+        # IMPORTANT: Do NOT redirect stdout/stderr — claude detects non-TTY and exits
+        # immediately in non-interactive mode. It must own the tmux pane's TTY.
+        runner = shutil.which("claude") or "claude"
+        prompt = f'/goal-agent run {goal_file}'
+
+        tmux_cmd = [
+            "tmux", "new-session", "-d",
+            "-s", session_name,
+            "-c", cwd,
+            "bash", "-lc",
+            f'{runner} --permission-mode auto "{prompt}"',
+        ]
+
+        # Write a launcher script and execute it directly via bash.
+        # Running tmux from within Python subprocess called from Claude Code's
+        # Bash tool causes sessions to be killed. Delegating to a shell script avoids this.
+        launcher_path = os.path.join(os.path.abspath(state_dir), "launch.sh")
+        with open(launcher_path, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write(f'tmux new-session -d -s "{session_name}" -c "{cwd}" ')
+            f.write(f"bash -lc '{runner} --permission-mode auto \"{prompt}\"'\n")
+        os.chmod(launcher_path, 0o755)
+        subprocess.run(["bash", launcher_path], check=True)
+
+        print(json.dumps({
+            "ok": True,
+            "action": "background_launch",
+            "run_id": run_id,
+            "session": session_name,
+            "goal_title": parsed["title"],
+            "state_dir": os.path.abspath(state_dir),
+            "attach_command": f"tmux attach-session -t {session_name}",
+        }, indent=2))
+        return
+
+    # Foreground mode — output context for the orchestrator skill
+    print(json.dumps({
+        "ok": True,
+        "action": "setup_complete",
+        "run_id": run_id,
+        "worker_session_id": worker_session_id,
+        "goal_file": goal_file,
+        "state_dir": os.path.abspath(state_dir),
+        "constraints": parsed["constraints"],
+    }, indent=2))
+
+
+def cmd_status(args):
+    if args.run_id:
+        state_path = os.path.join(STATE_ROOT, args.run_id, "state.json")
+    else:
+        # Find most recent run
+        if not os.path.isdir(STATE_ROOT):
+            fail("No runs found", 4)
+        runs = sorted(os.listdir(STATE_ROOT), reverse=True)
+        if not runs:
+            fail("No runs found", 4)
+        state_path = os.path.join(STATE_ROOT, runs[0], "state.json")
+
+    if not os.path.isfile(state_path):
+        fail(f"State file not found: {state_path}", 4)
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    print(json.dumps({"ok": True, "action": "status", **state}, indent=2))
+
+
+def cmd_list(args):
+    if not os.path.isdir(STATE_ROOT):
+        print(json.dumps({"ok": True, "action": "list", "runs": []}))
+        return
+
+    runs = []
+    for run_dir in sorted(os.listdir(STATE_ROOT), reverse=True):
+        state_path = os.path.join(STATE_ROOT, run_dir, "state.json")
+        if os.path.isfile(state_path):
+            with open(state_path) as f:
+                state = json.load(f)
+            runs.append({
+                "run_id": state.get("run_id", run_dir),
+                "goal_title": state.get("goal_title", "Unknown"),
+                "status": state.get("status", "unknown"),
+                "iteration": state.get("iteration", 0),
+                "last_updated_at": state.get("last_updated_at", ""),
+            })
+
+    print(json.dumps({"ok": True, "action": "list", "runs": runs}, indent=2))
+
+
+def cmd_resume(args):
+    state_path = os.path.join(STATE_ROOT, args.run_id, "state.json")
+    if not os.path.isfile(state_path):
+        fail(f"Run not found: {args.run_id}", 4)
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    if state["status"] == "completed":
+        fail(f"Run {args.run_id} is already completed", 2)
+
+    # Output context for the orchestrator to resume
+    print(json.dumps({
+        "ok": True,
+        "action": "resume",
+        "run_id": state["run_id"],
+        "worker_session_id": state["worker_session_id"],
+        "goal_file": state["goal_file"],
+        "state_dir": os.path.abspath(os.path.join(STATE_ROOT, args.run_id)),
+        "constraints": {
+            "max_iterations": state["max_iterations"],
+            "total_budget": state["budget_limit"],
+            "model": state.get("model", "sonnet"),
+            "allowed_tools": state.get("allowed_tools", "Bash,Read,Write,Edit,Glob,Grep"),
+        },
+        "current_phase": state["current_phase"],
+        "iteration": state["iteration"],
+    }, indent=2))
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog=SCRIPT_NAME,
+        description="Goal Agent — Setup and launcher for two-intelligence orchestrator",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # run
+    run_parser = subparsers.add_parser("run", help="Execute a goal")
+    run_parser.add_argument("goal_file", help="Path to goal specification file")
+    run_parser.add_argument("--background", action="store_true", help="Launch in tmux session")
+    run_parser.add_argument("--session", help="Name for the tmux session")
+    run_parser.add_argument("--max-iterations", type=int, help="Override max iterations")
+    run_parser.add_argument("--budget", type=float, help="Override total budget")
+    run_parser.add_argument("--dry-run", action="store_true", help="Validate and print plan without executing")
+    run_parser.add_argument("--setup-only", action="store_true", help="Run setup and output context (for skill use)")
+
+    # status
+    status_parser = subparsers.add_parser("status", help="Show run status")
+    status_parser.add_argument("run_id", nargs="?", help="Run ID (default: most recent)")
+
+    # list
+    subparsers.add_parser("list", help="List all runs")
+
+    # resume
+    resume_parser = subparsers.add_parser("resume", help="Resume an interrupted run")
+    resume_parser.add_argument("run_id", help="Run ID to resume")
+
+    args = parser.parse_args()
+
+    if args.command == "run":
+        cmd_run(args)
+    elif args.command == "status":
+        cmd_status(args)
+    elif args.command == "list":
+        cmd_list(args)
+    elif args.command == "resume":
+        cmd_resume(args)
+
+
+if __name__ == "__main__":
+    main()
