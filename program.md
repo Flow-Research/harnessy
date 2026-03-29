@@ -84,7 +84,16 @@ Override per-session via `/autoflow start` prompt.
 
 Process issues labeled `autoflow` in this repository.
 Skip issues labeled `blocked`, `wontfix`, or `duplicate`.
-Prioritization: deep-inspect issue content, evaluate against project strategy context, present ranked queue for human approval at session start.
+Prioritization: deep-inspect issue content, evaluate against project strategy context, infer explicit and implicit dependencies, and present a dependency-aware execution plan for human approval at session start.
+
+## Execution Planning At Start
+
+- Approve an execution plan, not just a flat queue
+- Use hybrid dependency detection: explicit issue links first, conservative inferred coupling second
+- Separate issues into serial foundation work, bounded parallel packets, and holdbacks
+- Default to serial whenever issues overlap on shared models, schema, auth, reusable abstractions, or verification-critical surfaces
+- Allow parallel packets only when Autoflow can justify that they preserve architectural coherence, simplicity, and test quality
+- Continue draining approved runnable issues until no runnable issue remains; stop when all remaining issues are completed, escalated, held back, or waiting at required human gates
 
 ## Constraints
 
@@ -125,15 +134,15 @@ Prioritization: deep-inspect issue content, evaluate against project strategy co
 - If an issue fails 2 consecutive phases: **pause** and comment on the GitHub issue
 - If skill improvement degrades metrics across 3 runs: **revert** and notify
 - If no eligible issues remain: **pause** the loop and report summary
-- If a phase requires human approval (human gate at a pause point): **pause** and wait
+- If a phase requires human approval (human gate at a pause point): move that issue to `waiting_human`; pause the whole loop only if no other approved runnable issues remain
 - Never force-approve a human gate — always wait for explicit human instruction
 
 ## Loop Cadence
 
-- Maximum concurrent issues: **1** (increase to 2-3 when pool protocol is tested)
+- Maximum concurrent issues: **3**
 - No cooldown between issues
 - Improvement evaluation after **every completed issue** (triggers cycle when any gate exceeds the refinement threshold)
-- Maximum **20 issues per autonomous session** before mandatory human check-in
+- No fixed issue cap per autonomous session; the human-approved plan and required human gates are the controlling checkpoints
 - Improvement cycles are always serial (no concurrent skill edits)
 
 ## Reporting
