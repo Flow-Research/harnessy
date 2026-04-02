@@ -1,0 +1,28 @@
+title: "<meta-goal title>"
+objective: >
+  <Describe the multi-goal workflow and final outcome.>
+
+sub_goals:
+  - id: first
+    goal_file: first-goal.md
+    depends_on: []
+    produces:
+      - artifact: first-output
+        path: .goal-agent/{run-id}/artifacts/first-output.md
+
+  - id: second
+    goal_file: second-goal.md
+    depends_on:
+      - goal: first
+        consumes:
+          - artifact: first-output
+            inject_as: reference
+    produces:
+      - artifact: second-output
+        path: .goal-agent/{run-id}/artifacts/second-output.md
+
+constraints:
+  max_total_budget_usd: 10.0
+  model: sonnet
+  allow_parallel_goals: false
+  on_failure: pause

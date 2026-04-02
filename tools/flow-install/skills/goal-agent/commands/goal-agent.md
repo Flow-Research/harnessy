@@ -1,6 +1,6 @@
 ---
-description: Two-intelligence goal orchestrator — decompose, drive worker, verify, adapt
-argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run-id>] | list | resume <run-id>"
+description: Two-intelligence goal orchestrator — decompose, drive worker(s), verify, adapt, and persist runtime state
+argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run-id>] | list | resume <run-id> | approve <run-id> | learn"
 ---
 
 # Command Contract: goal-agent
@@ -47,6 +47,14 @@ List all runs in `.goal-agent/` with their status.
 
 Resume a paused or interrupted run from its last checkpoint.
 
+### `approve <run-id>`
+
+Approve or reject generated verification proposals persisted in run state.
+
+### `learn`
+
+Aggregate outcome records into `.goal-agent/.learning/registry.json`.
+
 ---
 
 ## Execution Flow for `run`
@@ -66,7 +74,12 @@ Read the JSON output. It provides:
 - `state_dir` — path to `.goal-agent/<run-id>/`
 - `constraints` — parsed from goal file: max_iterations, budget, model, allowed_tools
 
-If `--background` was specified, the setup script launched a tmux session. You are now running inside it. Proceed with Step 1.
+The setup script also writes:
+- `identity.json` — on-disk orchestrator identity anchor
+- `runtime-policy.json` — machine-enforced allowlist for orchestrator writes and shell command classes
+- `prepared-goal.md` or `prepared-goals/` — mutable copies used for injected context or approved checks
+
+If `--background` was specified, the setup script outputs `"action": "background_ready"` with a `launch_cmd` field. You MUST execute `launch_cmd` directly via the Bash tool to create the tmux session. Then report the session name and attach command to the user and stop — the tmux session runs its own Claude instance.
 
 ### Step 1: Analyze Goal
 
@@ -86,10 +99,12 @@ Identify and extract:
 
 ### Step 2: Decompose into Phases
 
-Think carefully about how to break the objective into 2-7 sequential phases. Each phase should:
+Think carefully about how to break the objective into 2-7 phases. Each phase should:
 - Have a clear, verifiable deliverable
 - Build on the previous phase's output
 - Be achievable in a single worker call (with retries)
+
+If the input is a meta-goal (`.meta.yaml`), decompose at the goal-graph level first and only then decompose each sub-goal into phases.
 
 Write the phase plan:
 
@@ -97,6 +112,8 @@ Write the phase plan:
 # Phase Plan
 ## Phase 1: <name>
 Deliverable: <what the worker should produce>
+Output files: [<paths this phase is allowed to modify>]
+Depends on: [<phase ids or empty>]
 Verification: <how to check this phase succeeded>
 Worker prompt strategy: <what to emphasize>
 
@@ -220,6 +237,24 @@ Report each check's pass/fail status.
 If ALL pass → goal is achieved. Proceed to Step 5.
 If ANY fail → decide whether to add a correction phase or report partial completion.
 
+### Step 4a: Auto-Verification Approval Gate
+
+If `state.json.auto_verification.status` is `awaiting_approval`, do not continue execution silently.
+
+- In foreground mode: present the proposals and wait for the user.
+- In background mode: instruct the user to run `goal-agent approve <run-id>`.
+- Persist approved checks in run state and `prepared-goal.md`, never in the source goal file.
+
+### Step 4b: Parallel Dispatch Rule
+
+You may dispatch phases concurrently only when all of the following are true:
+
+1. Every phase in the group has `Depends on` satisfied.
+2. Their `Output files` are disjoint.
+3. The group size does not exceed `max_parallel_workers`.
+
+If two phases modify the same file, serialize them. Same-file parallel edits are forbidden in v2.
+
 ### Step 5: Report and Cleanup
 
 Write a completion report to `.goal-agent/<run-id>/report.md`:
@@ -255,6 +290,12 @@ Write a completion report to `.goal-agent/<run-id>/report.md`:
 
 Update state file with `status: "completed"` or `status: "failed"`.
 
+Also persist an outcome record for learning:
+
+```bash
+goal-agent record-outcome "$RUN_ID" --outcome completed --strategy <strategy-label>
+```
+
 Capture trace:
 ```bash
 python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
@@ -289,6 +330,22 @@ For each, read `state.json` and display: run ID, goal title, status, last update
 3. Re-read the goal file and plan.md
 4. Continue from the last incomplete phase
 
+## Execution Flow for `approve`
+
+```bash
+goal-agent approve <run-id> --approve-all
+```
+
+This updates `.goal-agent/<run-id>/state.json` and regenerates `.goal-agent/<run-id>/prepared-goal.md`.
+
+## Execution Flow for `learn`
+
+```bash
+goal-agent learn
+```
+
+This scans `.goal-agent/.learning/outcomes/*.json` and writes `.goal-agent/.learning/registry.json`.
+
 ---
 
 ## Safety Rules
@@ -298,6 +355,8 @@ For each, read `state.json` and display: run ID, goal title, status, last update
 3. **Corruption check:** After each worker call, verify the working directory still has expected structure. If the worker deleted critical files, stop.
 4. **Infinite loop prevention:** If the same verification fails with the same error 3 consecutive times, STOP. The approach is wrong. Report the failure.
 5. **Scope creep prevention:** Only implement what the goal asks for. Do not add features, refactor, or "improve" beyond the specification.
+6. **Delegation enforcement:** Do not modify application files directly as the orchestrator. If a runtime-policy wrapper blocks an action, treat that as authoritative.
+7. **Context pressure control:** For goal chaining, inline only small upstream artifacts. Prefer summaries, file lists, or references for larger artifacts.
 
 ## Feedback Capture
 

@@ -62,6 +62,17 @@ install_flow() {
   node "$WORKSPACE_ROOT/tools/flow-install/index.mjs" --yes --target "$repo" >/dev/null
 }
 
+run_goal_agent_checks() {
+  local repo="$1"
+  local e2e="0"
+  if [[ "${FLOW_EVAL_LLM_TESTS:-0}" == "1" && "${FLOW_EVAL_GOAL_AGENT_E2E:-1}" == "1" ]]; then
+    e2e="1"
+  fi
+  FLOW_HARNESS_SOURCE_ROOT="$WORKSPACE_ROOT" GOAL_AGENT_E2E="$e2e" \
+    bash "$WORKSPACE_ROOT/tests/harness/run-goal-agent-checks.sh" "$repo" >/dev/null
+  record_pass "Goal-agent verification passed" "$repo"
+}
+
 verify_opencode_skill_load() {
   local prompt="$1"
   local output_file
@@ -118,6 +129,7 @@ run_base_eval() {
   fi
   pnpm --dir "$repo" harness:verify >/dev/null
   record_pass "Base fixture harness verify passed"
+  run_goal_agent_checks "$repo"
   if [[ "${FLOW_EVAL_LLM_TESTS:-0}" == "1" ]]; then
     verify_opencode_skill_load "/brainstorm"
     record_pass "OpenCode can load Flow core skill" "brainstorm"
@@ -129,6 +141,7 @@ run_base_eval() {
   install_flow "$repo"
   pnpm --dir "$repo" harness:verify >/dev/null
   record_pass "Base fixture rerun remains idempotent enough for harness verify"
+  run_goal_agent_checks "$repo"
   python3 - <<'PY'
 import json, os
 path = os.path.join(os.environ['HOME'], '.config', 'opencode', 'opencode.json')

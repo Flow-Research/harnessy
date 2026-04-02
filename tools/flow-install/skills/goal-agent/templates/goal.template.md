@@ -1,3 +1,6 @@
+<!-- Store this file at ~/.agents/goals/YYYY/Mon/dd-<name>.md -->
+<!-- Example: ~/.agents/goals/2026/Apr/02-my-feature.md -->
+
 # Goal: <title>
 
 ## Objective

@@ -499,6 +499,18 @@ Decision logic:
 3. ΔS < -0.02 → **REVERT**
 4. |ΔS| ≤ 0.02 → **KEEP** (no regression)
 
+If the ratchet decision is **KEEP**, run descriptive attribution as a post-decision hook:
+
+```bash
+python3 "${AGENTS_SKILLS_ROOT}/_shared/attribute.py" compute --skill issue-flow --json
+```
+
+This writes:
+- `~/.agents/traces/issue-flow/attributions.ndjson`
+- `~/.agents/traces/issue-flow/component_index.json`
+
+The attribution output is descriptive only. It summarizes which changed components were associated with observed per-gate deltas after the accepted improvement. It does not claim causal attribution.
+
 Record to `.jarvis/context/autoflow/improvements.ndjson`:
 
 ```json

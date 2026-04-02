@@ -46,6 +46,14 @@ From the stats and patterns output, identify:
 
 Rank by impact: gates with more traces and higher avg loops get priority.
 
+If `~/.agents/traces/<skill-name>/component_index.json` exists, read it as **supporting descriptive evidence**:
+
+- Use it to see which components have repeatedly been associated with weak gate outcomes
+- Use it to see which improvement types have historically correlated with better results for those components
+- Treat it as advisory input only; do not present it as proof of causality
+
+The component index may help rank and explain proposals, but trace evidence remains primary.
+
 ### 3. Read the current skill
 
 Read the skill's SKILL.md, command docs (`commands/*.md`), and any script files that the feedback targets. Understand the current rules, constraints, and phase logic.

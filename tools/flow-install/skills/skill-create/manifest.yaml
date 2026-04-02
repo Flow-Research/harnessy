@@ -1,11 +1,11 @@
 name: skill-create
 type: opencode
-version: 0.1.0
+version: 0.2.0
 owner: julian
 status: active
 blast_radius: low
 description: "Scaffold new skills with manifest and catalog entry."
-permissions: ["read", "write"]
+permissions: ["read", "write", "network"]
 data_categories: ["none"]
 egress: []
 invoke: "/skill-create"
@@ -18,5 +18,7 @@ autoresearch:
   constraints:
     max_regression_rate: 0.15
     max_human_intervention: 0.6
+dependencies:
+  - python3
 traces:
   enabled: true

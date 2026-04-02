@@ -20,6 +20,7 @@
  */
 
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { log, readJsonSafe, writeJson, pathExists, ensureDir, promptConfirm } from "./lib/utils.mjs";
@@ -33,7 +34,7 @@ import { mergeAgentsMd } from "./lib/agents-md.mjs";
 import { resolveInstallPaths } from "./lib/install-paths.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 10;
 
 const collectFlowCoreSkillNames = async () => {
   const skillsDir = path.join(__dirname, "skills");
@@ -253,6 +254,47 @@ const main = async () => {
         log.skip("Autoflow CI declined");
         autoflowInstalled = false;
       }
+    }
+  }
+
+  // ── Step 10: Register cron schedules from skill manifests ───────────────
+  if (runAll && !dryRun) {
+    log.step(10, TOTAL_STEPS, "Registering cron schedules");
+    try {
+      const { execFileSync } = await import("node:child_process");
+      // Check if flow-cron is available
+      const flowCronPath = path.join(os.homedir(), ".local", "bin", "flow-cron");
+      const flowCronSource = path.join(__dirname, "scripts", "flow-cron");
+
+      // Deploy flow-cron to ~/.local/bin/ if not present or outdated
+      if (await pathExists(flowCronSource)) {
+        await ensureDir(path.join(os.homedir(), ".local", "bin"));
+        await fs.copyFile(flowCronSource, flowCronPath);
+        await fs.chmod(flowCronPath, 0o755);
+
+        // Run flow-cron install to sync crontab with manifest schedules
+        try {
+          const result = execFileSync("python3", [flowCronPath, "install"], {
+            cwd: projectRoot,
+            stdio: "pipe",
+            encoding: "utf-8",
+          });
+          const lines = result.trim().split("\n");
+          for (const line of lines) {
+            if (line.includes("Installed")) {
+              log.ok(line.trim());
+            } else if (line.includes("No enabled")) {
+              log.skip(line.trim());
+            }
+          }
+        } catch (cronErr) {
+          log.skip(`Cron registration skipped: ${cronErr.message?.split("\n")[0] || "unknown error"}`);
+        }
+      } else {
+        log.skip("flow-cron script not found in harness");
+      }
+    } catch (e) {
+      log.skip(`Cron setup skipped: ${e.message || e}`);
     }
   }
 

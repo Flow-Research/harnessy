@@ -117,6 +117,7 @@ Requirements:
 
 - keep the script narrow and deterministic,
 - document the input/output contract in `SKILL.md`,
+- declare any non-stdlib runtime dependencies in the skill manifest so Flow installers can provision them automatically,
 - reference command docs using installed paths such as `${AGENTS_SKILLS_ROOT}/<skill-name>/commands/<file-name>.md`,
 - keep the repository path and manifest `location` aligned with the chosen install scope,
 - when terminal-callable, use the final command name as the executable filename so installation can create a PATH-visible command,

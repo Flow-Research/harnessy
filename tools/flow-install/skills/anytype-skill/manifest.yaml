@@ -1,0 +1,25 @@
+name: anytype-skill
+type: opencode
+version: 0.1.0
+install_scope: global
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Interact with Anytype's local REST API to manage spaces, objects, types, properties, tags, lists, and search."
+permissions: ["read", "write", "network"]
+data_categories: ["none"]
+egress: ["127.0.0.1"]
+invoke: "/anytype"
+location: tools/flow-install/skills/anytype-skill
+autoresearch:
+  enabled: true
+  metric_layer: 1
+  time_budget_seconds: 1200
+  evaluation_window: 3
+  constraints:
+    max_regression_rate: 0.1
+    max_human_intervention: 0.5
+dependencies:
+  - anytype-desktop OR anytype-cli
+traces:
+  enabled: true
