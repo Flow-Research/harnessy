@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-Goal Agent — Setup and launcher for the two-intelligence orchestrator.
+Goal Agent — setup, policy, approval, and learning support for the goal-agent skill.
 
-Usage:
-  goal-agent run <goal-file> [--background] [--session <name>] [--max-iterations N] [--budget N] [--setup-only]
-  goal-agent status [<run-id>]
-  goal-agent list
-  goal-agent resume <run-id>
-
-This script handles pre-flight setup: goal validation, UUID generation,
-state directory creation, and optional background launch via tmux.
-The actual orchestration intelligence lives in the SKILL.md and command contract.
+This script intentionally keeps the orchestration surface machine-readable so the
+skill can call back into it for stateful operations.
 """
 
+from __future__ import annotations
+
 import argparse
+import copy
 import json
 import os
 import re
@@ -21,81 +17,218 @@ import shutil
 import subprocess
 import sys
 import uuid
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
 
 SCRIPT_NAME = os.path.basename(__file__)
-STATE_ROOT = ".goal-agent"
+STATE_ROOT = Path(".goal-agent")
+LEARNING_ROOT = STATE_ROOT / ".learning"
+OUTCOMES_ROOT = LEARNING_ROOT / "outcomes"
+REGISTRY_PATH = LEARNING_ROOT / "registry.json"
+DEFAULT_ALLOWED_TOOLS = "Bash,Read,Write,Edit,Glob,Grep"
+DEFAULT_ROLE_REINFORCEMENT_INTERVAL = 2
+DEFAULT_APPROVAL_TIMEOUT_SECONDS = 120
+DEFAULT_AUTO_APPROVE_THRESHOLD = 0.85
+DEFAULT_MAX_PARALLEL_WORKERS = 1
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
 
-def fail(message: str, code: int = 1):
-    print(json.dumps({"ok": False, "error": {"code": code, "message": message}}))
-    sys.exit(code)
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def parse_goal_file(path: str) -> dict:
-    """Parse a goal markdown file and extract structured sections."""
-    text = Path(path).read_text()
+def print_json(payload: dict[str, Any], code: int = 0) -> None:
+    print(json.dumps(payload, indent=2))
+    if code:
+        sys.exit(code)
 
-    # Extract title
-    title_match = re.search(r"^#\s+Goal:\s*(.+)$", text, re.MULTILINE)
-    title = title_match.group(1).strip() if title_match else "Untitled Goal"
 
-    # Extract sections by ## headings
-    sections = {}
-    current_section = None
-    current_lines = []
+def fail(message: str, code: int = 1) -> None:
+    print_json({"ok": False, "error": {"code": code, "message": message}}, code)
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def load_json(path: Path, default: Any = None) -> Any:
+    if not path.exists():
+        return copy.deepcopy(default)
+    return json.loads(read_text(path))
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def slugify(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "goal"
+
+
+def parse_sections(text: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    current_section: str | None = None
+    current_lines: list[str] = []
 
     for line in text.splitlines():
         heading_match = re.match(r"^##\s+(.+)$", line)
         if heading_match:
-            if current_section:
+            if current_section is not None:
                 sections[current_section.lower()] = "\n".join(current_lines).strip()
-            current_section = heading_match.group(1)
+            current_section = heading_match.group(1).strip()
             current_lines = []
-        elif current_section:
+            continue
+        if current_section is not None:
             current_lines.append(line)
 
-    if current_section:
+    if current_section is not None:
         sections[current_section.lower()] = "\n".join(current_lines).strip()
+    return sections
 
-    # Parse constraints
+
+def parse_bool(value: str) -> bool | None:
+    lowered = value.strip().lower()
+    if lowered in {"true", "yes", "on", "1"}:
+        return True
+    if lowered in {"false", "no", "off", "0"}:
+        return False
+    return None
+
+
+def extract_paths(text: str) -> list[str]:
+    return list(dict.fromkeys(re.findall(r"`([^`]+)`", text)))
+
+
+def extract_technical_terms(text: str) -> list[str]:
+    words = re.findall(r"\b[A-Za-z][A-Za-z0-9_-]{2,}\b", text)
+    stopwords = {
+        "the",
+        "and",
+        "with",
+        "from",
+        "that",
+        "this",
+        "into",
+        "then",
+        "goal",
+        "agent",
+        "write",
+        "build",
+        "create",
+        "using",
+        "file",
+        "files",
+    }
+    terms: list[str] = []
+    seen: set[str] = set()
+    for word in words:
+        lowered = word.lower()
+        if lowered in stopwords or lowered in seen:
+            continue
+        seen.add(lowered)
+        terms.append(word)
+    return terms
+
+
+def classify_goal_type(text: str) -> str:
+    lowered = text.lower()
+    if any(token in lowered for token in ["spec", "document", "report", "guide"]):
+        return "document-synthesis"
+    if any(token in lowered for token in ["implement", "build", "refactor", "fix"]):
+        return "code-implementation"
+    if any(token in lowered for token in ["audit", "review", "analyze"]):
+        return "analysis"
+    return "general"
+
+
+def infer_prompt_pattern(goal_type: str) -> str:
+    mapping = {
+        "document-synthesis": "section-with-context",
+        "code-implementation": "incremental-implementation",
+        "analysis": "evidence-first-review",
+        "general": "task-with-context",
+    }
+    return mapping.get(goal_type, "task-with-context")
+
+
+def parse_goal_file(path: str) -> dict[str, Any]:
+    goal_path = Path(path)
+    text = read_text(goal_path)
+    title_match = re.search(r"^#\s+Goal:\s*(.+)$", text, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else goal_path.stem
+    sections = parse_sections(text)
+
     constraints = {
         "max_iterations": 10,
         "budget_per_phase": 2.0,
         "total_budget": 10.0,
         "model": "sonnet",
-        "allowed_tools": "Bash,Read,Write,Edit,Glob,Grep",
+        "allowed_tools": DEFAULT_ALLOWED_TOOLS,
+        "max_parallel_workers": DEFAULT_MAX_PARALLEL_WORKERS,
+        "role_reinforcement_interval": DEFAULT_ROLE_REINFORCEMENT_INTERVAL,
+        "approval_timeout_seconds": DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+        "auto_approve_threshold": DEFAULT_AUTO_APPROVE_THRESHOLD,
+        "auto_verify": False,
     }
 
     constraints_text = sections.get("constraints", "")
-    for line in constraints_text.splitlines():
-        line = line.strip().lstrip("- ")
-        if "max iterations" in line.lower():
+    verification_text = sections.get("verification", "")
+
+    for raw_line in constraints_text.splitlines():
+        line = raw_line.strip().lstrip("- ")
+        lowered = line.lower()
+        if not line:
+            continue
+        if "max iterations" in lowered:
             match = re.search(r"(\d+)", line)
             if match:
                 constraints["max_iterations"] = int(match.group(1))
-        elif "budget per phase" in line.lower():
+        elif "budget per phase" in lowered:
             match = re.search(r"\$?([\d.]+)", line)
             if match:
                 constraints["budget_per_phase"] = float(match.group(1))
-        elif "total budget" in line.lower():
+        elif "total budget" in lowered:
             match = re.search(r"\$?([\d.]+)", line)
             if match:
                 constraints["total_budget"] = float(match.group(1))
-        elif "model" in line.lower():
+        elif lowered.startswith("model"):
             match = re.search(r":\s*(\S+)", line)
             if match:
                 constraints["model"] = match.group(1)
-        elif "allowed tools" in line.lower():
+        elif "allowed tools" in lowered:
             match = re.search(r":\s*(.+)", line)
             if match:
                 constraints["allowed_tools"] = match.group(1).strip()
+        elif "max_parallel_workers" in line or "max parallel workers" in lowered:
+            match = re.search(r"(\d+)", line)
+            if match:
+                constraints["max_parallel_workers"] = max(1, int(match.group(1)))
+        elif "role_reinforcement_interval" in line or "role reinforcement interval" in lowered:
+            match = re.search(r"(\d+)", line)
+            if match:
+                constraints["role_reinforcement_interval"] = max(1, int(match.group(1)))
+        elif "approval timeout" in lowered:
+            match = re.search(r"(\d+)", line)
+            if match:
+                constraints["approval_timeout_seconds"] = int(match.group(1))
+        elif "auto approve threshold" in lowered:
+            match = re.search(r"([\d.]+)", line)
+            if match:
+                constraints["auto_approve_threshold"] = float(match.group(1))
+        elif "auto verify" in lowered:
+            bool_value = parse_bool(line.split(":", 1)[-1])
+            if bool_value is not None:
+                constraints["auto_verify"] = bool_value
 
-    # Extract verification commands
-    verification_commands = []
-    verification_text = sections.get("verification", "")
+    verification_commands: list[str] = []
     in_code_block = False
     for line in verification_text.splitlines():
         if line.strip().startswith("```"):
@@ -104,24 +237,86 @@ def parse_goal_file(path: str) -> dict:
         if in_code_block and line.strip() and not line.strip().startswith("#"):
             verification_commands.append(line.strip())
 
-    # Extract file checks
-    file_checks = []
+    file_checks: list[str] = []
     for line in verification_text.splitlines():
         match = re.search(r"\[.\]\s+`(.+?)`\s+exists", line)
         if match:
             file_checks.append(match.group(1))
 
+    if "auto_verify: true" in verification_text.lower():
+        constraints["auto_verify"] = True
+
+    objective = sections.get("objective", "")
+    context = sections.get("context", "")
+    deliverables = extract_paths(objective) + extract_paths(context) + file_checks
+    primary_deliverable = deliverables[0] if deliverables else None
+
     return {
+        "kind": "goal",
+        "path": str(goal_path.resolve()),
         "title": title,
         "sections": sections,
         "constraints": constraints,
         "verification_commands": verification_commands,
         "file_checks": file_checks,
+        "deliverables": list(dict.fromkeys(deliverables)),
+        "primary_deliverable": primary_deliverable,
+        "goal_type": classify_goal_type(f"{title}\n{objective}"),
+        "technical_terms": extract_technical_terms(f"{title}\n{objective}"),
     }
 
 
-def validate_goal(parsed: dict) -> list[str]:
-    """Return list of validation errors (empty = valid)."""
+def parse_meta_goal(path: str) -> dict[str, Any]:
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:  # pragma: no cover - environment specific
+        fail("PyYAML is required to parse .meta.yaml goal chains", 2)
+        raise exc
+
+    meta_path = Path(path)
+    payload = yaml.safe_load(read_text(meta_path))
+    if not isinstance(payload, dict):
+        fail(f"Invalid meta-goal format: {meta_path}", 2)
+
+    sub_goals = payload.get("sub_goals")
+    if not isinstance(sub_goals, list) or not sub_goals:
+        fail("Meta-goal requires a non-empty sub_goals list", 2)
+
+    goal_ids: set[str] = set()
+    normalized_goals: list[dict[str, Any]] = []
+    for entry in sub_goals:
+        if not isinstance(entry, dict):
+            fail("Each sub_goal entry must be a mapping", 2)
+        goal_id = entry.get("id")
+        goal_file = entry.get("goal_file")
+        if not goal_id or not goal_file:
+            fail("Each sub_goal requires id and goal_file", 2)
+        if goal_id in goal_ids:
+            fail(f"Duplicate sub_goal id: {goal_id}", 2)
+        goal_ids.add(goal_id)
+        normalized_goals.append(entry)
+
+    constraints = payload.get("constraints") or {}
+    return {
+        "kind": "meta_goal",
+        "path": str(meta_path.resolve()),
+        "title": payload.get("title") or meta_path.stem,
+        "objective": payload.get("objective", ""),
+        "sub_goals": normalized_goals,
+        "constraints": {
+            "max_iterations": int(constraints.get("max_iterations", 10)),
+            "total_budget": float(constraints.get("max_total_budget_usd", constraints.get("total_budget", 10.0))),
+            "model": constraints.get("model", "sonnet"),
+            "allowed_tools": constraints.get("allowed_tools", DEFAULT_ALLOWED_TOOLS),
+            "allow_parallel_goals": bool(constraints.get("allow_parallel_goals", False)),
+            "on_failure": constraints.get("on_failure", "pause"),
+            "max_parallel_workers": int(constraints.get("max_parallel_workers", DEFAULT_MAX_PARALLEL_WORKERS)),
+        },
+        "goal_type": "goal-chain",
+    }
+
+
+def validate_goal(parsed: dict[str, Any]) -> list[str]:
     errors = []
     if not parsed.get("sections", {}).get("objective"):
         errors.append("Missing required section: ## Objective")
@@ -130,246 +325,770 @@ def validate_goal(parsed: dict) -> list[str]:
     return errors
 
 
-# ── Commands ─────────────────────────────────────────────────────────────────
+def ensure_learning_dirs() -> None:
+    OUTCOMES_ROOT.mkdir(parents=True, exist_ok=True)
 
-def cmd_run(args):
-    goal_file = os.path.abspath(args.goal_file)
 
-    if not os.path.isfile(goal_file):
-        fail(f"Goal file not found: {goal_file}", 2)
+def build_identity(run_id: str, worker_session_id: str) -> dict[str, Any]:
+    return {
+        "role": "orchestrator",
+        "run_id": run_id,
+        "worker_session_id": worker_session_id,
+        "identity_version": 1,
+        "core_rules": [
+            "I am the ORCHESTRATOR. I decompose, delegate, verify, and adapt.",
+            "I NEVER write application code. My tools are for state management and verification ONLY.",
+            "I delegate ALL implementation work via: claude -p --session-id $WORKER_SESSION_ID",
+            "A phase is complete ONLY when verification commands return exit code 0.",
+            "If I am about to use Write or Edit on a non-state file, I am violating my role.",
+        ],
+        "delegation_command_template": 'claude -p --session-id "$SID" --output-format json --permission-mode auto',
+    }
 
-    parsed = parse_goal_file(goal_file)
-    errors = validate_goal(parsed)
-    if errors:
-        fail(f"Invalid goal file: {'; '.join(errors)}", 2)
 
-    # Override constraints from CLI args
-    if args.max_iterations is not None:
-        parsed["constraints"]["max_iterations"] = args.max_iterations
-    if args.budget is not None:
-        parsed["constraints"]["total_budget"] = args.budget
+def build_runtime_policy(run_id: str, constraints: dict[str, Any]) -> dict[str, Any]:
+    state_prefix = f".goal-agent/{run_id}"
+    return {
+        "run_id": run_id,
+        "allowed_write_patterns": [
+            f"{state_prefix}/state.json",
+            f"{state_prefix}/plan.md",
+            f"{state_prefix}/current-prompt.md",
+            f"{state_prefix}/current-prompt-phase-*.md",
+            f"{state_prefix}/report.md",
+            f"{state_prefix}/identity.json",
+            f"{state_prefix}/runtime-policy.json",
+            f"{state_prefix}/verification-proposals.json",
+            f"{state_prefix}/prepared-goal.md",
+            f"{state_prefix}/prepared-goals/*",
+            f"{state_prefix}/artifacts/*",
+            f"{state_prefix}/worker-output-*.json",
+        ],
+        "allowed_bash_markers": [
+            "claude -p",
+            "test -f",
+            'echo "EXIT_CODE:',
+            "python3",
+            f"cat {state_prefix}",
+            f"ls {state_prefix}",
+            "git diff",
+            "kill -0",
+        ],
+        "max_parallel_workers": constraints.get("max_parallel_workers", DEFAULT_MAX_PARALLEL_WORKERS),
+    }
 
-    # Generate IDs
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
-    worker_session_id = str(uuid.uuid4())
 
-    # Create state directory
-    state_dir = os.path.join(STATE_ROOT, run_id)
-    os.makedirs(state_dir, exist_ok=True)
+def initialize_state_dir(state_dir: Path, *, is_meta: bool) -> None:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "snapshots").mkdir(exist_ok=True)
+    if is_meta:
+        (state_dir / "artifacts").mkdir(exist_ok=True)
+        (state_dir / "prepared-goals").mkdir(exist_ok=True)
 
-    # Write initial state
-    state = {
+
+def build_base_state(
+    *,
+    run_id: str,
+    worker_session_id: str,
+    constraints: dict[str, Any],
+    goal_file: str,
+    goal_title: str,
+    verification_commands: list[str],
+    file_checks: list[str],
+    goal_type: str,
+) -> dict[str, Any]:
+    return {
         "run_id": run_id,
         "worker_session_id": worker_session_id,
         "goal_file": goal_file,
-        "goal_title": parsed["title"],
+        "goal_title": goal_title,
         "status": "initialized",
         "current_phase": 0,
         "total_phases": 0,
         "iteration": 0,
-        "max_iterations": parsed["constraints"]["max_iterations"],
+        "max_iterations": constraints["max_iterations"],
         "budget_used_estimate": 0.0,
-        "budget_limit": parsed["constraints"]["total_budget"],
-        "model": parsed["constraints"]["model"],
-        "allowed_tools": parsed["constraints"]["allowed_tools"],
+        "budget_limit": constraints["total_budget"],
+        "model": constraints["model"],
+        "allowed_tools": constraints["allowed_tools"],
         "phases": [],
-        "verification_commands": parsed["verification_commands"],
-        "file_checks": parsed["file_checks"],
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "last_updated_at": datetime.now(timezone.utc).isoformat(),
+        "verification_commands": verification_commands,
+        "file_checks": file_checks,
+        "started_at": now_iso(),
+        "last_updated_at": now_iso(),
+        "orchestrator_state": "INIT",
+        "delegation_count": 0,
+        "direct_action_count": 0,
+        "last_role_reinforcement": None,
+        "role_reinforcement_interval": constraints.get(
+            "role_reinforcement_interval",
+            DEFAULT_ROLE_REINFORCEMENT_INTERVAL,
+        ),
+        "parallel_dispatch": None,
+        "auto_verification": {
+            "enabled": constraints.get("auto_verify", False),
+            "proposed": [],
+            "approved": [],
+            "status": "disabled" if not constraints.get("auto_verify", False) else "pending_generation",
+            "approval_timeout_seconds": constraints.get(
+                "approval_timeout_seconds",
+                DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+            ),
+            "auto_approve_threshold": constraints.get(
+                "auto_approve_threshold",
+                DEFAULT_AUTO_APPROVE_THRESHOLD,
+            ),
+        },
+        "learning_recommendation": None,
+        "cumulative_spend_usd": 0.0,
+        "goal_type": goal_type,
     }
 
-    state_path = os.path.join(state_dir, "state.json")
-    with open(state_path, "w") as f:
-        json.dump(state, f, indent=2)
+
+def generate_verification_proposals(parsed_goal: dict[str, Any]) -> list[dict[str, Any]]:
+    proposals: list[dict[str, Any]] = []
+    deliverables = parsed_goal.get("deliverables", [])
+    primary_deliverable = parsed_goal.get("primary_deliverable")
+
+    for path in deliverables:
+        proposals.append(
+            {
+                "command": f'test -f "{path}"',
+                "category": "structural",
+                "confidence": 0.95,
+                "rationale": f"Objective names {path} as a deliverable",
+            }
+        )
+
+    if primary_deliverable and primary_deliverable.endswith(".md"):
+        objective = parsed_goal.get("sections", {}).get("objective", "")
+        for section in [term for term in extract_technical_terms(objective)[:5]]:
+            proposals.append(
+                {
+                    "command": f'grep -qi "{section}" "{primary_deliverable}"',
+                    "category": "semantic",
+                    "confidence": 0.60,
+                    "rationale": f"Term '{section}' is central to the objective",
+                }
+            )
+
+    syntax_checkers = {
+        ".py": 'python3 -c "import ast, pathlib; ast.parse(pathlib.Path(\"{path}\").read_text())"',
+        ".sh": 'bash -n "{path}"',
+        ".js": 'node --check "{path}"',
+    }
+    for path in deliverables:
+        suffix = Path(path).suffix
+        if suffix in syntax_checkers:
+            proposals.append(
+                {
+                    "command": syntax_checkers[suffix].format(path=path),
+                    "category": "behavioral",
+                    "confidence": 0.80,
+                    "rationale": f"Verify {path} is syntactically valid",
+                }
+            )
+
+    existing = {normalize_command(command) for command in parsed_goal.get("verification_commands", [])}
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for proposal in proposals:
+        normalized = normalize_command(proposal["command"])
+        if normalized in existing or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(proposal)
+    return deduped
+
+
+def normalize_command(command: str) -> str:
+    return re.sub(r"\s+", " ", command.strip())
+
+
+def sync_prepared_goal(run_dir: Path, state: dict[str, Any]) -> None:
+    goal_file = state.get("goal_file")
+    if not goal_file or goal_file.endswith((".meta.yaml", ".meta.yml")):
+        return
+    source = Path(goal_file)
+    if not source.exists():
+        return
+    content = read_text(source)
+    approved = state.get("auto_verification", {}).get("approved", [])
+    if approved:
+        lines = ["", "## Approved Auto Verification", "", "<!-- Generated by goal-agent -->"]
+        for item in approved:
+            lines.append(
+                f"- `{item['command']}` [{item['category']}, {item['confidence']:.2f}]"
+            )
+        content = content.rstrip() + "\n" + "\n".join(lines) + "\n"
+    write_text(run_dir / "prepared-goal.md", content)
+
+
+def output_context(
+    *,
+    action: str,
+    run_id: str,
+    worker_session_id: str,
+    goal_file: str,
+    state_dir: Path,
+    constraints: dict[str, Any],
+    extra: dict[str, Any] | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "ok": True,
+        "action": action,
+        "run_id": run_id,
+        "worker_session_id": worker_session_id,
+        "goal_file": goal_file,
+        "state_dir": str(state_dir.resolve()),
+        "constraints": constraints,
+    }
+    if extra:
+        payload.update(extra)
+    print_json(payload)
+
+
+def _check_goal_path_convention(goal_path: Path) -> str | None:
+    """Check if goal file follows the standard convention: ~/.agents/goals/YYYY/Mon/dd-name.md"""
+    try:
+        rel = goal_path.relative_to(GOALS_ROOT)
+        parts = rel.parts
+        if len(parts) >= 3:
+            year, month, filename = parts[0], parts[1], parts[2]
+            if re.match(r"^\d{4}$", year) and month in (
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+            ) and re.match(r"^\d{2}-", filename):
+                return None  # Convention followed
+        return f"Goal file path doesn't follow convention. Expected: {GOALS_ROOT}/YYYY/Mon/dd-name.md"
+    except ValueError:
+        return f"Goal file is outside standard location. Convention: {GOALS_ROOT}/YYYY/Mon/dd-name.md"
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    goal_path = Path(args.goal_file).resolve()
+    if not goal_path.is_file():
+        fail(f"Goal file not found: {goal_path}", 2)
+
+    # Warn (don't block) if goal file is outside standard location
+    convention_warning = _check_goal_path_convention(goal_path)
+    if convention_warning:
+        print(f"⚠ {convention_warning}", file=sys.stderr)
+
+    is_meta = goal_path.name.endswith((".meta.yaml", ".meta.yml"))
+    parsed = parse_meta_goal(str(goal_path)) if is_meta else parse_goal_file(str(goal_path))
+    if not is_meta:
+        errors = validate_goal(parsed)
+        if errors:
+            fail(f"Invalid goal file: {'; '.join(errors)}", 2)
+
+    constraints = parsed["constraints"]
+    if args.max_iterations is not None and not is_meta:
+        constraints["max_iterations"] = args.max_iterations
+    if args.budget is not None:
+        constraints["total_budget"] = args.budget
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    worker_session_id = str(uuid.uuid4())
+    state_dir = STATE_ROOT / run_id
+    initialize_state_dir(state_dir, is_meta=is_meta)
+    ensure_learning_dirs()
+
+    identity = build_identity(run_id, worker_session_id)
+    runtime_policy = build_runtime_policy(run_id, constraints)
+    write_json(state_dir / "identity.json", identity)
+    write_json(state_dir / "runtime-policy.json", runtime_policy)
+
+    if is_meta:
+        state = build_base_state(
+            run_id=run_id,
+            worker_session_id=worker_session_id,
+            constraints={
+                "max_iterations": constraints["max_iterations"],
+                "total_budget": constraints["total_budget"],
+                "model": constraints["model"],
+                "allowed_tools": constraints["allowed_tools"],
+                "role_reinforcement_interval": DEFAULT_ROLE_REINFORCEMENT_INTERVAL,
+                "auto_verify": False,
+            },
+            goal_file=str(goal_path),
+            goal_title=parsed["title"],
+            verification_commands=[],
+            file_checks=[],
+            goal_type=parsed["goal_type"],
+        )
+        state.update(
+            {
+                "meta_run_id": run_id,
+                "meta_goal_file": str(goal_path),
+                "sub_goals": {
+                    entry["id"]: {"status": "pending", "goal_file": entry["goal_file"]}
+                    for entry in parsed["sub_goals"]
+                },
+                "artifact_registry_path": str((state_dir / "artifact-registry.json").resolve()),
+                "resume_from": None,
+                "resumable": True,
+                "chain_state": {
+                    "allow_parallel_goals": constraints.get("allow_parallel_goals", False),
+                    "on_failure": constraints.get("on_failure", "pause"),
+                    "current_goal": None,
+                },
+            }
+        )
+        write_json(state_dir / "artifact-registry.json", {"artifacts": []})
+    else:
+        proposals = generate_verification_proposals(parsed) if constraints.get("auto_verify") else []
+        state = build_base_state(
+            run_id=run_id,
+            worker_session_id=worker_session_id,
+            constraints=constraints,
+            goal_file=str(goal_path),
+            goal_title=parsed["title"],
+            verification_commands=parsed["verification_commands"],
+            file_checks=parsed["file_checks"],
+            goal_type=parsed["goal_type"],
+        )
+        state["auto_verification"]["proposed"] = proposals
+        if proposals:
+            state["auto_verification"]["status"] = "awaiting_approval"
+            write_json(state_dir / "verification-proposals.json", {"proposals": proposals})
+        sync_prepared_goal(state_dir, state)
+
+    write_json(state_dir / "state.json", state)
 
     if args.dry_run:
-        print(json.dumps({
-            "ok": True,
-            "action": "dry_run",
-            "run_id": run_id,
-            "goal_title": parsed["title"],
-            "constraints": parsed["constraints"],
-            "verification_commands": parsed["verification_commands"],
-            "file_checks": parsed["file_checks"],
-            "state_dir": state_dir,
-        }, indent=2))
+        print_json(
+            {
+                "ok": True,
+                "action": "dry_run",
+                "run_id": run_id,
+                "goal_title": parsed["title"],
+                "constraints": constraints,
+                "verification_commands": state.get("verification_commands", []),
+                "file_checks": state.get("file_checks", []),
+                "state_dir": str(state_dir.resolve()),
+                "is_meta_goal": is_meta,
+            }
+        )
         return
 
     if args.setup_only:
-        # Output context for the orchestrator skill to consume
-        print(json.dumps({
-            "ok": True,
-            "action": "setup_complete",
-            "run_id": run_id,
-            "worker_session_id": worker_session_id,
-            "goal_file": goal_file,
-            "state_dir": os.path.abspath(state_dir),
-            "constraints": parsed["constraints"],
-        }, indent=2))
+        output_context(
+            action="setup_complete",
+            run_id=run_id,
+            worker_session_id=worker_session_id,
+            goal_file=str(goal_path),
+            state_dir=state_dir,
+            constraints=constraints,
+            extra={
+                "is_meta_goal": is_meta,
+                "auto_verification_status": state.get("auto_verification", {}).get("status"),
+            },
+        )
         return
 
     if args.background:
         session_name = args.session or f"goal-{run_id}"
         cwd = os.getcwd()
-
-        # Check for tmux
         if not shutil.which("tmux"):
             fail("tmux is required for --background mode", 3)
-
-        # Launch claude in interactive mode with the goal-agent slash command as initial prompt.
-        # IMPORTANT: Do NOT redirect stdout/stderr — claude detects non-TTY and exits
-        # immediately in non-interactive mode. It must own the tmux pane's TTY.
         runner = shutil.which("claude") or "claude"
-        prompt = f'/goal-agent run {goal_file}'
-
-        tmux_cmd = [
-            "tmux", "new-session", "-d",
-            "-s", session_name,
-            "-c", cwd,
-            "bash", "-lc",
-            f'{runner} --permission-mode auto "{prompt}"',
-        ]
-
-        # Write a launcher script and execute it directly via bash.
-        # Running tmux from within Python subprocess called from Claude Code's
-        # Bash tool causes sessions to be killed. Delegating to a shell script avoids this.
-        launcher_path = os.path.join(os.path.abspath(state_dir), "launch.sh")
-        with open(launcher_path, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write(f'tmux new-session -d -s "{session_name}" -c "{cwd}" ')
-            f.write(f"bash -lc '{runner} --permission-mode auto \"{prompt}\"'\n")
-        os.chmod(launcher_path, 0o755)
-        subprocess.run(["bash", launcher_path], check=True)
-
-        print(json.dumps({
-            "ok": True,
-            "action": "background_launch",
-            "run_id": run_id,
-            "session": session_name,
-            "goal_title": parsed["title"],
-            "state_dir": os.path.abspath(state_dir),
-            "attach_command": f"tmux attach-session -t {session_name}",
-        }, indent=2))
+        prompt = f'/goal-agent run {goal_path}'
+        launch_cmd = (
+            f'tmux new-session -d -s "{session_name}" -c "{cwd}" '
+            f"bash -lc '{runner} --permission-mode auto \"{prompt}\"'"
+        )
+        print_json(
+            {
+                "ok": True,
+                "action": "background_ready",
+                "run_id": run_id,
+                "session": session_name,
+                "goal_title": parsed["title"],
+                "state_dir": str(state_dir.resolve()),
+                "launch_cmd": launch_cmd,
+                "attach_cmd": f"tmux attach-session -t {session_name}",
+            }
+        )
         return
 
-    # Foreground mode — output context for the orchestrator skill
-    print(json.dumps({
-        "ok": True,
-        "action": "setup_complete",
-        "run_id": run_id,
-        "worker_session_id": worker_session_id,
-        "goal_file": goal_file,
-        "state_dir": os.path.abspath(state_dir),
-        "constraints": parsed["constraints"],
-    }, indent=2))
+    output_context(
+        action="setup_complete",
+        run_id=run_id,
+        worker_session_id=worker_session_id,
+        goal_file=str(goal_path),
+        state_dir=state_dir,
+        constraints=constraints,
+        extra={
+            "is_meta_goal": is_meta,
+            "auto_verification_status": state.get("auto_verification", {}).get("status"),
+        },
+    )
 
 
-def cmd_status(args):
-    if args.run_id:
-        state_path = os.path.join(STATE_ROOT, args.run_id, "state.json")
-    else:
-        # Find most recent run
-        if not os.path.isdir(STATE_ROOT):
-            fail("No runs found", 4)
-        runs = sorted(os.listdir(STATE_ROOT), reverse=True)
-        if not runs:
-            fail("No runs found", 4)
-        state_path = os.path.join(STATE_ROOT, runs[0], "state.json")
+def find_state_path(run_id: str | None) -> Path:
+    if run_id:
+        return STATE_ROOT / run_id / "state.json"
+    if not STATE_ROOT.is_dir():
+        fail("No runs found", 4)
+    runs = sorted((item for item in STATE_ROOT.iterdir() if item.is_dir()), reverse=True)
+    if not runs:
+        fail("No runs found", 4)
+    return runs[0] / "state.json"
 
-    if not os.path.isfile(state_path):
+
+def cmd_status(args: argparse.Namespace) -> None:
+    state_path = find_state_path(args.run_id)
+    if not state_path.exists():
         fail(f"State file not found: {state_path}", 4)
-
-    with open(state_path) as f:
-        state = json.load(f)
-
-    print(json.dumps({"ok": True, "action": "status", **state}, indent=2))
+    state = load_json(state_path)
+    print_json({"ok": True, "action": "status", **state})
 
 
-def cmd_list(args):
-    if not os.path.isdir(STATE_ROOT):
-        print(json.dumps({"ok": True, "action": "list", "runs": []}))
+GOALS_ROOT = Path.home() / ".agents" / "goals"
+
+
+def cmd_list(args: argparse.Namespace) -> None:
+    if getattr(args, "goals", False):
+        _list_goals()
         return
-
+    if not STATE_ROOT.is_dir():
+        print_json({"ok": True, "action": "list", "runs": []})
+        return
     runs = []
-    for run_dir in sorted(os.listdir(STATE_ROOT), reverse=True):
-        state_path = os.path.join(STATE_ROOT, run_dir, "state.json")
-        if os.path.isfile(state_path):
-            with open(state_path) as f:
-                state = json.load(f)
-            runs.append({
-                "run_id": state.get("run_id", run_dir),
+    for run_dir in sorted((item for item in STATE_ROOT.iterdir() if item.is_dir()), reverse=True):
+        state_path = run_dir / "state.json"
+        if not state_path.exists():
+            continue
+        state = load_json(state_path)
+        runs.append(
+            {
+                "run_id": state.get("run_id", run_dir.name),
                 "goal_title": state.get("goal_title", "Unknown"),
                 "status": state.get("status", "unknown"),
                 "iteration": state.get("iteration", 0),
                 "last_updated_at": state.get("last_updated_at", ""),
-            })
+                "is_meta_goal": bool(state.get("meta_goal_file")),
+            }
+        )
+    print_json({"ok": True, "action": "list", "runs": runs})
 
-    print(json.dumps({"ok": True, "action": "list", "runs": runs}, indent=2))
+
+def _list_goals() -> None:
+    """Scan the standard goal file location and list available goals."""
+    if not GOALS_ROOT.is_dir():
+        print_json({"ok": True, "action": "list_goals", "goals_root": str(GOALS_ROOT), "goals": [],
+                     "hint": f"No goals directory found. Create goals at {GOALS_ROOT}/YYYY/Mon/dd-name.md"})
+        return
+    goals = []
+    for md_file in sorted(GOALS_ROOT.rglob("*.md"), reverse=True):
+        rel = md_file.relative_to(GOALS_ROOT)
+        # Try to extract title from first heading or ## Objective
+        title = "Untitled"
+        try:
+            text = md_file.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                m = re.match(r"^#\s+(?:Goal:\s*)?(.+)$", line)
+                if m:
+                    title = m.group(1).strip()
+                    break
+                m2 = re.match(r"^##\s+Objective\s*$", line, re.IGNORECASE)
+                if m2:
+                    title = md_file.stem.replace("-", " ").title()
+                    break
+        except Exception:
+            pass
+        goals.append({
+            "path": str(md_file),
+            "relative": str(rel),
+            "title": title,
+            "modified": datetime.fromtimestamp(md_file.stat().st_mtime, tz=timezone.utc).isoformat(),
+        })
+    print_json({"ok": True, "action": "list_goals", "goals_root": str(GOALS_ROOT), "count": len(goals), "goals": goals})
 
 
-def cmd_resume(args):
-    state_path = os.path.join(STATE_ROOT, args.run_id, "state.json")
-    if not os.path.isfile(state_path):
+def cmd_resume(args: argparse.Namespace) -> None:
+    state_path = STATE_ROOT / args.run_id / "state.json"
+    if not state_path.exists():
         fail(f"Run not found: {args.run_id}", 4)
-
-    with open(state_path) as f:
-        state = json.load(f)
-
-    if state["status"] == "completed":
+    state = load_json(state_path)
+    if state.get("status") == "completed":
         fail(f"Run {args.run_id} is already completed", 2)
-
-    # Output context for the orchestrator to resume
-    print(json.dumps({
-        "ok": True,
-        "action": "resume",
-        "run_id": state["run_id"],
-        "worker_session_id": state["worker_session_id"],
-        "goal_file": state["goal_file"],
-        "state_dir": os.path.abspath(os.path.join(STATE_ROOT, args.run_id)),
-        "constraints": {
+    output_context(
+        action="resume",
+        run_id=state["run_id"],
+        worker_session_id=state["worker_session_id"],
+        goal_file=state["goal_file"],
+        state_dir=state_path.parent,
+        constraints={
             "max_iterations": state["max_iterations"],
             "total_budget": state["budget_limit"],
             "model": state.get("model", "sonnet"),
-            "allowed_tools": state.get("allowed_tools", "Bash,Read,Write,Edit,Glob,Grep"),
+            "allowed_tools": state.get("allowed_tools", DEFAULT_ALLOWED_TOOLS),
         },
-        "current_phase": state["current_phase"],
-        "iteration": state["iteration"],
-    }, indent=2))
+        extra={
+            "current_phase": state.get("current_phase", 0),
+            "iteration": state.get("iteration", 0),
+            "resume_from": state.get("resume_from"),
+            "is_meta_goal": bool(state.get("meta_goal_file")),
+        },
+    )
 
 
-# ── CLI ──────────────────────────────────────────────────────────────────────
+def decision_from_args(args: argparse.Namespace) -> str:
+    if args.approve_all:
+        return "approve"
+    if args.reject_all:
+        return "reject"
+    return args.decision
 
-def main():
+
+def cmd_approve(args: argparse.Namespace) -> None:
+    state_path = STATE_ROOT / args.run_id / "state.json"
+    if not state_path.exists():
+        fail(f"Run not found: {args.run_id}", 4)
+    state = load_json(state_path)
+    auto_verification = state.get("auto_verification") or {}
+    proposed = auto_verification.get("proposed") or []
+    decision = decision_from_args(args)
+    approved = proposed if decision == "approve" else []
+    auto_verification["approved"] = approved
+    auto_verification["status"] = "approved" if decision == "approve" else "rejected"
+    auto_verification["decided_at"] = now_iso()
+    state["auto_verification"] = auto_verification
+    state["last_updated_at"] = now_iso()
+    write_json(state_path, state)
+    sync_prepared_goal(state_path.parent, state)
+    print_json(
+        {
+            "ok": True,
+            "action": "approve",
+            "run_id": args.run_id,
+            "decision": decision,
+            "approved_count": len(approved),
+        }
+    )
+
+
+def cmd_guard(args: argparse.Namespace) -> None:
+    run_dir = STATE_ROOT / args.run_id
+    state_path = run_dir / "state.json"
+    policy_path = run_dir / "runtime-policy.json"
+    if not state_path.exists() or not policy_path.exists():
+        fail(f"Run not found or missing policy: {args.run_id}", 4)
+
+    state = load_json(state_path)
+    policy = load_json(policy_path)
+    tool = args.tool
+    target = args.target or ""
+    normalized_target = target.replace(os.sep, "/")
+    allowed = True
+    reason = "allowed"
+
+    if tool in {"Write", "Edit"}:
+        allowed = any(fnmatch_path(normalized_target, pattern) for pattern in policy["allowed_write_patterns"])
+        reason = "write path allowed" if allowed else f"blocked write path: {target}"
+    elif tool == "Bash":
+        allowed = any(marker in target for marker in policy["allowed_bash_markers"])
+        reason = "bash command allowed" if allowed else f"blocked bash command: {target}"
+
+    current_state = state.get("orchestrator_state", "INIT")
+    state_table = {
+        "ANALYZE_GOAL": {"Read", "Grep", "Glob"},
+        "DECOMPOSE": {"Read", "Write", "Edit", "Grep", "Glob"},
+        "CRAFT_PROMPT": {"Read", "Write", "Edit", "Grep", "Glob"},
+        "CALL_WORKER": {"Bash"},
+        "DISPATCH_PARALLEL": {"Bash", "Read", "Write", "Edit"},
+        "EVALUATE_RESULT": {"Read", "Bash", "Grep", "Glob"},
+        "FINAL_VERIFY": {"Read", "Bash", "Grep", "Glob"},
+        "REPORT": {"Read", "Write", "Edit", "Bash"},
+        "INIT": {"Read", "Write", "Edit", "Bash", "Grep", "Glob"},
+    }
+    if allowed and tool not in state_table.get(current_state, state_table["INIT"]):
+        allowed = False
+        reason = f"tool {tool} is not allowed in orchestrator_state {current_state}"
+
+    print_json(
+        {
+            "ok": True,
+            "action": "guard",
+            "run_id": args.run_id,
+            "allowed": allowed,
+            "reason": reason,
+            "orchestrator_state": current_state,
+        },
+        0 if allowed else 1,
+    )
+
+
+def fnmatch_path(path: str, pattern: str) -> bool:
+    from fnmatch import fnmatch
+
+    return fnmatch(path, pattern)
+
+
+def compute_strategy_score(outcome: dict[str, Any]) -> float:
+    verification = outcome.get("verification", {})
+    decomposition = outcome.get("decomposition", {})
+    phases = decomposition.get("phases", [])
+    avg_iterations = sum(phase.get("iterations", 1) for phase in phases) / max(1, len(phases))
+    pass_rate = verification.get("pass_rate", 0.0)
+    budget = outcome.get("budget", {})
+    limit = max(float(budget.get("limit", 1.0)), 1.0)
+    efficiency = max(0.0, 1.0 - (float(budget.get("actual", 0.0)) / limit))
+    revisions = decomposition.get("revisions", 0)
+    return round(pass_rate * 0.5 + efficiency * 0.3 + (1.0 / max(avg_iterations, 1.0)) * 0.15 + (1.0 / (1 + revisions)) * 0.05, 4)
+
+
+def cmd_learn(args: argparse.Namespace) -> None:
+    ensure_learning_dirs()
+    if args.reset:
+        if REGISTRY_PATH.exists():
+            REGISTRY_PATH.unlink()
+        print_json({"ok": True, "action": "learn_reset", "registry": str(REGISTRY_PATH.resolve())})
+        return
+
+    outcomes = []
+    for outcome_path in sorted(OUTCOMES_ROOT.glob("*.json")):
+        try:
+            outcomes.append(load_json(outcome_path))
+        except json.JSONDecodeError:
+            continue
+
+    by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for outcome in outcomes:
+        by_type[outcome.get("goal_type", "general")].append(outcome)
+
+    registry: dict[str, Any] = {
+        "updated_at": now_iso(),
+        "recommendations": {},
+        "sample_size": len(outcomes),
+    }
+
+    for goal_type, runs in by_type.items():
+        strategy_scores: dict[str, list[float]] = defaultdict(list)
+        prompt_patterns: list[str] = []
+        for run in runs:
+            strategy = run.get("decomposition", {}).get("strategy", "default")
+            strategy_scores[strategy].append(compute_strategy_score(run))
+            for phase in run.get("decomposition", {}).get("phases", []):
+                if phase.get("iterations", 1) == 1 and phase.get("prompt_pattern"):
+                    prompt_patterns.append(phase["prompt_pattern"])
+
+        if not strategy_scores:
+            continue
+        best_strategy = max(strategy_scores, key=lambda name: sum(strategy_scores[name]) / len(strategy_scores[name]))
+        recommendation = {
+            "recommended_strategy": best_strategy,
+            "confidence": round(len(strategy_scores[best_strategy]) / max(1, len(runs)), 2),
+            "sample_size": len(runs),
+            "prompt_pattern": Counter(prompt_patterns).most_common(1)[0][0] if prompt_patterns else None,
+        }
+        registry["recommendations"][goal_type] = recommendation
+
+    write_json(REGISTRY_PATH, registry)
+    print_json({"ok": True, "action": "learn", **registry})
+
+
+def cmd_record_outcome(args: argparse.Namespace) -> None:
+    state_path = STATE_ROOT / args.run_id / "state.json"
+    if not state_path.exists():
+        fail(f"Run not found: {args.run_id}", 4)
+    state = load_json(state_path)
+    ensure_learning_dirs()
+
+    phases = state.get("phases", [])
+    goal_type = state.get("goal_type") or classify_goal_type(state.get("goal_title", ""))
+    outcome = {
+        "run_id": state["run_id"],
+        "goal_type": goal_type,
+        "goal_hash": f"sha256:{uuid.uuid5(uuid.NAMESPACE_URL, state['goal_file']).hex}",
+        "model": state.get("model", "sonnet"),
+        "timestamp": now_iso(),
+        "outcome": args.outcome,
+        "budget": {"limit": state.get("budget_limit", 0.0), "actual": state.get("cumulative_spend_usd", state.get("budget_used_estimate", 0.0))},
+        "decomposition": {
+            "strategy": args.strategy or "default",
+            "phase_count": len(phases),
+            "phases": [
+                {
+                    "index": idx,
+                    "description": phase.get("name", f"Phase {idx+1}"),
+                    "iterations": phase.get("iterations", 1),
+                    "verification_pass_rate": 1.0 if phase.get("status") == "completed" else 0.0,
+                    "duration_seconds": phase.get("duration_seconds", 0),
+                    "prompt_pattern": phase.get("prompt_pattern", infer_prompt_pattern(goal_type)),
+                }
+                for idx, phase in enumerate(phases)
+            ],
+            "revisions": state.get("plan_revisions", 0),
+        },
+        "verification": {
+            "total_checks": len(state.get("verification_commands", [])) + len(state.get("file_checks", [])),
+            "human_written": len(state.get("verification_commands", [])) + len(state.get("file_checks", [])),
+            "auto_generated": len(state.get("auto_verification", {}).get("approved", [])),
+            "pass_rate": args.pass_rate,
+            "checks_that_caught_failures": [],
+        },
+        "failure_modes": args.failure_modes or [],
+    }
+    outcome_path = OUTCOMES_ROOT / f"{args.run_id}.json"
+    write_json(outcome_path, outcome)
+    print_json({"ok": True, "action": "record_outcome", "path": str(outcome_path.resolve())})
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=SCRIPT_NAME,
-        description="Goal Agent — Setup and launcher for two-intelligence orchestrator",
+        description="Goal Agent — setup and state helper for the goal-agent skill",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # run
-    run_parser = subparsers.add_parser("run", help="Execute a goal")
+    run_parser = subparsers.add_parser("run", help="Execute or initialize a goal")
     run_parser.add_argument("goal_file", help="Path to goal specification file")
     run_parser.add_argument("--background", action="store_true", help="Launch in tmux session")
     run_parser.add_argument("--session", help="Name for the tmux session")
     run_parser.add_argument("--max-iterations", type=int, help="Override max iterations")
     run_parser.add_argument("--budget", type=float, help="Override total budget")
     run_parser.add_argument("--dry-run", action="store_true", help="Validate and print plan without executing")
-    run_parser.add_argument("--setup-only", action="store_true", help="Run setup and output context (for skill use)")
+    run_parser.add_argument("--setup-only", action="store_true", help="Run setup and output context")
 
-    # status
     status_parser = subparsers.add_parser("status", help="Show run status")
     status_parser.add_argument("run_id", nargs="?", help="Run ID (default: most recent)")
 
-    # list
-    subparsers.add_parser("list", help="List all runs")
+    list_parser = subparsers.add_parser("list", help="List all runs")
+    list_parser.add_argument("--goals", action="store_true", help="List available goal files from standard location (~/.agents/goals/)")
 
-    # resume
     resume_parser = subparsers.add_parser("resume", help="Resume an interrupted run")
     resume_parser.add_argument("run_id", help="Run ID to resume")
 
-    args = parser.parse_args()
+    approve_parser = subparsers.add_parser("approve", help="Approve or reject generated verification proposals")
+    approve_parser.add_argument("run_id", help="Run ID")
+    approve_parser.add_argument("decision", nargs="?", default="approve", choices=["approve", "reject"], help="Decision to apply")
+    approve_parser.add_argument("--approve-all", action="store_true", help="Approve all proposals")
+    approve_parser.add_argument("--reject-all", action="store_true", help="Reject all proposals")
 
+    guard_parser = subparsers.add_parser("guard", help="Evaluate a proposed orchestrator action against runtime policy")
+    guard_parser.add_argument("run_id", help="Run ID")
+    guard_parser.add_argument("--tool", required=True, help="Tool name, e.g. Write, Edit, Bash")
+    guard_parser.add_argument("--target", help="File path or bash command")
+
+    learn_parser = subparsers.add_parser("learn", help="Aggregate run outcomes into a learning registry")
+    learn_parser.add_argument("--reset", action="store_true", help="Reset the learning registry")
+
+    outcome_parser = subparsers.add_parser("record-outcome", help="Persist a run outcome for learning")
+    outcome_parser.add_argument("run_id", help="Run ID")
+    outcome_parser.add_argument("--outcome", default="completed", choices=["completed", "partial", "failed"], help="Outcome status")
+    outcome_parser.add_argument("--strategy", help="Decomposition strategy label")
+    outcome_parser.add_argument("--pass-rate", type=float, default=1.0, help="Verification pass rate")
+    outcome_parser.add_argument("--failure-modes", nargs="*", default=[], help="Failure mode labels")
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
     if args.command == "run":
         cmd_run(args)
     elif args.command == "status":
@@ -378,6 +1097,14 @@ def main():
         cmd_list(args)
     elif args.command == "resume":
         cmd_resume(args)
+    elif args.command == "approve":
+        cmd_approve(args)
+    elif args.command == "guard":
+        cmd_guard(args)
+    elif args.command == "learn":
+        cmd_learn(args)
+    elif args.command == "record-outcome":
+        cmd_record_outcome(args)
 
 
 if __name__ == "__main__":

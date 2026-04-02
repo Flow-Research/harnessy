@@ -3,7 +3,7 @@ name: skill-create
 description: Scaffold a new skill in the monorepo with a valid manifest and catalog entry. Use when creating any new skill.
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, ApplyPatch, Write
-argument-hint: "[skill-name] [type: opencode|OpenClaw|n8n]"
+argument-hint: "[skill-name] [--from <tool-ref>] [type: opencode|OpenClaw|n8n]"
 ---
 
 # Skill Create — Monorepo Scaffold
@@ -23,12 +23,30 @@ Create a new skill in the monorepo with a valid `manifest.yaml` and a catalog en
 - Egress allowlist (domains or services)
 - Invoke command/trigger
 - Phase(s)
+- `--from` flag (optional): A tool reference (CLI command name or URL) to discover capabilities from
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/skill-create/`.
 
 ## Steps
 1. **Validate naming**
    - Ensure name is lowercase, kebab-case, and ≤ 64 chars.
+1b. **Discovery phase** (only if `--from` is provided)
+    - Run the discover-tool script:
+      ```bash
+      python3 ${AGENTS_SKILLS_ROOT}/skill-create/scripts/discover-tool "<from-value>"
+      ```
+    - Parse the JSON output
+    - Use discovered data to pre-populate:
+      - Description (from `description` field)
+      - Dependencies (from `dependencies` field)
+      - Permissions (from `suggested_permissions` field)
+      - Egress (from `suggested_egress` field)
+      - For CLI type: create command docs based on discovered command groups
+      - For API type: create command docs based on discovered endpoints
+    - Present the pre-populated scaffold to the user for review BEFORE writing files
+    - User can modify, remove, or add to any pre-populated field
+    - If user approves, proceed with normal scaffold using pre-populated values
+    - If user rejects or discovery fails, fall back to normal interactive scaffold
 2. **Choose install scope (required)**
    - Ask the user whether the skill should be installed as:
      - `local-repo` (Recommended for repo-specific automation) -> `.agents/skills/<skill-name>/`
@@ -74,6 +92,11 @@ Create a new skill in the monorepo with a valid `manifest.yaml` and a catalog en
 - [ ] If global: sync the shared skill install path after review
 - [ ] Add test evidence for blast radius
 - [ ] If high blast radius: get explicit approval before publish
+
+## Deterministic Logic (Scripts)
+- `scripts/discover-tool` — Takes a tool reference string (CLI command or URL), outputs JSON describing the tool's capabilities. Used by the `--from` flag discovery phase.
+  - Input: positional arg (tool reference), optional `--depth N`
+  - Output: JSON to stdout with tool_name, source_type, commands/endpoints, flags, dependencies
 
 ## Feedback Capture
 

@@ -6,6 +6,8 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   pathExists,
   readFileSafe,
@@ -29,6 +31,7 @@ import { runCleanup, buildCleanupContext } from "./cleanup.mjs";
 
 const GLOBAL_CLAUDE_KNOWN_MARKETPLACES = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
 const FLOW_CLAUDE_PLUGIN_ID = "harnessy";
+const execFileAsync = promisify(execFile);
 
 const RESERVED_SCRIPT_NAMES = new Set([
   "register-skills.mjs",
@@ -90,6 +93,70 @@ const installSkillExecutables = async (skillDir, { dryRun = false } = {}) => {
   }
 
   return installed;
+};
+
+const parsePythonPackages = (manifest = {}) => {
+  const raw = manifest.python_packages || manifest.pythonPackages;
+  if (!raw || typeof raw !== "string") return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [pkgName, moduleName] = entry.split(":").map((value) => value.trim()).filter(Boolean);
+      return {
+        packageName: pkgName,
+        moduleName: moduleName || pkgName,
+      };
+    });
+};
+
+const ensurePythonPackages = async (skill, { dryRun = false } = {}) => {
+  const packages = parsePythonPackages(skill.manifest);
+  if (packages.length === 0) return 0;
+
+  let installedCount = 0;
+  for (const dependency of packages) {
+    const probeCommand = [
+      "-c",
+      `import importlib.util, sys; sys.exit(0 if importlib.util.find_spec(${JSON.stringify(dependency.moduleName)}) else 1)`,
+    ];
+
+    let alreadyInstalled = false;
+    try {
+      await execFileAsync("python3", probeCommand);
+      alreadyInstalled = true;
+    } catch {
+      alreadyInstalled = false;
+    }
+
+    if (alreadyInstalled) continue;
+
+    if (dryRun) {
+      log.dryRun(`Would install Python package ${dependency.packageName} for ${skill.name}`);
+      installedCount++;
+      continue;
+    }
+
+    try {
+      await execFileAsync("python3", [
+        "-m",
+        "pip",
+        "install",
+        "--user",
+        "--disable-pip-version-check",
+        dependency.packageName,
+      ]);
+      log.ok(`${skill.name} Python dependency installed: ${dependency.packageName}`);
+      installedCount++;
+    } catch (error) {
+      const stderr = error?.stderr?.toString?.() || error?.message || String(error);
+      log.error(`Failed to install Python dependency ${dependency.packageName} for ${skill.name}: ${stderr}`);
+      throw error;
+    }
+  }
+
+  return installedCount;
 };
 
 const syncClaudeSkillLinks = async (skills, { dryRun = false } = {}) => {
@@ -198,6 +265,7 @@ export const installSkills = async (flowInstallRoot, { dryRun = false, force = f
         log.skip(`${skill.name} (${existing.version || "unknown"} >= ${skill.version})`);
         skipped++;
         commandShims += await installSkillExecutables(targetDir, { dryRun });
+        await ensurePythonPackages(skill, { dryRun });
         continue;
       }
 
@@ -225,6 +293,7 @@ export const installSkills = async (flowInstallRoot, { dryRun = false, force = f
       log.ok(`${skill.name} upgraded: ${existing.version} -> ${skill.version}`);
       upgraded++;
       commandShims += await installSkillExecutables(targetDir, { dryRun });
+      await ensurePythonPackages(skill, { dryRun });
     } else {
       // Fresh install
       if (dryRun) {
@@ -237,6 +306,7 @@ export const installSkills = async (flowInstallRoot, { dryRun = false, force = f
       log.ok(`${skill.name} v${skill.version} installed`);
       installed++;
       commandShims += await installSkillExecutables(targetDir, { dryRun });
+      await ensurePythonPackages(skill, { dryRun });
     }
   }
 

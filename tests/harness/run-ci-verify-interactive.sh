@@ -15,6 +15,7 @@ set -euo pipefail
 #   ls ~/.agents/skills/
 #   cat flow-install.lock.json
 #   node scripts/flow/verify-harness.mjs
+#   bash /source/harnessy/tests/harness/run-goal-agent-checks.sh /workspace
 #   python3 ~/.agents/skills/_shared/run_metrics.py compute --skill issue-flow
 #   exit  (stops and removes container)
 
@@ -78,10 +79,11 @@ docker run \
         fi
         echo ''
         echo 'Dropping into interactive shell. Explore freely:'
-        echo '  ls ~/.agents/skills/'
-        echo '  cat flow-install.lock.json'
-        echo '  node scripts/flow/verify-harness.mjs'
-        echo '  python3 ~/.agents/skills/_shared/run_metrics.py compute --skill issue-flow'
+         echo '  ls ~/.agents/skills/'
+         echo '  cat flow-install.lock.json'
+         echo '  node scripts/flow/verify-harness.mjs'
+         echo '  bash /source/harnessy/tests/harness/run-goal-agent-checks.sh /workspace'
+         echo '  python3 ~/.agents/skills/_shared/run_metrics.py compute --skill issue-flow'
         echo '  opencode --version  (if --with-opencode was used)'
         echo '  claude --version    (if --with-claude was used)'
         echo '  exit  (stops container)'

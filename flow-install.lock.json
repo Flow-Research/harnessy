@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-03-29T09:17:35.785Z",
+  "timestamp": "2026-04-02T15:41:02.702Z",
   "project": "harnessy",
   "monorepo": null,
   "apps": [],
@@ -16,6 +16,7 @@
     "autoflow": false
   },
   "flowCoreSkills": [
+    "anytype-skill",
     "api-integration-codegen",
     "autoflow",
     "brainstorm",

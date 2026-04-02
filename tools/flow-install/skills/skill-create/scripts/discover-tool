@@ -1,0 +1,503 @@
+#!/usr/bin/env python3
+"""
+discover-tool — Discover a CLI tool's capabilities by running its --help
+and parsing the output into structured JSON.
+
+Part of the skill-create skill. Used by the --from flag to pre-populate
+skill scaffolds from existing tools.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html.parser
+import json
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from typing import Any
+from urllib.parse import urlparse
+
+
+TIMEOUT = 10  # seconds per subprocess invocation
+
+
+# ---------------------------------------------------------------------------
+# Subprocess helpers
+# ---------------------------------------------------------------------------
+
+def run_cmd(args: list[str], timeout: int = TIMEOUT) -> tuple[str, str | None]:
+    """Run a command and return (stdout, error_message).
+
+    Returns the combined stdout+stderr text on success, or ("", error_string)
+    on failure.  Never raises.
+    """
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        # Many tools print help to stderr, so merge both streams.
+        output = (result.stdout or "") + (result.stderr or "")
+        return output.strip(), None
+    except FileNotFoundError:
+        return "", f"Command '{args[0]}' not found"
+    except subprocess.TimeoutExpired:
+        return "", f"Command '{' '.join(args)}' timed out after {timeout}s"
+    except Exception as exc:
+        return "", str(exc)
+
+
+def get_help_text(tool: str) -> tuple[str, list[str]]:
+    """Try --help then help; return (text, errors)."""
+    errors: list[str] = []
+
+    text, err = run_cmd([tool, "--help"])
+    if not err and text:
+        return text, errors
+
+    if err:
+        errors.append(err)
+
+    text2, err2 = run_cmd([tool, "help"])
+    if not err2 and text2:
+        return text2, errors  # keep the first error for context
+
+    if err2:
+        errors.append(err2)
+
+    return text or text2 or "", errors
+
+
+def get_version(tool: str) -> str | None:
+    text, _ = run_cmd([tool, "--version"])
+    if text:
+        # Take first line, strip common prefixes like "tool version "
+        first = text.splitlines()[0].strip()
+        return first
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Help-text parser
+# ---------------------------------------------------------------------------
+
+_SECTION_RE = re.compile(r"^([A-Z][A-Z \-]+):?\s*$")
+_CMD_RE = re.compile(r"^\s{1,6}(\S+):?\s{2,}(.+)$")
+_FLAG_RE = re.compile(
+    r"^\s{1,6}(-\w(?:,\s*)?)?(\-\-[\w][\w\-]*)(?:\s+\S+)?\s{2,}(.+)$"
+)
+_FLAG_SIMPLE_RE = re.compile(r"^\s{1,6}(--[\w][\w\-]*)")
+
+
+def parse_sections(text: str) -> dict[str, list[str]]:
+    """Split help text into named sections (raw lines)."""
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        m = _SECTION_RE.match(line)
+        if m:
+            current = m.group(1).strip()
+            sections[current] = []
+        elif current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def parse_commands(lines: list[str]) -> list[dict[str, str]]:
+    """Extract command entries from section lines."""
+    cmds: list[dict[str, str]] = []
+    for line in lines:
+        m = _CMD_RE.match(line)
+        if m:
+            cmds.append({"name": m.group(1).rstrip(":"), "description": m.group(2).strip()})
+    return cmds
+
+
+def parse_flags(lines: list[str]) -> list[str]:
+    """Extract flag names from section lines."""
+    flags: list[str] = []
+    for line in lines:
+        m = _FLAG_RE.match(line)
+        if m:
+            flags.append(m.group(2))
+            continue
+        m2 = _FLAG_SIMPLE_RE.match(line)
+        if m2:
+            flags.append(m2.group(1))
+    return flags
+
+
+def extract_description(text: str) -> str:
+    """First non-empty line before any section header."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _SECTION_RE.match(line):
+            break
+        return stripped
+    return ""
+
+
+def is_command_section(name: str) -> bool:
+    """Heuristic: section likely contains subcommands."""
+    lower = name.lower()
+    return "command" in lower or "subcommand" in lower
+
+
+def is_flag_section(name: str) -> bool:
+    lower = name.lower()
+    return "flag" in lower or "option" in lower
+
+
+# ---------------------------------------------------------------------------
+# Discovery logic
+# ---------------------------------------------------------------------------
+
+def discover_subcommands(
+    tool: str,
+    subcommand: str,
+) -> dict[str, Any]:
+    """Run <tool> <subcommand> --help and parse it."""
+    text, _ = run_cmd([tool, subcommand, "--help"])
+    if not text:
+        # Try <tool> help <subcommand>
+        text, _ = run_cmd([tool, "help", subcommand])
+
+    entry: dict[str, Any] = {"name": subcommand, "description": ""}
+    if not text:
+        return entry
+
+    entry["description"] = extract_description(text)
+
+    sections = parse_sections(text)
+    subcmds: list[dict[str, Any]] = []
+    flags: list[str] = []
+
+    for sec_name, sec_lines in sections.items():
+        if is_command_section(sec_name):
+            for cmd in parse_commands(sec_lines):
+                subcmds.append({
+                    "name": cmd["name"],
+                    "description": cmd["description"],
+                    "flags": [],
+                })
+        elif is_flag_section(sec_name):
+            flags.extend(parse_flags(sec_lines))
+
+    if subcmds:
+        # Attach flags from the subcommand-level help to each sub-subcommand
+        # only if we parsed them at this level (shallow).
+        for sc in subcmds:
+            sc["flags"] = flags
+        entry["subcommands"] = subcmds
+    else:
+        entry["flags"] = flags
+
+    return entry
+
+
+def discover_cli(tool: str, depth: int) -> dict[str, Any]:
+    """Full CLI discovery pipeline."""
+    errors: list[str] = []
+
+    # Check tool exists
+    if not shutil.which(tool):
+        return {
+            "error": f"Command '{tool}' not found",
+            "tool_name": tool,
+            "source_type": "cli",
+        }
+
+    help_text, help_errors = get_help_text(tool)
+    errors.extend(help_errors)
+
+    if not help_text:
+        return {
+            "error": f"Could not retrieve help text for '{tool}'",
+            "tool_name": tool,
+            "source_type": "cli",
+            "errors": errors,
+        }
+
+    description = extract_description(help_text)
+    version = get_version(tool)
+
+    sections = parse_sections(help_text)
+
+    # Collect top-level commands and global flags
+    top_commands: list[dict[str, str]] = []
+    global_flags: list[str] = []
+
+    for sec_name, sec_lines in sections.items():
+        if is_command_section(sec_name):
+            top_commands.extend(parse_commands(sec_lines))
+        elif is_flag_section(sec_name):
+            global_flags.extend(parse_flags(sec_lines))
+
+    # Deep discovery: run --help on each top-level command
+    commands: list[dict[str, Any]] = []
+    if depth >= 1:
+        for cmd in top_commands:
+            entry = discover_subcommands(tool, cmd["name"])
+            # Prefer the parent-level description if sub-help didn't provide one
+            if not entry.get("description"):
+                entry["description"] = cmd["description"]
+            commands.append(entry)
+    else:
+        commands = [{"name": c["name"], "description": c["description"]} for c in top_commands]
+
+    result: dict[str, Any] = {
+        "tool_name": tool,
+        "source_type": "cli",
+        "source_reference": f"{tool} --help",
+        "description": description,
+        "version": version,
+        "commands": commands,
+        "global_flags": global_flags,
+        "dependencies": [
+            {"tool": tool, "check": f"{tool} --version", "required": True},
+        ],
+        "suggested_permissions": [],
+        "suggested_egress": [],
+    }
+
+    if errors:
+        result["errors"] = errors
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# URL fetch helper
+# ---------------------------------------------------------------------------
+
+URL_TIMEOUT = 10  # seconds
+
+
+def fetch_url(url: str) -> tuple[str, str | None]:
+    """Fetch a URL and return (body_text, error_message).
+
+    Returns ("", error_string) on failure.  Never raises.
+    """
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "discover-tool/1.0"})
+        with urllib.request.urlopen(req, timeout=URL_TIMEOUT) as resp:
+            raw = resp.read()
+            # Try UTF-8 first, fall back to latin-1 (which never fails)
+            try:
+                return raw.decode("utf-8"), None
+            except UnicodeDecodeError:
+                return raw.decode("latin-1"), None
+    except urllib.error.HTTPError as exc:
+        return "", f"HTTP {exc.code} fetching {url}"
+    except urllib.error.URLError as exc:
+        return "", f"URL error fetching {url}: {exc.reason}"
+    except TimeoutError:
+        return "", f"Timeout fetching {url} after {URL_TIMEOUT}s"
+    except Exception as exc:
+        return "", f"Error fetching {url}: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# API / OpenAPI discovery
+# ---------------------------------------------------------------------------
+
+def discover_api(url: str) -> dict[str, Any]:
+    """Fetch an OpenAPI/Swagger spec and extract endpoints."""
+    body, err = fetch_url(url)
+    hostname = urlparse(url).hostname or ""
+
+    if err:
+        return {
+            "error": err,
+            "tool_name": url.split("/")[-1].rsplit(".", 1)[0],
+            "source_type": "api",
+            "source_reference": url,
+        }
+
+    # Parse as JSON — for YAML specs, we can't parse without pyyaml
+    try:
+        spec = json.loads(body)
+    except json.JSONDecodeError:
+        lower = url.lower()
+        if lower.endswith(".yaml") or lower.endswith(".yml"):
+            hint = "Spec appears to be YAML. Convert to JSON first (pyyaml not in stdlib)."
+        else:
+            hint = "Failed to parse response as JSON."
+        return {
+            "error": hint,
+            "tool_name": url.split("/")[-1].rsplit(".", 1)[0],
+            "source_type": "api",
+            "source_reference": url,
+        }
+
+    # Extract top-level info
+    info = spec.get("info", {})
+    tool_name = info.get("title", url.split("/")[-1].rsplit(".", 1)[0])
+    description = info.get("description", "")
+    version = info.get("version")
+
+    # Extract endpoints from paths
+    endpoints: list[dict[str, Any]] = []
+    paths = spec.get("paths", {})
+    for path, methods in paths.items():
+        if not isinstance(methods, dict):
+            continue
+        for method, detail in methods.items():
+            if method.startswith("x-") or method == "parameters":
+                continue
+            entry: dict[str, Any] = {
+                "path": path,
+                "method": method.upper(),
+                "description": "",
+                "parameters": [],
+            }
+            if isinstance(detail, dict):
+                entry["description"] = detail.get("summary") or detail.get("description", "")
+                for param in detail.get("parameters", []):
+                    if isinstance(param, dict):
+                        entry["parameters"].append({
+                            "name": param.get("name", ""),
+                            "type": param.get("schema", {}).get("type", param.get("type", "")),
+                            "required": param.get("required", False),
+                        })
+            endpoints.append(entry)
+
+    return {
+        "tool_name": tool_name,
+        "source_type": "api",
+        "source_reference": url,
+        "description": description,
+        "version": version,
+        "endpoints": endpoints,
+        "dependencies": [],
+        "suggested_permissions": ["network"],
+        "suggested_egress": [hostname] if hostname else [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Docs page discovery
+# ---------------------------------------------------------------------------
+
+class _TitleParser(html.parser.HTMLParser):
+    """Minimal HTML parser that extracts the <title> text."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._in_title = False
+        self.title = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "title":
+            self._in_title = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "title":
+            self._in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title += data
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html(text: str) -> str:
+    """Rough tag stripping — good enough for description extraction."""
+    return _TAG_RE.sub(" ", text)
+
+
+def discover_docs(url: str) -> dict[str, Any]:
+    """Fetch a documentation page and extract title + description."""
+    body, err = fetch_url(url)
+    hostname = urlparse(url).hostname or ""
+
+    if err:
+        return {
+            "error": err,
+            "tool_name": url.rstrip("/").split("/")[-1] or "unknown",
+            "source_type": "docs",
+            "source_reference": url,
+        }
+
+    # Extract title
+    tp = _TitleParser()
+    try:
+        tp.feed(body)
+    except Exception:
+        pass
+    title = tp.title.strip()
+
+    # Extract text content for description
+    plain = strip_html(body)
+    # Collapse whitespace
+    plain = re.sub(r"\s+", " ", plain).strip()
+    description = plain[:500]
+
+    tool_name = title or url.rstrip("/").split("/")[-1] or "unknown"
+
+    return {
+        "tool_name": tool_name,
+        "source_type": "docs",
+        "source_reference": url,
+        "description": description,
+        "commands": [],
+        "dependencies": [],
+        "suggested_permissions": ["network"],
+        "suggested_egress": [hostname] if hostname else [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Source type routing
+# ---------------------------------------------------------------------------
+
+def discover(reference: str, depth: int) -> dict[str, Any]:
+    """Route to the right discovery strategy based on reference string."""
+    if reference.startswith("http"):
+        lower = reference.lower()
+        if lower.endswith(".json") or lower.endswith(".yaml") or lower.endswith(".yml"):
+            return discover_api(reference)
+        return discover_docs(reference)
+
+    return discover_cli(reference, depth)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="discover-tool",
+        description="Discover a CLI tool's capabilities and output structured JSON.",
+    )
+    parser.add_argument(
+        "tool",
+        help="Tool reference: CLI command name or URL",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        help="Subcommand discovery depth (default: 1)",
+    )
+
+    args = parser.parse_args()
+
+    result = discover(args.tool, args.depth)
+    json.dump(result, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

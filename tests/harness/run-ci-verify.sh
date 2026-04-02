@@ -19,6 +19,7 @@ set -euo pipefail
 #   SKIP_COMMUNITY      — set to 1 to skip community skills (faster CI)
 #   INSTALL_OPENCODE    — set to 1 to install OpenCode (same as --with-opencode)
 #   INSTALL_CLAUDE      — set to 1 to install Claude CLI (same as --with-claude)
+#   GOAL_AGENT_E2E      — set to 1 to run a real worker-driven goal-agent E2E check (requires Claude auth)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="${HARNESS_SOURCE_DIR:-/source/harnessy}"
@@ -200,6 +201,15 @@ if grep -q '"autoflow"' flow-install.lock.json 2>/dev/null; then
 else
   log "  [INFO] Lockfile does not track autoflow (expected for --yes installs)"
 fi
+
+# Goal-agent deterministic verification always runs once Flow is installed.
+log "Phase 5a: Goal-agent verification"
+FLOW_HARNESS_SOURCE_ROOT="$SOURCE_DIR" GOAL_AGENT_E2E="${GOAL_AGENT_E2E:-0}" \
+  bash "$SOURCE_DIR/tests/harness/run-goal-agent-checks.sh" "$TARGET_DIR" >/dev/null || {
+    fail "goal-agent verification failed"
+    FAILURES=$((FAILURES + 1))
+  }
+pass "goal-agent verification passed"
 
 # Check traces: in manifests
 TRACED_SKILLS=$(grep -rl "^traces:" ~/.agents/skills/*/manifest.yaml 2>/dev/null | wc -l)

@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""
+flow-cron — Standardized scheduling for Harnessy skills.
+
+Reads `schedule:` entries from skill manifests and manages system cron jobs
+that invoke those skills on their declared schedule.
+
+Usage:
+    flow-cron list                              Show all declared schedules
+    flow-cron enable  <skill> <schedule-name>   Activate a schedule
+    flow-cron disable <skill> <schedule-name>   Deactivate a schedule
+    flow-cron run     <skill> <schedule-name>   Trigger immediately
+    flow-cron install                           Write enabled schedules to crontab
+    flow-cron uninstall                         Remove all flow-cron entries from crontab
+    flow-cron status                            Show active crontab entries
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+# ── Paths ──────────────────────────────────────────────────────────────────
+
+SKILLS_ROOT = Path(os.environ.get("AGENTS_SKILLS_ROOT", Path.home() / ".agents" / "skills"))
+CRON_STATE_DIR = Path.home() / ".agents" / "cron"
+SCHEDULES_PATH = CRON_STATE_DIR / "schedules.json"
+LOG_PATH = CRON_STATE_DIR / "flow-cron.log"
+CRON_TAG = "# flow-harness"
+
+
+# ── Manifest scanning ─────────────────────────────────────────────────────
+
+def find_all_schedules() -> list[dict[str, Any]]:
+    """Scan skill manifests AND project-level .jarvis/cron.yaml for schedules.
+
+    Two sources:
+    1. Skill manifests (~/.agents/skills/*/manifest.yaml) — portable, skill-intrinsic
+    2. Project cron file (.jarvis/cron.yaml) — project-specific schedules
+    """
+    try:
+        import yaml
+    except ImportError:
+        print("Error: PyYAML not installed. Run: pip install pyyaml", file=sys.stderr)
+        sys.exit(1)
+
+    schedules = []
+
+    # Source 1: Skill manifests
+    if SKILLS_ROOT.exists():
+        for manifest_path in sorted(SKILLS_ROOT.rglob("manifest.yaml")):
+            try:
+                with open(manifest_path) as f:
+                    manifest = yaml.safe_load(f)
+            except Exception:
+                continue
+
+            if not manifest or "schedule" not in manifest:
+                continue
+
+            skill_name = manifest.get("name", manifest_path.parent.name)
+            skill_dir = manifest_path.parent
+
+            for entry in manifest["schedule"]:
+                schedules.append({
+                    "skill": skill_name,
+                    "name": entry.get("name", "default"),
+                    "cron": entry.get("cron", ""),
+                    "command": entry.get("command", ""),
+                    "description": entry.get("description", ""),
+                    "enabled": entry.get("enabled", False),
+                    "source": f"skill:{skill_name}",
+                    "source_path": str(manifest_path),
+                })
+
+    # Source 2: Project-level .jarvis/cron.yaml
+    project_cron = find_project_cron()
+    if project_cron and project_cron.exists():
+        try:
+            with open(project_cron) as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            data = None
+
+        if data and "schedules" in data:
+            for entry in data["schedules"]:
+                schedules.append({
+                    "skill": entry.get("skill", "project"),
+                    "name": entry.get("name", "default"),
+                    "cron": entry.get("cron", ""),
+                    "command": entry.get("command", ""),
+                    "description": entry.get("description", ""),
+                    "enabled": entry.get("enabled", False),
+                    "source": "project",
+                    "source_path": str(project_cron),
+                })
+
+    return schedules
+
+
+def find_project_cron() -> Path | None:
+    """Find .jarvis/cron.yaml in the current project."""
+    project_dir = Path(detect_project_dir())
+    cron_path = project_dir / ".jarvis" / "cron.yaml"
+    if cron_path.exists():
+        return cron_path
+    return None
+
+
+# ── State management ──────────────────────────────────────────────────────
+
+def load_state() -> dict[str, Any]:
+    """Load the schedules state file."""
+    if SCHEDULES_PATH.exists():
+        try:
+            return json.loads(SCHEDULES_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"schedules": {}, "last_updated": None}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    """Save the schedules state file."""
+    CRON_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    state["last_updated"] = datetime.now(timezone.utc).isoformat()
+    SCHEDULES_PATH.write_text(json.dumps(state, indent=2))
+
+
+def get_schedule_key(skill: str, name: str) -> str:
+    return f"{skill}/{name}"
+
+
+def is_enabled(state: dict, skill: str, name: str) -> bool:
+    """Check if a schedule is enabled (state overrides manifest default)."""
+    key = get_schedule_key(skill, name)
+    return state.get("schedules", {}).get(key, {}).get("enabled", False)
+
+
+# ── Crontab management ───────────────────────────────────────────────────
+
+def get_current_crontab() -> str:
+    """Read current crontab contents."""
+    try:
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else ""
+    except FileNotFoundError:
+        return ""
+
+
+def write_crontab(content: str) -> None:
+    """Write content to crontab."""
+    proc = subprocess.run(["crontab", "-"], input=content, capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"Error writing crontab: {proc.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
+def remove_flow_entries(crontab: str) -> str:
+    """Remove all flow-harness tagged entries from crontab."""
+    lines = crontab.splitlines()
+    cleaned = []
+    skip_next = False
+    for line in lines:
+        if CRON_TAG in line:
+            skip_next = True
+            continue
+        if skip_next:
+            skip_next = False
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned) + "\n" if cleaned else ""
+
+
+def build_cron_entry(schedule: dict, project_dir: str) -> str:
+    """Build a crontab entry for a schedule.
+
+    The entry runs `claude -p` with the schedule's command as a prompt,
+    working from the project directory.
+    """
+    cron_expr = schedule["cron"]
+    command = schedule["command"]
+    skill = schedule["skill"]
+    name = schedule["name"]
+
+    log_file = str(LOG_PATH)
+
+    # Build the command that cron will execute
+    cron_command = (
+        f'cd "{project_dir}" && '
+        f'claude -p --permission-mode auto '
+        f'"{command}" '
+        f'>> "{log_file}" 2>&1'
+    )
+
+    return (
+        f"{CRON_TAG}: {skill}/{name}\n"
+        f"{cron_expr} {cron_command}"
+    )
+
+
+def detect_project_dir() -> str:
+    """Detect the project directory (git root or cwd)."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return os.getcwd()
+
+
+# ── Commands ──────────────────────────────────────────────────────────────
+
+def cmd_list(args: argparse.Namespace) -> None:
+    """List all declared schedules across installed skills."""
+    manifests = find_all_schedules()
+    state = load_state()
+
+    if not manifests:
+        print("No schedules found in any installed skill manifests.")
+        print(f"Skills root: {SKILLS_ROOT}")
+        return
+
+    print(f"{'Source':<12} {'Name':<25} {'Cron':<20} {'Enabled':<10} Description")
+    print("─" * 100)
+
+    for s in manifests:
+        enabled = is_enabled(state, s["skill"], s["name"]) or s["enabled"]
+        marker = "✓" if enabled else " "
+        source = s.get("source", f"skill:{s['skill']}")
+        label = "project" if source == "project" else s["skill"]
+        print(f"{label:<12} {s['name']:<25} {s['cron']:<20} {marker:<10} {s['description']}")
+
+
+def cmd_enable(args: argparse.Namespace) -> None:
+    """Enable a schedule."""
+    state = load_state()
+    key = get_schedule_key(args.skill, args.schedule_name)
+    if key not in state.get("schedules", {}):
+        state.setdefault("schedules", {})[key] = {}
+    state["schedules"][key]["enabled"] = True
+    save_state(state)
+    print(f"Enabled: {key}")
+    print("Run 'flow-cron install' to update crontab.")
+
+
+def cmd_disable(args: argparse.Namespace) -> None:
+    """Disable a schedule."""
+    state = load_state()
+    key = get_schedule_key(args.skill, args.schedule_name)
+    if key not in state.get("schedules", {}):
+        state.setdefault("schedules", {})[key] = {}
+    state["schedules"][key]["enabled"] = False
+    save_state(state)
+    print(f"Disabled: {key}")
+    print("Run 'flow-cron install' to update crontab.")
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    """Trigger a schedule immediately."""
+    manifests = find_all_schedules()
+    target = None
+    for s in manifests:
+        if s["skill"] == args.skill and s["name"] == args.schedule_name:
+            target = s
+            break
+
+    if not target:
+        print(f"Schedule not found: {args.skill}/{args.schedule_name}", file=sys.stderr)
+        sys.exit(1)
+
+    project_dir = detect_project_dir()
+    command = target["command"]
+
+    print(f"Running: {args.skill}/{args.schedule_name}")
+    print(f"Command: {command}")
+    print(f"Working directory: {project_dir}")
+    print()
+
+    # Log the run
+    CRON_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(LOG_PATH, "a") as log:
+        log.write(f"\n[{datetime.now(timezone.utc).isoformat()}] Manual trigger: {args.skill}/{args.schedule_name}\n")
+
+    # Execute
+    os.chdir(project_dir)
+    result = subprocess.run(
+        ["claude", "-p", "--permission-mode", "auto", command],
+        cwd=project_dir,
+    )
+    sys.exit(result.returncode)
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    """Write enabled schedules to system crontab."""
+    manifests = find_all_schedules()
+    state = load_state()
+    project_dir = detect_project_dir()
+
+    # Collect enabled schedules
+    enabled = []
+    for s in manifests:
+        if is_enabled(state, s["skill"], s["name"]) or s["enabled"]:
+            enabled.append(s)
+
+    if not enabled:
+        print("No enabled schedules to install.")
+        return
+
+    # Build new crontab
+    current = get_current_crontab()
+    cleaned = remove_flow_entries(current)
+
+    entries = []
+    for s in enabled:
+        entries.append(build_cron_entry(s, project_dir))
+
+    new_crontab = cleaned.rstrip("\n") + "\n\n" + "\n".join(entries) + "\n"
+    write_crontab(new_crontab)
+
+    print(f"Installed {len(enabled)} schedule(s) to crontab:")
+    for s in enabled:
+        print(f"  {s['skill']}/{s['name']}: {s['cron']} — {s['description']}")
+
+
+def cmd_uninstall(args: argparse.Namespace) -> None:
+    """Remove all flow-harness entries from crontab."""
+    current = get_current_crontab()
+    cleaned = remove_flow_entries(current)
+    write_crontab(cleaned)
+    print("Removed all flow-harness cron entries.")
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    """Show active flow-harness crontab entries."""
+    current = get_current_crontab()
+    lines = current.splitlines()
+
+    flow_entries = []
+    for i, line in enumerate(lines):
+        if CRON_TAG in line:
+            if i + 1 < len(lines):
+                flow_entries.append((line, lines[i + 1]))
+
+    if not flow_entries:
+        print("No flow-harness entries in crontab.")
+        return
+
+    print(f"Active cron entries ({len(flow_entries)}):\n")
+    for tag, entry in flow_entries:
+        label = tag.replace(CRON_TAG + ": ", "")
+        print(f"  {label}")
+        print(f"    {entry}")
+        print()
+
+
+# ── Main ──────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="flow-cron",
+        description="Standardized scheduling for Harnessy skills",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("list", help="List all declared schedules")
+
+    p_enable = sub.add_parser("enable", help="Enable a schedule")
+    p_enable.add_argument("skill")
+    p_enable.add_argument("schedule_name")
+
+    p_disable = sub.add_parser("disable", help="Disable a schedule")
+    p_disable.add_argument("skill")
+    p_disable.add_argument("schedule_name")
+
+    p_run = sub.add_parser("run", help="Trigger a schedule immediately")
+    p_run.add_argument("skill")
+    p_run.add_argument("schedule_name")
+
+    sub.add_parser("install", help="Write enabled schedules to crontab")
+    sub.add_parser("uninstall", help="Remove flow-harness entries from crontab")
+    sub.add_parser("status", help="Show active crontab entries")
+
+    args = parser.parse_args()
+
+    commands = {
+        "list": cmd_list,
+        "enable": cmd_enable,
+        "disable": cmd_disable,
+        "run": cmd_run,
+        "install": cmd_install,
+        "uninstall": cmd_uninstall,
+        "status": cmd_status,
+    }
+
+    commands[args.command](args)
+
+
+if __name__ == "__main__":
+    main()

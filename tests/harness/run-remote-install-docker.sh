@@ -77,6 +77,8 @@ EOF
   bash -lc "$(curl -fsSL http://host.docker.internal:'"$PORT"'/install.sh)"
   jarvis --help >/dev/null
   pnpm --dir "$HOME/harnessy" harness:verify
+  FLOW_HARNESS_SOURCE_ROOT="/source/harnessy" GOAL_AGENT_E2E="${FLOW_REMOTE_EVAL_GOAL_AGENT_E2E:-0}" bash /source/harnessy/tests/harness/run-goal-agent-checks.sh "$HOME/harnessy"
+  echo "PASS goal-agent verification in clean-room container"
   opencode run --format json "/brainstorm" > /tmp/opencode-flow-skill.json
   python3 - /tmp/opencode-flow-skill.json <<"PY"
 import json, sys
