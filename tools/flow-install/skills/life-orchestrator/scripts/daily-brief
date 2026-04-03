@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""
+daily-brief — Turn collect-state JSON into a chief-of-staff style daily brief.
+
+Step 2 of the daily crawl pipeline:
+  collect-state (cheap sensor) → daily-brief (Claude-powered synthesis)
+
+Runs from project root: /private/workspace
+"""
+
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+COLLECT_STATE = os.path.join(SCRIPTS_DIR, "collect-state")
+NOTIFY = os.path.join(SCRIPTS_DIR, "notify")
+AGENTS_LIFE_DIR = os.path.expanduser("~/.agents/life")
+
+PROJECT_ROOT = os.environ.get(
+    "FLOW_PROJECT_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ))))
+)
+
+JARVIS_DIR = os.path.join(PROJECT_ROOT, "Jarvis")
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def run_collect_state():
+    """Run collect-state and return parsed JSON."""
+    try:
+        result = subprocess.run(
+            [sys.executable, COLLECT_STATE],
+            capture_output=True, text=True, timeout=30,
+            cwd=PROJECT_ROOT,
+        )
+        if result.returncode != 0:
+            print(f"Error: collect-state failed: {result.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        return json.loads(result.stdout)
+    except subprocess.TimeoutExpired:
+        print("Error: collect-state timed out", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error: collect-state produced invalid JSON: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def build_prompt(state, today):
+    """Construct the chief-of-staff prompt with embedded state."""
+    day_of_week = today.strftime("%A")
+    month = today.strftime("%B")
+    day = today.day
+    year = today.year
+    date_str = today.strftime("%Y-%m-%d")
+
+    state_json = json.dumps(compact_state(state), indent=2, default=str)
+
+    return f"""\
+You are Julian's chief of staff. Read his priorities, the change summary from overnight,
+and the current project status files. Produce a daily brief that tells him:
+
+1. What Moved — what progressed across his projects (in plain strategic language, not file names)
+2. What Needs Him — decisions, reviews, approvals only he can do, ranked by urgency
+3. Strategic Picture — where he stands against his quarterly priorities, any warnings about
+   spreading too thin or missing deadlines
+4. Background Work — what agents are doing, what completed, what's waiting
+
+Write like a trusted advisor, not a system log. Be specific. Be honest. If something is
+stalled, say so. If he's overcommitted, flag it.
+
+Here is the current state data:
+<state>
+{state_json}
+</state>
+
+Today's date: {date_str}
+
+Output the brief in markdown format with the sections above. Start with:
+# Daily Brief — {day_of_week}, {month} {day}, {year}"""
+
+
+def compact_state(state):
+    """Produce a trimmed version of collect-state output for the Claude prompt.
+
+    Full state can be 100K+ chars (raw file contents, 20+ agent runs).
+    This keeps only what the chief-of-staff needs to write a useful brief.
+    """
+    compact = {}
+
+    # Priorities: keep parsed sections, drop raw text
+    pri = state.get("priorities") or {}
+    compact["priorities"] = {
+        "table": pri.get("table", []),
+        "constraints": pri.get("constraints", []),
+        "personal": pri.get("personal", []),
+        "standing_instructions": pri.get("standing_instructions", []),
+    }
+
+    # Projects: keep status_md (truncated), file count, newest modified — drop file lists
+    projects = {}
+    for name, info in (state.get("projects") or {}).items():
+        if name.startswith("_julian/") or name == "_docs":
+            continue  # skip standalone files and docs index
+        status_md = info.get("status_md") or ""
+        projects[name] = {
+            "description": info.get("description", ""),
+            "file_count": info.get("file_count", 0),
+            "newest_modified": info.get("newest_modified"),
+            "status_summary": status_md[:1500] if status_md else None,
+        }
+    compact["projects"] = projects
+
+    # Git: keep as-is (already small)
+    compact["git"] = state.get("git", {})
+
+    # Agents: only recent/active runs (last 5), drop large nested data
+    agents_raw = state.get("agents") or {}
+    agents = {}
+    sorted_keys = sorted(agents_raw.keys(), reverse=True)[:5]
+    for key in sorted_keys:
+        a = agents_raw[key]
+        agents[key] = {
+            "status": a.get("status"),
+            "goal_title": a.get("goal_title", a.get("goal_file", "")),
+            "current_phase": a.get("current_phase"),
+            "total_phases": a.get("total_phases"),
+            "last_updated_at": a.get("last_updated_at"),
+        }
+    compact["agents"] = agents
+
+    # Tmux: keep as-is
+    compact["tmux_sessions"] = state.get("tmux_sessions", [])
+
+    # Jarvis plan: keep title only, truncate content
+    jarvis = state.get("jarvis")
+    if jarvis and isinstance(jarvis, dict):
+        content = jarvis.get("content") or ""
+        compact["jarvis_plan"] = {
+            "file": jarvis.get("file"),
+            "summary": content[:1000] if content else None,
+        }
+    else:
+        compact["jarvis_plan"] = None
+
+    return compact
+
+
+def call_claude(prompt):
+    """Call claude -p with the prompt via stdin. Returns the brief text or None."""
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p",
+                "--output-format", "text",
+                "--model", "sonnet",
+                "--max-budget-usd", "0.50",
+            ],
+            input=prompt,
+            capture_output=True, text=True, timeout=120,
+            cwd=PROJECT_ROOT,
+        )
+        if result.returncode != 0:
+            print(f"Error: claude call failed (exit {result.returncode}): {result.stderr.strip()}", file=sys.stderr)
+            return None
+        return result.stdout
+    except FileNotFoundError:
+        print("Error: 'claude' command not found — is Claude Code installed?", file=sys.stderr)
+        return None
+    except subprocess.TimeoutExpired:
+        print("Error: claude call timed out after 120s", file=sys.stderr)
+        return None
+
+
+def brief_path(today):
+    """Return ~/.agents/life/YYYY/Mon/dd-daily-brief.md"""
+    year_dir = today.strftime("%Y")
+    month_dir = today.strftime("%b")
+    filename = today.strftime("%d-daily-brief.md")
+    return os.path.join(AGENTS_LIFE_DIR, year_dir, month_dir, filename)
+
+
+def save_brief(path, content):
+    """Write brief to file, creating directories as needed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def extract_top_items(brief, n=3):
+    """Pull the first N bullet points or list items from the brief for notification."""
+    items = []
+    for line in brief.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("- ", "* ", "1.", "2.", "3.")):
+            # Clean up markdown formatting
+            text = stripped.lstrip("-*0123456789. ").strip()
+            if text:
+                items.append(text)
+            if len(items) >= n:
+                break
+    if not items:
+        return "Daily brief ready — check ~/.agents/life/"
+    return " | ".join(items)[:200]
+
+
+def jarvis_journal(path, today):
+    """Attempt to write the brief to Jarvis journal. Fails gracefully."""
+    title = f"Daily Brief — {today.strftime('%B %d, %Y')}"
+    try:
+        subprocess.run(
+            ["uv", "run", "jarvis", "journal", "write",
+             "--file", path,
+             "--title", title,
+             "--no-deep-dive"],
+            capture_output=True, text=True, timeout=30,
+            cwd=JARVIS_DIR,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        print(f"Note: Jarvis journal integration skipped ({e})", file=sys.stderr)
+
+
+def send_notification(brief):
+    """Send desktop notification with top items from the brief."""
+    summary = extract_top_items(brief)
+    try:
+        subprocess.run(
+            [sys.executable, NOTIFY, "Daily Brief", summary],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        print(f"Note: notification failed ({e})", file=sys.stderr)
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate a daily brief from collected project state — "
+                    "your chief-of-staff morning report."
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Generate brief even if no changes detected since last crawl"
+    )
+    args = parser.parse_args()
+
+    # Step 1: Collect state
+    print("Collecting state...", file=sys.stderr)
+    state = run_collect_state()
+
+    # Step 2: Check for changes
+    if not state.get("changed", True) and not args.force:
+        print("No changes detected, skipping brief", file=sys.stderr)
+        sys.exit(0)
+
+    # Step 3: Generate brief via Claude
+    today = datetime.date.today()
+    prompt = build_prompt(state, today)
+
+    print("Generating brief with Claude...", file=sys.stderr)
+    brief = call_claude(prompt)
+
+    if brief is None:
+        print("Error: failed to generate brief", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 4: Write to stdout
+    sys.stdout.write(brief)
+    if not brief.endswith("\n"):
+        sys.stdout.write("\n")
+
+    # Step 5: Save to file
+    path = brief_path(today)
+    save_brief(path, brief)
+    print(f"Brief saved to {path}", file=sys.stderr)
+
+    # Step 6: Jarvis journal integration
+    jarvis_journal(path, today)
+
+    # Step 7: Desktop notification
+    send_notification(brief)
+
+
+if __name__ == "__main__":
+    main()

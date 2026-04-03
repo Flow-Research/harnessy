@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""
+collect-state — Scan all project state and produce JSON to stdout.
+
+The "cheap detector": answers "did anything change?" not "what does it mean?"
+Runs from project root: /private/workspace
+"""
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+
+PROJECT_ROOT = os.environ.get(
+    "FLOW_PROJECT_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ))))
+)
+
+JULIAN_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "private", "julian")
+DOCS_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "docs")
+GOAL_AGENT_DIR = os.path.join(PROJECT_ROOT, ".goal-agent")
+AUTOFLOW_STATE = os.path.join(PROJECT_ROOT, ".jarvis", "context", "autoflow", "state.json")
+CRON_YAML = os.path.join(PROJECT_ROOT, ".jarvis", "cron.yaml")
+JARVIS_PLANS = os.path.expanduser("~/.jarvis/plans")
+LAST_CRAWL = os.path.expanduser("~/.agents/life/.last-crawl.json")
+
+PROJECT_DIRS = {
+    "accelerate-africa": "AA partnership (JD, screening, proposal, collaboration plan)",
+    "seas": "SEAS (strategy, meeting notes, concept)",
+    "anchor": "Anchor Markets (PRD)",
+    "sentinel": "Sentinel (requirements spec)",
+    "flow-economics": "Economic model (sustainability doc, Chizi meeting notes)",
+    "flow-content": "Content strategy, drafts",
+    "hiring": "CM requirements",
+}
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def read_file(path):
+    """Read file contents, return None if missing."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except (OSError, IOError):
+        return None
+
+
+def read_json(path):
+    """Read and parse a JSON file, return None if missing or invalid."""
+    text = read_file(path)
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def run_cmd(args, cwd=None):
+    """Run a command, return stdout or None on failure."""
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True, text=True, timeout=10,
+            cwd=cwd or PROJECT_ROOT,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def scan_dir(dirpath):
+    """Walk a directory and return list of relative file paths + metadata."""
+    files = []
+    newest = 0.0
+    if not os.path.isdir(dirpath):
+        return files, newest
+    for root, _dirs, filenames in os.walk(dirpath):
+        for fname in filenames:
+            if fname.startswith("."):
+                continue
+            full = os.path.join(root, fname)
+            try:
+                mtime = os.path.getmtime(full)
+            except OSError:
+                mtime = 0.0
+            rel = os.path.relpath(full, dirpath)
+            files.append({"path": rel, "modified": datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).isoformat()})
+            if mtime > newest:
+                newest = mtime
+    return files, newest
+
+
+# ── Section collectors ───────────────────────────────────────────────────────
+
+def collect_priorities():
+    """Parse priorities.md — extract table rows, constraints, personal notes."""
+    text = read_file(os.path.join(JULIAN_DIR, "priorities.md"))
+    if text is None:
+        return None
+
+    result = {"raw": text, "table": [], "constraints": [], "personal": [], "standing_instructions": []}
+
+    # Extract markdown table rows (skip header + separator)
+    in_table = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("| Project") or stripped.startswith("|---"):
+            in_table = True
+            continue
+        if in_table and stripped.startswith("|"):
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            if len(cells) >= 4:
+                result["table"].append({
+                    "project": cells[0],
+                    "priority": cells[1],
+                    "status": cells[2],
+                    "next_milestone": cells[3],
+                })
+        elif in_table and not stripped.startswith("|"):
+            in_table = False
+
+    # Extract bullet sections by heading
+    current_section = None
+    for line in text.splitlines():
+        heading_match = re.match(r"^##\s+(.+)", line)
+        if heading_match:
+            heading = heading_match.group(1).strip().lower()
+            if "constraint" in heading:
+                current_section = "constraints"
+            elif "personal" in heading:
+                current_section = "personal"
+            elif "standing" in heading:
+                current_section = "standing_instructions"
+            else:
+                current_section = None
+            continue
+        if current_section and line.strip().startswith("- "):
+            result[current_section].append(line.strip()[2:])
+
+    return result
+
+
+def collect_projects():
+    """Scan each project directory under julian/."""
+    projects = {}
+    for dirname, description in PROJECT_DIRS.items():
+        dirpath = os.path.join(JULIAN_DIR, dirname)
+        files, newest = scan_dir(dirpath)
+        status_md = read_file(os.path.join(dirpath, "status.md"))
+        projects[dirname] = {
+            "description": description,
+            "file_count": len(files),
+            "newest_modified": datetime.datetime.fromtimestamp(newest, tz=datetime.timezone.utc).isoformat() if newest > 0 else None,
+            "status_md": status_md,
+            "files": files,
+        }
+
+    # Also include standalone files in julian dir
+    for fname in ("decisions.md", "events.md", "facts.md", "preferences.md"):
+        content = read_file(os.path.join(JULIAN_DIR, fname))
+        if content is not None:
+            projects[f"_julian/{fname}"] = {"content": content}
+
+    # Docs directory
+    docs_files, docs_newest = scan_dir(DOCS_DIR)
+    if docs_files:
+        projects["_docs"] = {
+            "file_count": len(docs_files),
+            "newest_modified": datetime.datetime.fromtimestamp(docs_newest, tz=datetime.timezone.utc).isoformat() if docs_newest > 0 else None,
+            "files": docs_files,
+        }
+
+    return projects
+
+
+def collect_git():
+    """Recent commits, current branch, uncommitted changes."""
+    return {
+        "branch": run_cmd(["git", "branch", "--show-current"]),
+        "recent_commits": (run_cmd(["git", "log", "--since=7 days ago", "--oneline", "-n", "30"]) or "").splitlines(),
+        "uncommitted": (run_cmd(["git", "status", "--short"]) or "").splitlines(),
+    }
+
+
+def collect_agents():
+    """Goal-agent run states from .goal-agent/*/state.json."""
+    agents = {}
+    if not os.path.isdir(GOAL_AGENT_DIR):
+        return agents
+    try:
+        for entry in os.listdir(GOAL_AGENT_DIR):
+            state_path = os.path.join(GOAL_AGENT_DIR, entry, "state.json")
+            state = read_json(state_path)
+            if state is not None:
+                agents[entry] = state
+    except OSError:
+        pass
+
+    # Autoflow state
+    autoflow = read_json(AUTOFLOW_STATE)
+    if autoflow is not None:
+        agents["_autoflow"] = autoflow
+
+    return agents
+
+
+def collect_tmux():
+    """Active tmux sessions."""
+    output = run_cmd(["tmux", "list-sessions"])
+    if output is None:
+        return []
+    return output.splitlines()
+
+
+def collect_cron():
+    """Contents of .jarvis/cron.yaml."""
+    return read_file(CRON_YAML)
+
+
+def collect_jarvis_plans():
+    """Find latest plan from ~/.jarvis/plans/."""
+    if not os.path.isdir(JARVIS_PLANS):
+        return None
+    try:
+        md_files = [
+            f for f in os.listdir(JARVIS_PLANS)
+            if f.endswith(".md") and not f.startswith(".")
+        ]
+        if not md_files:
+            return None
+        # Sort by mtime, newest first
+        md_files.sort(
+            key=lambda f: os.path.getmtime(os.path.join(JARVIS_PLANS, f)),
+            reverse=True,
+        )
+        latest = md_files[0]
+        content = read_file(os.path.join(JARVIS_PLANS, latest))
+        return {"file": latest, "content": content}
+    except OSError:
+        return None
+
+
+# ── Change detection ─────────────────────────────────────────────────────────
+
+def compute_hash(state):
+    """Hash the state dict (excluding volatile fields) for change detection."""
+    hashable = {k: v for k, v in state.items() if k not in ("changed", "timestamp")}
+    raw = json.dumps(hashable, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def check_changed(current_hash):
+    """Compare against last crawl. Returns True if changed or no prior crawl."""
+    last = read_json(LAST_CRAWL)
+    if last is None:
+        return True
+    return last.get("hash") != current_hash
+
+
+def save_crawl(current_hash):
+    """Persist current hash for next comparison."""
+    crawl_dir = os.path.dirname(LAST_CRAWL)
+    try:
+        os.makedirs(crawl_dir, exist_ok=True)
+        with open(LAST_CRAWL, "w") as f:
+            json.dump({
+                "hash": current_hash,
+                "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+            }, f)
+    except OSError as e:
+        print(f"Warning: could not save crawl state: {e}", file=sys.stderr)
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Collect state across all projects — answers 'did anything change?'"
+    )
+    parser.add_argument(
+        "--no-save", action="store_true",
+        help="Don't update .last-crawl.json (dry run)"
+    )
+    args = parser.parse_args()
+
+    state = {
+        "priorities": collect_priorities(),
+        "projects": collect_projects(),
+        "git": collect_git(),
+        "agents": collect_agents(),
+        "tmux_sessions": collect_tmux(),
+        "cron": collect_cron(),
+        "jarvis": collect_jarvis_plans(),
+        "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+    }
+
+    current_hash = compute_hash(state)
+    state["changed"] = check_changed(current_hash)
+
+    json.dump(state, sys.stdout, indent=2, default=str)
+    sys.stdout.write("\n")
+
+    if not args.no_save:
+        save_crawl(current_hash)
+
+
+if __name__ == "__main__":
+    main()
