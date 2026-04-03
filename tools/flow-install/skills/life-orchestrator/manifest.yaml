@@ -1,0 +1,40 @@
+name: life-orchestrator
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Monthly, weekly, and daily life orchestration — reads priorities and project state to produce actionable reviews, plans, and briefs"
+install_scope: global
+permissions: [terminal, filesystem, network]
+data_categories: [personal]
+egress: [api.anthropic.com]
+invoke: /life
+location: tools/flow-install/skills/life-orchestrator
+traces:
+  enabled: true
+  gates:
+    quality:
+      - monthly_review
+      - weekly_plan
+      - daily_brief
+    human:
+      - feedback_capture
+state:
+  - path: "~/.agents/life/YYYY/Mon/monthly-review.md"
+    description: "Monthly review output from goal-agent"
+  - path: "~/.agents/life/YYYY/Mon/week-NN-plan.md"
+    description: "Weekly plan for the current week"
+  - path: "~/.agents/life/YYYY/Mon/dd-daily-brief.md"
+    description: "Daily brief with focus items and journal entry"
+  - path: "~/.agents/life/feedback/"
+    description: "Feedback annotations captured via /life feedback"
+dependencies:
+  - tool: claude
+    description: "Claude Code CLI for monthly/weekly reviews"
+    check: "claude --version"
+    required: true
+  - tool: python3
+    description: "Python 3 for collect-state and daily-brief scripts"
+    check: "python3 --version"
+    required: true
