@@ -150,15 +150,20 @@ Build a focused prompt for THIS phase only. Structure:
 
 #### 3b. Call the Worker
 
+**IMPORTANT: Always write the prompt to a file first, then pass via stdin.** Passing prompts as command-line arguments fails when they contain quotes, newlines, or special characters (which they always do in practice).
+
 ```bash
-claude -p \
+# Step 1: Write prompt to file
+# (use the Write tool to write the prompt to .goal-agent/$RUN_ID/current-prompt.md)
+
+# Step 2: Pass via stdin pipe — this is the ONLY reliable method
+cat .goal-agent/$RUN_ID/current-prompt.md | claude -p \
   --session-id "$WORKER_SESSION_ID" \
   --output-format json \
   --permission-mode auto \
   --model "$MODEL" \
   --max-budget-usd "$PHASE_BUDGET" \
-  --allowedTools "$ALLOWED_TOOLS" \
-  "$WORKER_PROMPT"
+  --allowedTools "$ALLOWED_TOOLS"
 ```
 
 Where:
@@ -166,17 +171,8 @@ Where:
 - `$MODEL` — from goal constraints (default: sonnet)
 - `$PHASE_BUDGET` — total budget divided by number of phases, with buffer
 - `$ALLOWED_TOOLS` — from goal constraints (default: "Bash,Read,Write,Edit,Glob,Grep")
-- `$WORKER_PROMPT` — the prompt you crafted in 3a
 
-**Important:** The worker prompt must be passed as a single string argument. If it contains special characters, write it to a temporary file and use `cat`:
-
-```bash
-claude -p \
-  --session-id "$WORKER_SESSION_ID" \
-  --output-format json \
-  --permission-mode auto \
-  "$(cat .goal-agent/$RUN_ID/current-prompt.md)"
-```
+**Never pass the prompt as a trailing argument** (`claude -p ... "$PROMPT"`) — it will fail with "Input must be provided either through stdin or as a prompt argument" when the shell can't parse the special characters.
 
 #### 3c. Evaluate the Worker's Output
 

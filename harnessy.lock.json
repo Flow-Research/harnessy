@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-04-02T15:41:02.702Z",
+  "timestamp": "2026-04-03T00:46:01.108Z",
   "project": "harnessy",
   "monorepo": null,
   "apps": [],
@@ -13,7 +13,8 @@
     "context": true,
     "memory": true,
     "agentsMd": true,
-    "autoflow": false
+    "autoflow": false,
+    "hooks": true
   },
   "flowCoreSkills": [
     "anytype-skill",

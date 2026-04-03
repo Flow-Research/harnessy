@@ -178,7 +178,7 @@ run_custom_path_eval() {
 import json, os
 from pathlib import Path
 repo = Path(os.environ['CUSTOM_REPO'])
-(repo / 'flow-install.lock.json').write_text(json.dumps({
+(repo / 'harnessy.lock.json').write_text(json.dumps({
   'installPaths': {
     'agentsFile': 'config/AGENTS.md',
     'contextDir': '.flow/context',

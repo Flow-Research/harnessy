@@ -1,0 +1,11 @@
+# Flow autonomous pipeline — hook configuration
+# Overrides defaults in tools/flow-install/hooks/lib/config.mjs
+
+notifications:
+  desktop: true
+  webhook_url: null
+
+sla:
+  stale_gate_hours: 4
+
+protected_patterns: ["_shared/*.py", "program.md"]

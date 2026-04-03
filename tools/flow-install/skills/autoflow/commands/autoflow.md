@@ -387,6 +387,27 @@ if elapsed > time_budget_seconds from program.md:
 - If `max_concurrent == 1`: wait for user input at active human gates
 - If `max_concurrent > 1`: move issue to WAITING state, then continue dispatching other approved runnable issues only if their dependencies and wave constraints remain satisfied
 
+### Test-First Integration
+
+Before implementation begins (after specs are approved at Phase 8), generate tests from specifications:
+
+1. **Generate regression tests from specs**: `/spec-to-regression` — Creates test cases from PRD acceptance criteria and tech spec contracts
+2. **Generate API integration tests**: `/api-integration-codegen` — Creates API test scaffolds from tech spec endpoint definitions  
+3. **Generate browser tests**: `/browser-integration-codegen` — Creates Playwright tests from design spec routes and UX flows
+4. All generated tests MUST fail initially (nothing implemented yet) — this confirms test validity
+5. Implementation phase (Phase 9) then writes code to make these tests pass
+
+Test-first is mandatory when the pipeline trigger launches autoflow. Human-initiated autoflow sessions may skip test generation if the issue is a simple bug fix.
+
+### Testing Skills Reference
+
+The following testing skills are available for pipeline use:
+- `/spec-to-regression` — Generate regression test cases from approved specifications
+- `/api-integration-codegen` — Generate API integration test scaffolds
+- `/browser-integration-codegen` — Generate Playwright browser tests from design specs
+- `/test-quality-validator` — Detect false-green tests and validate coverage quality
+- `/browser-qa` — Playwright-driven UI/UX validation walkthrough
+
 ### State: CAPTURE_METRICS
 
 After issue-flow completes (or fails or times out), compute metrics:
@@ -613,6 +634,23 @@ For `metrics`: ratchet score breakdown + hard gate status + legacy quality metri
 For `history`: formatted run log with outcomes, ratchet scores, improvement decisions.
 
 ---
+
+## Pipeline Evaluation Criteria
+
+When autoflow processes an issue through the pipeline, "done" means ALL of the following:
+
+1. **All generated tests pass** — Unit, integration, API, and Playwright tests
+2. **Test quality validated** — `/test-quality-validator` confirms no false-greens
+3. **Ratchet score stable** — ΔS ≥ -0.02 (no quality regression)
+4. **Hard constraints pass** — catastrophic_failure=0, regression_detected≤0.1
+5. **Browser validation passes** — `/browser-qa` confirms UI/UX correctness
+6. **CI pipeline passes** — All GitHub Actions checks green
+7. **PR is clean** — No merge conflicts, follows PR template
+
+If any criterion fails, the pipeline notifies the user with:
+- Which criterion failed
+- Specific error details
+- Suggested remediation steps
 
 ## Safety Rules
 

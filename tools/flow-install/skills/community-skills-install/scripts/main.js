@@ -97,7 +97,11 @@ function writeCommunityMetadata(metadata) {
 }
 
 function updateProjectLockfile(communitySkills) {
-  const lockfilePath = path.join(process.cwd(), 'flow-install.lock.json');
+  // Migration: prefer new name, fall back to old
+  let lockfilePath = path.join(process.cwd(), 'harnessy.lock.json');
+  if (!fs.existsSync(lockfilePath)) {
+    lockfilePath = path.join(process.cwd(), 'flow-install.lock.json');
+  }
   if (!fs.existsSync(lockfilePath)) return false;
 
   try {
@@ -106,7 +110,7 @@ function updateProjectLockfile(communitySkills) {
     fs.writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2) + '\n');
     return true;
   } catch (err) {
-    console.warn('⚠️ Failed to update flow-install.lock.json:', err.message);
+    console.warn('⚠️ Failed to update harnessy.lock.json:', err.message);
     return false;
   }
 }
