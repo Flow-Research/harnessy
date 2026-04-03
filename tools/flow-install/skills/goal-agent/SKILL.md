@@ -58,6 +58,7 @@ YOU (Orchestrator)          WORKER (Claude -p)
    goal-agent $ARGUMENTS
    ```
 2. If the setup script outputs a JSON context block, read it to get: `run_id`, `worker_session_id`, `goal_file`, `state_dir`, `constraints`.
+   The setup script also creates `identity.json` and `runtime-policy.json` in the state directory. Re-read `identity.json` before every phase to reinforce your delegation role.
 3. **If `action` is `background_ready`:** The script outputs a `launch_cmd` string. You MUST execute it directly via the Bash tool to create the tmux session — do NOT wrap it in Python or any other intermediary. Then report the session name and attach command to the user.
 4. Follow the command specification in `${AGENTS_SKILLS_ROOT}/goal-agent/commands/goal-agent.md` exactly.
 5. Never modify the source goal file — it is the user's specification. Persist generated verification approvals only in run state or prepared goal artifacts.
@@ -74,10 +75,16 @@ YOU (Orchestrator)          WORKER (Claude -p)
 - The worker operates in the SAME working directory as you.
 - For parallel execution, only dispatch phases with disjoint `output_files`. Same-file parallel edits are forbidden in v2.
 
-### Delegation Enforcement
-- Re-read `.goal-agent/<run-id>/identity.json` before each phase.
-- Treat `.goal-agent/<run-id>/runtime-policy.json` as the machine-enforced contract for allowed writes and shell command classes.
-- If a wrapper or hook reports a blocked action, do not work around it. Refresh state, craft a worker prompt, or transition to a valid orchestrator state instead.
+### Delegation Enforcement — Role Reinforcement Protocol
+
+Before EVERY phase iteration, perform this delegation check:
+
+1. **Re-read identity.json**: Read `.goal-agent/<run-id>/identity.json` and verify your role is `orchestrator`. This is a filesystem read, not a memory recall — it injects fresh identity instructions into the most recent part of the context window, where they are least likely to be compressed.
+2. **Self-check**: If you find yourself about to use Write or Edit on files outside `.goal-agent/<run-id>/`, STOP — you have drifted from your orchestrator role. Craft a worker prompt instead.
+3. **Guard check**: Before any Write or Edit to files outside `.goal-agent/<run-id>/`, call `goal-agent guard <run-id> --tool Write --target <path>` to check if the action is allowed by runtime policy.
+4. **Treat runtime-policy.json as authoritative**: `.goal-agent/<run-id>/runtime-policy.json` is the machine-enforced contract for allowed writes and shell command classes. If a wrapper or hook reports a blocked action, do not work around it — refresh state, craft a worker prompt, or transition to a valid orchestrator state.
+
+**Why this matters**: In long sessions, Claude's context compressor drops the oldest instructions first — which includes this SKILL.md. The identity.json re-read is a compression-resistant anchor that keeps delegation behavior intact even after heavy context pressure.
 
 ### Verification
 - Run the goal's verification commands yourself (via Bash tool) to objectively check success.
@@ -96,6 +103,64 @@ YOU (Orchestrator)          WORKER (Claude -p)
 - After each worker call, verify the working directory is intact (no corrupted files).
 - If something goes seriously wrong, stop and report — don't loop forever.
 - Use `goal-agent guard ...` when a wrapper/hook integration needs a deterministic policy decision.
+
+### Parallel Execution (Layer 2)
+
+When decomposing into phases, identify which phases are independent (can run concurrently) vs dependent (must be sequential). Mark independent phases in `plan.md`. To dispatch parallel workers:
+
+- Only parallelize phases with **disjoint output files** — two workers writing the same file is forbidden.
+- Launch each parallel worker with a unique `--session-id` (not the shared worker session).
+- Collect results from all parallel workers before proceeding to dependent phases.
+- If one parallel worker fails, the others can continue — but dependent phases must wait.
+- Track parallel workers in state.json under `phases[].parallel_group`.
+
+Default: `max_parallel_workers: 1` (sequential). Increase via goal constraints when parallelism is safe.
+
+### Goal Chaining (Layer 3)
+
+Goals can depend on other goals. A **meta-goal** (`.meta.yaml`) defines a DAG of sub-goals:
+
+```yaml
+name: "Multi-goal workflow"
+sub_goals:
+  - id: phase1
+    goal_file: "goals/phase1.md"
+  - id: phase2
+    goal_file: "goals/phase2.md"
+    depends_on: [phase1]
+```
+
+The setup script parses meta-goals and executes sub-goals in dependency order. Output from completed sub-goals becomes context for downstream goals. Use `goal-agent run <meta-goal>.meta.yaml` to execute.
+
+### Self-Generated Verification (Layer 4)
+
+When a goal file has weak or missing verification commands, the orchestrator can propose additional checks:
+
+1. After reading the goal, analyze the objective and generate verification commands that would test success.
+2. Write proposed checks to `.goal-agent/<run-id>/prepared-goal.md`.
+3. **STOP and request human approval** before executing — never auto-approve generated verification.
+4. Use `goal-agent approve <run-id>` to accept or `goal-agent approve <run-id> reject` to discard.
+5. Only proceed with approved verification.
+
+This is opt-in. When `auto_verify: false` (default), the orchestrator uses only the goal file's verification commands.
+
+### Learning Capture (Layer 5)
+
+After goal completion (success or failure), persist the run outcome for cross-run learning:
+
+```bash
+goal-agent record-outcome <run-id> --outcome <completed|failed|partial> --pass-rate <0.0-1.0> --strategy "phased-implementation"
+```
+
+This records decomposition strategy, phase timing, verification results, and failure modes to `.goal-agent/.learning/outcomes/`.
+
+Before decomposing a new goal, consult prior learning:
+
+```bash
+goal-agent learn
+```
+
+This aggregates outcomes into recommendations: which decomposition strategies work, common failure modes to avoid, typical phase counts by goal type. Use these to inform your plan — don't blindly follow them.
 
 ## Output
 

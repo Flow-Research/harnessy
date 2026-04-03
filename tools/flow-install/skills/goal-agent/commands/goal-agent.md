@@ -1,6 +1,6 @@
 ---
 description: Two-intelligence goal orchestrator — decompose, drive worker(s), verify, adapt, and persist runtime state
-argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run-id>] | list | resume <run-id> | approve <run-id> | learn"
+argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run-id>] | list | resume <run-id> | approve <run-id> | learn | guard <run-id> --tool <name> --target <path> | record-outcome <run-id> --outcome <status> --pass-rate <0-1>"
 ---
 
 # Command Contract: goal-agent
@@ -54,6 +54,28 @@ Approve or reject generated verification proposals persisted in run state.
 ### `learn`
 
 Aggregate outcome records into `.goal-agent/.learning/registry.json`.
+
+### `guard <run-id>`
+
+Evaluate a proposed orchestrator action against the run's runtime policy.
+
+**Required flags:**
+- `--tool <tool-name>` — The tool being proposed (Write, Edit, Bash)
+- `--target <path-or-command>` — The file path (for Write/Edit) or command string (for Bash)
+
+**Returns:** JSON with `allowed: true|false` and `reason` explaining the decision.
+
+### `record-outcome <run-id>`
+
+Persist a run's outcome for cross-run learning.
+
+**Required flags:**
+- `--outcome <completed|failed|partial>` — The run's final status
+- `--pass-rate <0.0-1.0>` — Fraction of verification checks that passed
+
+**Optional flags:**
+- `--strategy <label>` — Strategy label for learning aggregation (default: "default")
+- `--failure-modes <modes>` — Comma-separated failure mode tags
 
 ---
 
@@ -126,6 +148,16 @@ Save to state directory: write the plan to `.goal-agent/<run-id>/plan.md`
 ### Step 3: Execute Phases
 
 For each phase in the plan:
+
+#### 3pre. Delegation Reinforcement Check
+
+Before starting this phase, reinforce your orchestrator identity:
+
+1. Re-read `.goal-agent/<run-id>/identity.json` — this is a compression-resistant anchor
+2. Verify your role is `orchestrator` and review the `delegation_rules`
+3. If you are about to write application code directly, STOP — craft a worker prompt instead
+
+This step is critical for long runs where context compression may have dropped the SKILL.md instructions that define your role.
 
 #### 3a. Craft the Worker Prompt
 
@@ -341,6 +373,29 @@ goal-agent learn
 ```
 
 This scans `.goal-agent/.learning/outcomes/*.json` and writes `.goal-agent/.learning/registry.json`.
+
+## Execution Flow for `guard`
+
+```bash
+goal-agent guard <run-id> --tool <tool-name> --target <path-or-command>
+```
+
+The guard evaluates the proposed action against `runtime-policy.json`:
+- For Write/Edit: checks if the target path matches `allowed_write_patterns`
+- For Bash: checks if the command contains any `allowed_bash_markers`
+- Also validates the tool is allowed in the current `orchestrator_state`
+
+Returns JSON: `{"ok": true, "allowed": true|false, "reason": "...", "orchestrator_state": "..."}`
+
+Use this before any orchestrator write/edit to non-state files. If blocked, delegate to the worker instead.
+
+## Execution Flow for `record-outcome`
+
+```bash
+goal-agent record-outcome <run-id> --outcome <completed|failed|partial> --pass-rate <0.0-1.0>
+```
+
+This reads the run's state.json and persists a structured outcome record to `.goal-agent/.learning/outcomes/<run-id>.json`. The record includes decomposition strategy, phase timing, verification results, and failure modes. Used by the `learn` command to generate cross-run recommendations.
 
 ---
 

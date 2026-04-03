@@ -210,6 +210,14 @@ cli.add_command(plan_command, name="plan")
 # Create 'p' as an alias for 'plan'
 cli.add_command(plan_alias, name="p")
 
+# Register note command
+from jarvis.note import note_command  # noqa: E402
+
+cli.add_command(note_command, name="note")
+
+# Create 'n' as alias for 'note'
+cli.add_command(note_command, name="n")
+
 # Register object commands
 from jarvis.object.cli import object_cli, quick_object  # noqa: E402
 
@@ -233,6 +241,11 @@ cli.add_command(android_cli, name="android")
 
 # Create 'apk' as a quick alias for 'android run'
 cli.add_command(quick_apk, name="apk")
+
+# Register content pipeline commands
+from jarvis.content.cli import content_cli  # noqa: E402
+
+cli.add_command(content_cli, name="content")
 
 # ============================================================================
 # Init and Context Commands
