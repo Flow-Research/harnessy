@@ -35,7 +35,7 @@ export const detectProject = async (projectRoot) => {
       pluginsOpencode: false,
       scopesYaml: false,
       agentsMd: false,
-      lockfile: null,     // parsed flow-install.lock.json or null
+      lockfile: null,     // parsed harnessy.lock.json or null
     },
   };
 
@@ -60,7 +60,18 @@ export const detectProject = async (projectRoot) => {
   info.existing.pluginsOpencode = await pathExists(path.join(projectRoot, "plugins", "opencode"));
   info.existing.scopesYaml = await pathExists(path.join(projectRoot, ".jarvis", "context", "scopes", "_scopes.yaml"));
   info.existing.agentsMd = await pathExists(path.join(projectRoot, "AGENTS.md"));
-  info.existing.lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  // Migration: read new name first, fall back to old name, migrate if found
+  info.existing.lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
+  if (!info.existing.lockfile) {
+    info.existing.lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+    if (info.existing.lockfile) {
+      // Migrate: rename old lock file to new name
+      try {
+        const fs = await import("node:fs/promises");
+        await fs.rename(path.join(projectRoot, "flow-install.lock.json"), path.join(projectRoot, "harnessy.lock.json"));
+      } catch { /* ignore if rename fails — will write new name on next install */ }
+    }
+  }
 
   return info;
 };

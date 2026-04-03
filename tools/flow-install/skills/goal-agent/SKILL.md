@@ -68,6 +68,7 @@ YOU (Orchestrator)          WORKER (Claude -p)
 
 ### Worker Communication
 - Call the worker ONLY via `claude -p` with `--session-id`, `--output-format json`, and `--permission-mode auto`.
+- **ALWAYS write the prompt to `.goal-agent/<run-id>/current-prompt.md` first, then pipe it via stdin:** `cat .goal-agent/<run-id>/current-prompt.md | claude -p --session-id ... --output-format json --permission-mode auto`. NEVER pass the prompt as a trailing command-line argument — it will fail with special characters.
 - Craft focused, phase-specific prompts. Do NOT dump the entire goal into a single worker call.
 - Include context about what was done in previous phases so the worker builds on existing work.
 - The worker operates in the SAME working directory as you.

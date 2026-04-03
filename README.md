@@ -113,7 +113,7 @@ You can also target another repo explicitly:
 curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --target "/path/to/project"
 ```
 
-If you want to rerun the destination prompts for a repo that already has `flow-install.lock.json`:
+If you want to rerun the destination prompts for a repo that already has `harnessy.lock.json`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --here --reconfigure
@@ -254,8 +254,8 @@ pnpm harness:eval:remote
 - OpenCode `skills.paths` includes the required paths
 - Claude marketplace and enabled plugin state exist
 - project-local skills, if present, are visible to both agents
-- community skills are checked from `flow-install.lock.json` using warn-or-strict behavior based on `communitySkills.strict`
-- `community-skills-install --full` is validated from persisted inventory metadata in `~/.agents/community-install.json` and, when available, `flow-install.lock.json`
+- community skills are checked from `harnessy.lock.json` using warn-or-strict behavior based on `communitySkills.strict`
+- `community-skills-install --full` is validated from persisted inventory metadata in `~/.agents/community-install.json` and, when available, `harnessy.lock.json`
 
 ### 5. Context vault
 
@@ -305,7 +305,7 @@ curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install
 2. Commit generated files:
    - `AGENTS.md`
    - `.jarvis/context/`
-   - `flow-install.lock.json`
+   - `harnessy.lock.json`
    - any repo-local `.agents/skills/`
 3. Ask each engineer to run:
 

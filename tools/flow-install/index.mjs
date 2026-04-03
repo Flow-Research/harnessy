@@ -31,6 +31,7 @@ import { scaffoldContext } from "./lib/context.mjs";
 import { CONTEXT_AGENTS_VERSION, syncContextAgents } from "./lib/context-agents.mjs";
 import { installMemory } from "./lib/memory.mjs";
 import { mergeAgentsMd } from "./lib/agents-md.mjs";
+import { installHooks, installPipelineScripts, scaffoldHooksConfig } from "./lib/hooks.mjs";
 import { resolveInstallPaths } from "./lib/install-paths.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -257,6 +258,14 @@ const main = async () => {
     }
   }
 
+  // ── Step 9a: Install pipeline hooks + scripts ──────────────────────────
+  if (runAll) {
+    log.step(9, TOTAL_STEPS, "Installing pipeline hooks");
+    await installHooks(__dirname, { dryRun });
+    await installPipelineScripts(__dirname, { dryRun });
+    await scaffoldHooksConfig(projectRoot, { dryRun });
+  }
+
   // ── Step 10: Register cron schedules from skill manifests ───────────────
   if (runAll && !dryRun) {
     log.step(10, TOTAL_STEPS, "Registering cron schedules");
@@ -322,6 +331,7 @@ const main = async () => {
         context: true,
         memory: true,
         agentsMd: true,
+        hooks: true,
         ...(autoflowInstalled !== null ? { autoflow: autoflowInstalled } : {}),
       },
       flowCoreSkills,
@@ -334,8 +344,8 @@ const main = async () => {
       },
       installPaths,
     };
-    await writeJson(path.join(projectRoot, "flow-install.lock.json"), lockfile);
-    log.ok("flow-install.lock.json written");
+    await writeJson(path.join(projectRoot, "harnessy.lock.json"), lockfile);
+    log.ok("harnessy.lock.json written");
   }
 
   // ── Configure git merge strategy for auto-generated files ───────────────
@@ -361,7 +371,7 @@ const main = async () => {
     console.log("    3. Review .jarvis/context/scopes/_scopes.yaml and customize scopes");
     console.log("    4. Review AGENTS.md Flow section");
     console.log("    5. Re-run with --update-context-agents when you want to apply newer Flow protocol updates");
-    console.log("    6. Commit: flow-install.lock.json, .jarvis/, AGENTS.md changes");
+    console.log("    6. Commit: harnessy.lock.json, .jarvis/, AGENTS.md changes");
     console.log("    7. Run: pnpm skills:register (to sync project-specific skills and refresh agent registration)");
     console.log("    8. Run: pnpm harness:verify");
     console.log("");

@@ -196,7 +196,7 @@ else
 fi
 
 # Check lockfile has autoflow component field
-if grep -q '"autoflow"' flow-install.lock.json 2>/dev/null; then
+if grep -q '"autoflow"' harnessy.lock.json 2>/dev/null || grep -q '"autoflow"' flow-install.lock.json 2>/dev/null; then
   pass "Lockfile tracks autoflow component"
 else
   log "  [INFO] Lockfile does not track autoflow (expected for --yes installs)"

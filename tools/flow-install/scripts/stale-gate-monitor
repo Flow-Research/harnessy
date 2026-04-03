@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+"""
+stale-gate-monitor — SLA watchdog for Flow autoflow gates.
+
+Checks for issues and goal-agent runs that have been waiting for human
+review beyond the configured SLA threshold, and emits notifications.
+
+Usage:
+    stale-gate-monitor [--dry-run]   Check for stale gates and notify
+    stale-gate-monitor --help        Show this help
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+
+def detect_repo_root() -> Path:
+    """Detect the canonical git repo root."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, check=True,
+        )
+        return Path(result.stdout.strip()).parent.resolve()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return Path.cwd().resolve()
+
+
+def pool_path(repo_root: Path) -> Path:
+    return repo_root / ".jarvis" / "context" / "autoflow" / "pool.json"
+
+
+def goal_agent_dir(repo_root: Path) -> Path:
+    return repo_root / ".goal-agent"
+
+
+def hooks_yaml_path(repo_root: Path) -> Path:
+    return repo_root / ".jarvis" / "hooks.yaml"
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def load_json(path: Path) -> Any:
+    """Load JSON from a file, returning None on any error."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def load_sla_threshold(repo_root: Path) -> float:
+    """Load the stale gate SLA threshold in hours from .jarvis/hooks.yaml.
+
+    Falls back to 4 hours if the file doesn't exist or can't be parsed.
+    """
+    yaml_path = hooks_yaml_path(repo_root)
+    if not yaml_path.exists():
+        return 4.0
+
+    try:
+        # Parse YAML without external dependency — the hooks.yaml is simple enough
+        text = yaml_path.read_text()
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("stale_gate_hours:"):
+                value = stripped.split(":", 1)[1].strip()
+                return float(value)
+    except (OSError, ValueError):
+        pass
+
+    return 4.0
+
+
+def parse_iso_timestamp(ts: str) -> Optional[datetime]:
+    """Parse an ISO 8601 timestamp string into a timezone-aware datetime."""
+    if not ts:
+        return None
+    try:
+        # Handle both 'Z' suffix and '+00:00' offset
+        ts = ts.replace("Z", "+00:00")
+        return datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return None
+
+
+def format_age(delta: timedelta) -> str:
+    """Format a timedelta as a human-readable age string."""
+    total_hours = delta.total_seconds() / 3600
+    if total_hours < 1:
+        minutes = int(delta.total_seconds() / 60)
+        return f"{minutes}m"
+    elif total_hours < 24:
+        return f"{total_hours:.1f}h"
+    else:
+        days = int(total_hours / 24)
+        remaining_hours = total_hours - (days * 24)
+        return f"{days}d {remaining_hours:.0f}h"
+
+
+# ── Structured logging ─────────────────────────────────────────────────────
+
+LOG_MAX_LINES = 10000
+LOG_KEEP_LINES = 5000
+
+
+def log_file_path(repo_root: Path) -> Path:
+    return repo_root / ".jarvis" / "context" / "autoflow" / "pipeline.log.ndjson"
+
+
+def log_entry(repo_root: Path, entry: Dict[str, Any]) -> None:
+    """Append one NDJSON line to the pipeline log, with rotation."""
+    path = log_file_path(repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(entry, default=str) + "\n"
+    with open(path, "a") as f:
+        f.write(line)
+    try:
+        with open(path, "r") as f:
+            lines = f.readlines()
+        if len(lines) > LOG_MAX_LINES:
+            with open(path, "w") as f:
+                f.writelines(lines[-LOG_KEEP_LINES:])
+    except OSError:
+        pass
+
+
+# ── Stale detection ─────────────────────────────────────────────────────────
+
+def find_stale_pool_issues(repo_root: Path, threshold_hours: float, now: datetime) -> List[Dict[str, Any]]:
+    """Find pool issues in waiting_human status that exceed the SLA threshold."""
+    data = load_json(pool_path(repo_root))
+    if not isinstance(data, dict):
+        return []
+
+    threshold = timedelta(hours=threshold_hours)
+    stale = []
+
+    for num_str, entry in data.get("issues", {}).items():
+        status = entry.get("status", "")
+        if status != "waiting_human":
+            continue
+
+        # Check the timestamp — use 'waiting_since' or fall back to 'started_at'
+        ts_str = entry.get("waiting_since") or entry.get("started_at", "")
+        ts = parse_iso_timestamp(ts_str)
+        if ts is None:
+            continue
+
+        age = now - ts
+        if age > threshold:
+            stale.append({
+                "type": "pool_issue",
+                "issue_number": num_str,
+                "title": entry.get("title", "?"),
+                "status": status,
+                "since": ts_str,
+                "age": age,
+                "age_str": format_age(age),
+            })
+
+    return stale
+
+
+def find_stale_goal_runs(repo_root: Path, threshold_hours: float, now: datetime) -> List[Dict[str, Any]]:
+    """Find goal-agent runs that are stale (waiting_human or long-running)."""
+    ga_dir = goal_agent_dir(repo_root)
+    if not ga_dir.exists():
+        return []
+
+    threshold = timedelta(hours=threshold_hours)
+    stale = []
+
+    for state_file in ga_dir.glob("*/state.json"):
+        data = load_json(state_file)
+        if not isinstance(data, dict):
+            continue
+
+        status = data.get("status", "")
+        if status in ("completed", "failed"):
+            continue
+
+        # For waiting_human: check how long it's been waiting
+        # For running: check if it's been running longer than 2x the SLA threshold
+        ts_str = data.get("last_updated_at") or data.get("started_at", "")
+        ts = parse_iso_timestamp(ts_str)
+        if ts is None:
+            continue
+
+        age = now - ts
+        is_stale = False
+
+        if status == "waiting_human" and age > threshold:
+            is_stale = True
+        elif status in ("running", "initialized") and age > timedelta(hours=threshold_hours * 2):
+            is_stale = True
+
+        if is_stale:
+            stale.append({
+                "type": "goal_run",
+                "run_id": data.get("run_id", state_file.parent.name),
+                "goal_title": data.get("goal_title", "?"),
+                "status": status,
+                "since": ts_str,
+                "age": age,
+                "age_str": format_age(age),
+            })
+
+    return stale
+
+
+# ── Notification ─────────────────────────────────────────────────────────────
+
+def print_stale_report(stale_items: List[Dict[str, Any]], threshold_hours: float) -> None:
+    """Print a human-readable report of stale gates."""
+    print(f"Stale Gate Report (SLA threshold: {threshold_hours}h)")
+    print("─" * 60)
+
+    pool_items = [s for s in stale_items if s["type"] == "pool_issue"]
+    run_items = [s for s in stale_items if s["type"] == "goal_run"]
+
+    if pool_items:
+        print(f"\nStale pool issues ({len(pool_items)}):")
+        for item in pool_items:
+            print(f"  Issue #{item['issue_number']}: {item['title']}")
+            print(f"    Status: {item['status']}  |  Age: {item['age_str']}  |  Since: {item['since']}")
+
+    if run_items:
+        print(f"\nStale goal-agent runs ({len(run_items)}):")
+        for item in run_items:
+            print(f"  {item['goal_title']} ({item['run_id']})")
+            print(f"    Status: {item['status']}  |  Age: {item['age_str']}  |  Since: {item['since']}")
+
+    if not pool_items and not run_items:
+        print("\nNo stale gates found. All within SLA.")
+
+
+def send_notification(stale_items: List[Dict[str, Any]], threshold_hours: float) -> None:
+    """Send a notification for stale gates (currently prints to stdout).
+
+    Future: desktop notifications, webhook, or gh issue comment.
+    """
+    count = len(stale_items)
+    summary = f"Flow: {count} stale gate(s) exceed {threshold_hours}h SLA"
+    print(f"\n[NOTIFICATION] {summary}")
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def cmd_monitor(args: argparse.Namespace) -> int:
+    """Check for stale gates and emit notifications."""
+    t0 = time.monotonic()
+    repo_root = detect_repo_root()
+    threshold = load_sla_threshold(repo_root)
+    now = datetime.now(timezone.utc)
+    dry_run = args.dry_run
+
+    stale_items = []
+    stale_items.extend(find_stale_pool_issues(repo_root, threshold, now))
+    stale_items.extend(find_stale_goal_runs(repo_root, threshold, now))
+
+    # Always print the report
+    print_stale_report(stale_items, threshold)
+
+    notifications_sent = 0
+    # Send notification only if there are stale items and not in dry-run mode
+    if stale_items and not dry_run:
+        send_notification(stale_items, threshold)
+        notifications_sent = 1
+    elif dry_run and stale_items:
+        print(f"\n[dry-run] Would send notification for {len(stale_items)} stale gate(s)")
+
+    # Build log entry
+    stale_pool = [s for s in stale_items if s["type"] == "pool_issue"]
+    stale_runs = [s for s in stale_items if s["type"] == "goal_run"]
+
+    stale_details = []
+    for s in stale_items:
+        detail: Dict[str, Any] = {"type": s["type"]}
+        if s["type"] == "pool_issue":
+            detail["issue_number"] = s.get("issue_number", "?")
+            detail["title"] = s.get("title", "?")
+            detail["age_hours"] = round(s["age"].total_seconds() / 3600, 1)
+        else:
+            detail["id"] = s.get("run_id", "?")
+            detail["title"] = s.get("goal_title", "?")
+            detail["age_hours"] = round(s["age"].total_seconds() / 3600, 1)
+        stale_details.append(detail)
+
+    total_stale = len(stale_items)
+    entry = {
+        "timestamp": now.isoformat(),
+        "script": "stale-gate-monitor",
+        "command": "check",
+        "duration_seconds": round(time.monotonic() - t0, 2),
+        "stale_pool_issues": len(stale_pool),
+        "stale_goal_runs": len(stale_runs),
+        "total_stale": total_stale,
+        "stale_details": stale_details,
+        "notifications_sent": notifications_sent,
+        "dry_run": dry_run,
+        "action": "checked",
+        "exit_code": 0,
+        "message": f"{total_stale} stale gates found" if total_stale else "No stale gates",
+    }
+    log_entry(repo_root, entry)
+
+    # Monitoring script should always succeed
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="stale-gate-monitor",
+        description=(
+            "SLA watchdog for Flow autoflow gates. "
+            "Checks for issues and goal-agent runs stuck in waiting_human "
+            "or stale running states beyond the configured SLA threshold."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Report stale gates without sending notifications",
+    )
+
+    args = parser.parse_args()
+    return cmd_monitor(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

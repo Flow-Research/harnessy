@@ -1,0 +1,739 @@
+#!/usr/bin/env python3
+"""
+pipeline-trigger — Cron-callable pipeline guard for Flow autoflow.
+
+Discovers eligible GitHub issues labeled 'autoflow', then launches a single
+planner goal-agent that analyzes dependencies and orchestrates child agents
+in execution waves. This script is intentionally cheap (no LLM cost) — all
+intelligence lives in the planner goal-agent it spawns.
+
+Usage:
+    pipeline-trigger run [--max N] [--dry-run]   Find eligible issues, launch planner
+    pipeline-trigger status                       Show current pipeline state
+    pipeline-trigger logs [--last N] [--json]     View recent pipeline activity
+    pipeline-trigger --help                       Show this help
+
+This script is designed to be triggered by flow-cron on a schedule.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+
+def detect_repo_root() -> Path:
+    """Detect the canonical git repo root."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, check=True,
+        )
+        return Path(result.stdout.strip()).parent.resolve()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return Path.cwd().resolve()
+
+
+def pool_path(repo_root: Path) -> Path:
+    return repo_root / ".jarvis" / "context" / "autoflow" / "pool.json"
+
+
+def goal_agent_dir(repo_root: Path) -> Path:
+    return repo_root / ".goal-agent"
+
+
+def goals_dir() -> Path:
+    return Path.home() / ".agents" / "goals" / "pipeline"
+
+
+def worktree_root(repo_root: Path) -> Path:
+    """Sibling worktree directory — matches issue_flow_git.py convention."""
+    return (repo_root.parent / f"{repo_root.name}-worktrees").resolve()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+SKIP_LABELS = {"blocked", "wontfix", "duplicate", "won't fix", "invalid"}
+
+
+def sanitize_branch(raw: str) -> str:
+    """Sanitize a string into a valid git branch segment."""
+    allowed = []
+    last_sep = False
+    for char in raw.lower():
+        if char.isalnum() or char in {"-", "_"}:
+            allowed.append(char)
+            last_sep = False
+        else:
+            if not last_sep:
+                allowed.append("-")
+                last_sep = True
+    sanitized = "".join(allowed).strip("-_")
+    while "--" in sanitized:
+        sanitized = sanitized.replace("--", "-")
+    return sanitized[:60]
+
+
+def load_json(path: Path) -> Any:
+    """Load JSON from a file, returning None on any error."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def save_json(path: Path, data: Any) -> None:
+    """Write JSON to a file, creating parent dirs as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ── Structured logging ─────────────────────────────────────────────────────
+
+LOG_MAX_LINES = 10000
+LOG_KEEP_LINES = 5000
+
+
+def log_file_path(repo_root: Path) -> Path:
+    return repo_root / ".jarvis" / "context" / "autoflow" / "pipeline.log.ndjson"
+
+
+def log_entry(repo_root: Path, entry: Dict[str, Any]) -> None:
+    """Append one NDJSON line to the pipeline log, with rotation."""
+    path = log_file_path(repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(entry, default=str) + "\n"
+    with open(path, "a") as f:
+        f.write(line)
+    # Rotate: check line count and truncate if needed
+    try:
+        with open(path, "r") as f:
+            lines = f.readlines()
+        if len(lines) > LOG_MAX_LINES:
+            with open(path, "w") as f:
+                f.writelines(lines[-LOG_KEEP_LINES:])
+    except OSError:
+        pass
+
+
+def read_log_entries(repo_root: Path, last_n: int = 20) -> List[Dict[str, Any]]:
+    """Read the last N log entries from the NDJSON log."""
+    path = log_file_path(repo_root)
+    if not path.exists():
+        return []
+    entries = []
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except OSError:
+        return []
+    return entries[-last_n:]
+
+
+def format_log_table(entries: List[Dict[str, Any]]) -> str:
+    """Format log entries as a human-readable table."""
+    if not entries:
+        return "No log entries found."
+    lines = []
+    for e in entries:
+        ts = e.get("timestamp", "?")
+        # Truncate to minute precision for display
+        if len(ts) >= 16:
+            ts_display = ts[:16].replace("T", " ")
+        else:
+            ts_display = ts
+        script = e.get("script", "?")
+        cmd = e.get("command", "")
+        duration = e.get("duration_seconds", 0)
+        action = e.get("action", "?")
+        # Build summary based on script type
+        if script == "pipeline-trigger":
+            eligible = e.get("eligible_after_filter", 0)
+            candidates = e.get("candidates_found", 0)
+            issues = e.get("issues_planned", [])
+            if action == "launched_planner":
+                summary = f"{len(issues)} issues [{', '.join(f'#{n}' for n in issues)}]"
+            elif action == "no_candidates":
+                summary = "0 candidates"
+            elif action == "no_eligible":
+                summary = f"{candidates} candidates, {eligible} eligible"
+            elif action == "planner_active":
+                summary = "skipped"
+            elif action == "dry_run":
+                summary = f"{eligible} eligible (dry-run)"
+            elif action == "launch_failed":
+                summary = "failed"
+            else:
+                summary = e.get("message", "")
+        elif script == "stale-gate-monitor":
+            total = e.get("total_stale", 0)
+            summary = f"{total} stale"
+            stale_details = e.get("stale_details", [])
+            if stale_details:
+                ids = []
+                for d in stale_details[:3]:
+                    if d.get("type") == "pool_issue":
+                        ids.append(f"#{d.get('issue_number', '?')}")
+                    else:
+                        ids.append(d.get("id", "?")[:12])
+                summary += f" [{', '.join(ids)}]"
+        else:
+            summary = e.get("message", "")
+
+        script_col = f"{script} {cmd}".strip()
+        lines.append(f"{ts_display}  {script_col:<28s} {duration:>5.1f}s  {action:<18s} {summary}")
+    return "\n".join(lines)
+
+
+# ── Pool management ──────────────────────────────────────────────────────────
+
+def load_pool(repo_root: Path) -> Dict[str, Any]:
+    """Load the autoflow pool, or return a fresh structure."""
+    data = load_json(pool_path(repo_root))
+    if isinstance(data, dict) and "issues" in data:
+        return data
+    return {"issues": {}, "last_updated": None}
+
+
+def save_pool(repo_root: Path, pool: Dict[str, Any]) -> None:
+    pool["last_updated"] = now_iso()
+    save_json(pool_path(repo_root), pool)
+
+
+# ── GitHub helpers ───────────────────────────────────────────────────────────
+
+def get_github_user() -> str:
+    """Get the local GitHub username via gh CLI."""
+    try:
+        result = subprocess.run(
+            ["gh", "api", "user", "--jq", ".login"],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
+
+
+def fetch_autoflow_issues() -> List[Dict[str, Any]]:
+    """Fetch open issues with the autoflow label via gh CLI (no API cost beyond rate limit)."""
+    try:
+        result = subprocess.run(
+            [
+                "gh", "issue", "list",
+                "--label", "autoflow",
+                "--state", "open",
+                "--json", "number,title,labels,body,assignees",
+                "--limit", "50",
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        return json.loads(result.stdout)
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as exc:
+        print(f"Warning: could not fetch issues: {exc}", file=sys.stderr)
+        return []
+
+
+def has_skip_label(issue: Dict[str, Any]) -> bool:
+    """Check whether the issue carries a label that should skip processing."""
+    labels = issue.get("labels", [])
+    for label in labels:
+        name = label.get("name", "") if isinstance(label, dict) else str(label)
+        if name.lower() in SKIP_LABELS:
+            return True
+    return False
+
+
+# ── Goal-agent state inspection ──────────────────────────────────────────────
+
+def active_goal_runs(repo_root: Path) -> Dict[str, Dict[str, Any]]:
+    """Return a map of run_id -> state for non-terminal goal-agent runs."""
+    ga_dir = goal_agent_dir(repo_root)
+    active: Dict[str, Dict[str, Any]] = {}
+    if not ga_dir.exists():
+        return active
+    for state_file in ga_dir.glob("*/state.json"):
+        data = load_json(state_file)
+        if not isinstance(data, dict):
+            continue
+        status = data.get("status", "")
+        if status not in ("completed", "failed"):
+            active[data.get("run_id", state_file.parent.name)] = data
+    return active
+
+
+def issues_in_progress(repo_root: Path) -> set:
+    """Return issue numbers that are currently running or waiting_human in pool."""
+    pool = load_pool(repo_root)
+    in_progress = set()
+    for num_str, entry in pool.get("issues", {}).items():
+        status = entry.get("status", "")
+        if status in ("running", "waiting_human"):
+            in_progress.add(int(num_str))
+    return in_progress
+
+
+# ── Planner guard ────────────────────────────────────────────────────────────
+
+def is_planner_running(repo_root: Path) -> bool:
+    """Check if the planner goal-agent is already active."""
+    # Check tmux session
+    tmux_check = subprocess.run(
+        ["tmux", "has-session", "-t", "autoflow-planner"],
+        capture_output=True, text=True,
+    )
+    if tmux_check.returncode == 0:
+        return True
+
+    # Check planner state file
+    state_path = repo_root / ".jarvis" / "context" / "autoflow" / "planner-state.json"
+    data = load_json(state_path)
+    if isinstance(data, dict) and data.get("status") == "running":
+        started = data.get("started_at", "")
+        if started:
+            try:
+                started_dt = datetime.fromisoformat(started)
+                elapsed = (datetime.now(timezone.utc) - started_dt).total_seconds()
+                if elapsed < 12 * 3600:
+                    return True
+            except (ValueError, TypeError):
+                pass
+
+    return False
+
+
+# ── Filtering ────────────────────────────────────────────────────────────────
+
+def filter_eligible(
+    candidates: List[Dict[str, Any]],
+    repo_root: Path,
+    gh_user: str,
+) -> List[Dict[str, Any]]:
+    """Filter issues to those eligible for planning."""
+    already_running = issues_in_progress(repo_root)
+    active_runs = active_goal_runs(repo_root)
+
+    # Collect issue numbers with active goal-agent runs
+    ga_issue_numbers = set()
+    for run_data in active_runs.values():
+        goal_file = run_data.get("goal_file", "")
+        match = re.search(r"/pipeline/(\d+)\.md$", goal_file)
+        if match:
+            ga_issue_numbers.add(int(match.group(1)))
+
+    in_progress = already_running | ga_issue_numbers
+
+    eligible = []
+    for issue in candidates:
+        number = issue.get("number")
+        if number in in_progress:
+            continue
+        if has_skip_label(issue):
+            continue
+        # Filter by assignee if gh_user is known
+        if gh_user:
+            assignees = issue.get("assignees", [])
+            assignee_logins = [
+                a.get("login", "") if isinstance(a, dict) else str(a)
+                for a in assignees
+            ]
+            if gh_user not in assignee_logins:
+                continue
+        eligible.append(issue)
+
+    return eligible
+
+
+# ── Planner goal generation ─────────────────────────────────────────────────
+
+def generate_planner_goal(eligible: List[Dict[str, Any]], repo_root: Path) -> Path:
+    """Generate a planner goal file that orchestrates wave-based execution."""
+    goal_dir = goals_dir()
+    goal_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    goal_file = goal_dir / f"planner-{timestamp}.md"
+
+    n = len(eligible)
+
+    # Build issue table
+    issue_rows = []
+    for issue in eligible:
+        number = issue["number"]
+        title = issue.get("title", f"Issue #{number}")
+        labels = issue.get("labels", [])
+        label_names = ", ".join(
+            l.get("name", "") if isinstance(l, dict) else str(l)
+            for l in labels
+        )
+        body = issue.get("body", "") or ""
+        body_excerpt = "\n".join(body.strip().splitlines()[:20])
+        if len(body.strip().splitlines()) > 20:
+            body_excerpt += "\n(truncated)"
+
+        issue_rows.append(
+            f"### #{number}: {title}\n"
+            f"**Labels:** {label_names}\n\n"
+            f"```\n{body_excerpt}\n```\n"
+        )
+
+    issues_section = "\n".join(issue_rows)
+
+    # Worktree convention for the planner to follow
+    wt_root = worktree_root(repo_root)
+    repo_name = repo_root.name
+
+    content = f"""# Goal: Pipeline Planner
+
+## Objective
+
+Plan and execute a wave-based pipeline for {n} autoflow issues. Analyze dependencies
+between issues, construct execution waves (serial for coupled issues, parallel when
+safe), and orchestrate child goal-agents through completion.
+
+## Issues
+
+{issues_section}
+
+## Working Directory
+
+{repo_root}
+
+## Planning Instructions
+
+1. Read each issue's full GitHub body: `gh issue view <number>`
+2. Analyze what files, modules, and APIs each issue touches
+3. Detect dependencies:
+   - Explicit: issue body references other issues (#N, "depends on", "blocked by")
+   - Architectural: issues touching same files, shared models, or APIs
+4. Build execution waves:
+   - Wave 0 (serial foundation): issues that establish shared contracts or modify core abstractions
+   - Wave 1+ (parallel when safe): issues with no file/API overlap
+   - Each wave includes rationale for why issues are grouped together
+5. Store wave plan at `.jarvis/context/autoflow/queue.json`
+6. For each wave in order:
+   a. Create worktrees: `git worktree add {wt_root}/<number>_<slug> -b autoflow/issue-<number>-<slug> main`
+   b. Generate child goal files at `~/.agents/goals/pipeline/<number>.md` with:
+      - Issue objective from title + body
+      - Working directory set to the worktree path
+      - Predecessor context (what files previous wave issues modified)
+      - Verification: tests pass, no lint errors, changes scoped to issue
+   c. Launch child goal-agents:
+      - For serial waves: `goal-agent run <goal-file> --background --session issue-<number>` — wait for completion before next
+      - For parallel waves: launch all, then monitor all to completion
+   d. After each child completes, verify its worktree has no conflicts with main
+7. After all waves complete, update `.jarvis/context/autoflow/planner-state.json` with results
+
+## Verification
+
+```bash
+# All child goal-agents completed
+for f in .goal-agent/*/state.json; do python3 -c "import json; d=json.load(open('$f')); assert d.get('status') in ('completed','failed'), f'{{d.get(\\\"goal_title\\\",\\\"?\\\")}}:  {{d.get(\\\"status\\\",\\\"?\\\")}}'" 2>/dev/null; done
+
+# Wave plan was stored
+test -f .jarvis/context/autoflow/queue.json
+
+# Planner state updated
+test -f .jarvis/context/autoflow/planner-state.json
+```
+
+## Constraints
+
+max_iterations: 30
+budget_per_phase: $5.00
+total_budget: $30.00
+model: opus
+allowed_tools: Bash,Read,Write,Edit,Glob,Grep
+"""
+
+    goal_file.write_text(content)
+    return goal_file
+
+
+# ── Planner launch ──────────────────────────────────────────────────────────
+
+def launch_planner(goal_file: Path) -> None:
+    """Launch the planner goal-agent in a background tmux session."""
+    subprocess.run(
+        ["goal-agent", "run", str(goal_file), "--background", "--session", "autoflow-planner"],
+        check=True, capture_output=True, text=True,
+    )
+    print(f"Launched planner goal-agent in tmux session 'autoflow-planner'")
+    print(f"  Attach: tmux attach -t autoflow-planner")
+    print(f"  Goal: {goal_file}")
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Find eligible autoflow issues and launch the planner goal-agent."""
+    t0 = time.monotonic()
+    repo_root = detect_repo_root()
+    dry_run = args.dry_run
+    gh_user = ""
+
+    # Build log entry incrementally
+    entry: Dict[str, Any] = {
+        "timestamp": now_iso(),
+        "script": "pipeline-trigger",
+        "command": "run",
+        "dry_run": dry_run,
+    }
+
+    # 1. Guard: is a planner already running?
+    planner_running = is_planner_running(repo_root)
+    entry["planner_already_running"] = planner_running
+    if planner_running:
+        print("Pipeline planner already active. Exiting.")
+        entry.update(action="planner_active", exit_code=0, candidates_found=0,
+                     eligible_after_filter=0, message="Planner already active, skipped",
+                     duration_seconds=round(time.monotonic() - t0, 2))
+        log_entry(repo_root, entry)
+        return 0
+
+    # 2. Get GitHub user for assignee filtering
+    gh_user = get_github_user()
+    entry["gh_user"] = gh_user
+
+    # 3. Cheap pre-check
+    print("Fetching autoflow issues...")
+    candidates = fetch_autoflow_issues()
+    entry["candidates_found"] = len(candidates)
+    if not candidates:
+        print("No open issues with autoflow label.")
+        entry.update(action="no_candidates", eligible_after_filter=0,
+                     exit_code=0, message="No open issues with autoflow label",
+                     duration_seconds=round(time.monotonic() - t0, 2))
+        log_entry(repo_root, entry)
+        return 0
+
+    # 4. Filter eligible (assigned to user, not skipped, not in progress)
+    eligible = filter_eligible(candidates, repo_root, gh_user)
+    entry["eligible_after_filter"] = len(eligible)
+    if not eligible:
+        print("No eligible issues (check assignees and labels).")
+        entry.update(action="no_eligible", exit_code=0,
+                     message=f"{len(candidates)} candidates, 0 eligible",
+                     duration_seconds=round(time.monotonic() - t0, 2))
+        log_entry(repo_root, entry)
+        return 0
+
+    # 5. Apply --max limit
+    to_plan = eligible[:args.max]
+    issue_numbers = [iss["number"] for iss in to_plan]
+    print(f"Found {len(eligible)} eligible issue(s), planning {len(to_plan)}.")
+    for issue in to_plan:
+        print(f"  #{issue['number']}: {issue.get('title', '?')}")
+
+    if dry_run:
+        print(f"\n[dry-run] Would launch planner goal-agent in tmux session 'autoflow-planner'")
+        print(f"[dry-run] Planner would analyze dependencies and build execution waves")
+        entry.update(action="dry_run", issues_planned=issue_numbers, exit_code=0,
+                     message=f"Dry-run: would plan {len(to_plan)} issues",
+                     duration_seconds=round(time.monotonic() - t0, 2))
+        log_entry(repo_root, entry)
+        return 0
+
+    # 6. Generate planner goal and launch
+    goal_file = generate_planner_goal(to_plan, repo_root)
+    print(f"\nPlanner goal: {goal_file}")
+
+    try:
+        launch_planner(goal_file)
+        entry.update(action="launched_planner", planner_goal=str(goal_file),
+                     issues_planned=issue_numbers, exit_code=0,
+                     message=f"Launched planner goal-agent with {len(to_plan)} issues",
+                     duration_seconds=round(time.monotonic() - t0, 2))
+        log_entry(repo_root, entry)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(f"Error launching planner: {exc}", file=sys.stderr)
+        entry.update(action="launch_failed", issues_planned=issue_numbers, exit_code=1,
+                     message=f"Failed to launch planner: {exc}",
+                     duration_seconds=round(time.monotonic() - t0, 2))
+        log_entry(repo_root, entry)
+        return 1
+
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """Show current pipeline state."""
+    repo_root = detect_repo_root()
+    pool = load_pool(repo_root)
+    active_runs = active_goal_runs(repo_root)
+
+    print("Pipeline Status")
+    print("─" * 50)
+
+    # Planner status
+    planner_state_path = repo_root / ".jarvis" / "context" / "autoflow" / "planner-state.json"
+    planner_data = load_json(planner_state_path)
+
+    tmux_check = subprocess.run(
+        ["tmux", "has-session", "-t", "autoflow-planner"],
+        capture_output=True, text=True,
+    )
+    planner_session_active = tmux_check.returncode == 0
+
+    if planner_session_active:
+        print("  Planner:            running (tmux session active)")
+    elif isinstance(planner_data, dict):
+        ps = planner_data.get("status", "unknown")
+        print(f"  Planner:            {ps}")
+        if planner_data.get("started_at"):
+            print(f"    Started:          {planner_data['started_at']}")
+        if planner_data.get("completed_at"):
+            print(f"    Completed:        {planner_data['completed_at']}")
+    else:
+        print("  Planner:            idle")
+
+    # Wave plan summary
+    queue_path = repo_root / ".jarvis" / "context" / "autoflow" / "queue.json"
+    queue_data = load_json(queue_path)
+    if isinstance(queue_data, dict):
+        waves = queue_data.get("waves", [])
+        print(f"\n  Wave Plan:          {len(waves)} wave(s)")
+        for i, wave in enumerate(waves):
+            issues_in_wave = wave.get("issues", [])
+            mode = wave.get("mode", "?")
+            issue_nums = [str(iss.get("number", "?")) for iss in issues_in_wave] if isinstance(issues_in_wave, list) else []
+            print(f"    Wave {i}: [{mode}] #{', #'.join(issue_nums)}")
+
+    # Pool summary
+    issues = pool.get("issues", {})
+    if issues:
+        running = [n for n, e in issues.items() if e.get("status") == "running"]
+        waiting = [n for n, e in issues.items() if e.get("status") == "waiting_human"]
+        completed = [n for n, e in issues.items() if e.get("status") == "completed"]
+        failed = [n for n, e in issues.items() if e.get("status") == "failed"]
+
+        print(f"\n  Active (running):   {len(running)}")
+        if running:
+            for n in running:
+                print(f"    #{n}: {issues[n].get('title', '?')}")
+        print(f"  Waiting (human):    {len(waiting)}")
+        if waiting:
+            for n in waiting:
+                print(f"    #{n}: {issues[n].get('title', '?')}")
+        print(f"  Completed:          {len(completed)}")
+        print(f"  Failed:             {len(failed)}")
+
+    print(f"\n  Goal-agent active runs: {len(active_runs)}")
+    if active_runs:
+        for run_id, data in list(active_runs.items())[:5]:
+            status = data.get("status", "?")
+            goal = data.get("goal_title", run_id)
+            print(f"    {goal}: {status}")
+
+    if pool.get("last_updated"):
+        print(f"\n  Pool last updated: {pool['last_updated']}")
+
+    # Recent activity from structured log
+    recent = read_log_entries(repo_root, last_n=5)
+    if recent:
+        print(f"\nRecent Activity")
+        print("─" * 50)
+        print(format_log_table(recent))
+
+    return 0
+
+
+def cmd_logs(args: argparse.Namespace) -> int:
+    """Show recent pipeline log entries."""
+    repo_root = detect_repo_root()
+    last_n = args.last
+    entries = read_log_entries(repo_root, last_n=last_n)
+
+    if args.json:
+        for e in entries:
+            print(json.dumps(e, default=str))
+        return 0
+
+    print(f"Pipeline Log (last {last_n} entries)")
+    print("─" * 60)
+    if not entries:
+        print("No log entries found.")
+    else:
+        print(format_log_table(entries))
+    return 0
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="pipeline-trigger",
+        description=(
+            "Cron guard for the Flow autoflow pipeline. "
+            "Discovers eligible issues, then launches a single planner "
+            "goal-agent that builds execution waves and triggers child agents."
+        ),
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    run_parser = sub.add_parser(
+        "run",
+        help="Find eligible pipeline issues and launch the planner",
+    )
+    run_parser.add_argument(
+        "--max", type=int, default=5,
+        help="Maximum number of issues to plan (default: 5)",
+    )
+    run_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would happen without executing",
+    )
+    run_parser.add_argument(
+        "--checkpoint", action="store_true",
+        help="Enable approval checkpoints in planner goal",
+    )
+
+    sub.add_parser("status", help="Show current pipeline trigger state")
+
+    logs_parser = sub.add_parser("logs", help="View recent pipeline activity log")
+    logs_parser.add_argument(
+        "--last", type=int, default=20,
+        help="Number of recent entries to show (default: 20)",
+    )
+    logs_parser.add_argument(
+        "--json", action="store_true",
+        help="Output raw NDJSON lines instead of formatted view",
+    )
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    if args.command == "run":
+        return cmd_run(args)
+    elif args.command == "status":
+        return cmd_status(args)
+    elif args.command == "logs":
+        return cmd_logs(args)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

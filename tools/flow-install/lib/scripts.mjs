@@ -174,7 +174,7 @@ const pathExists = async (p) => { try { await fs.access(p); return true; } catch
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
 const resolveInstallPaths = async () => {
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
 };
 const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);
@@ -441,7 +441,7 @@ const DEFAULT_INSTALL_PATHS = {
 const required = ["name","type","version","owner","status","blast_radius","description","permissions","data_categories","egress","invoke","location"];
 const readJsonSafe = async (p) => { try { return JSON.parse(await fs.readFile(p, "utf8")); } catch { return null; } };
 const resolveInstallPaths = async () => {
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
 };
 
@@ -799,7 +799,7 @@ const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); }
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
 const normalizePath = async (candidate) => { try { return await fs.realpath(candidate); } catch { return path.resolve(candidate); } };
 const resolveInstallPaths = async () => {
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
 };
 const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);
@@ -841,7 +841,7 @@ const run = async () => {
   await requirePath("Memory scopes exist", path.join(contextDir, "scopes", "_scopes.yaml"));
   if (agents?.includes(expectedContextAgentsRef)) pass("AGENTS.md points to context AGENTS", expectedContextAgentsRef);
   else fail("AGENTS.md points to context AGENTS");
-  await requirePath("Install lockfile exists", path.join(projectRoot, "flow-install.lock.json"));
+  await requirePath("Install lockfile exists", path.join(projectRoot, "harnessy.lock.json"));
   await requirePath("register-skills script exists", path.join(scriptsDir, "register-skills.mjs"));
   await requirePath("validate-skills script exists", path.join(scriptsDir, "validate-skills.mjs"));
   await requirePath("register-claude-skills script exists", path.join(scriptsDir, "register-claude-skills.mjs"));
@@ -888,7 +888,7 @@ const run = async () => {
 
   const localEntries = await fs.readdir(projectSkillsRoot, { withFileTypes: true }).catch(() => []);
   const localSkills = localEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   const globalCommunityMetadata = await readJsonSafe(GLOBAL_COMMUNITY_METADATA);
   const components = lockfile?.components || {};
   for (const component of ["skills", "claude", "opencode", "scripts", "context", "memory", "agentsMd"]) {
@@ -902,7 +902,7 @@ const run = async () => {
 
   const flowCoreSkills = Array.isArray(lockfile?.flowCoreSkills) ? lockfile.flowCoreSkills : [];
   if (flowCoreSkills.length === 0) {
-    warn("Flow core skills inventory unavailable", "No flowCoreSkills recorded in flow-install.lock.json");
+    warn("Flow core skills inventory unavailable", "No flowCoreSkills recorded in harnessy.lock.json");
   }
   for (const skill of flowCoreSkills) {
     const globalSkillDir = path.join(GLOBAL_SKILLS_DIR, skill);
