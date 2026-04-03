@@ -4,6 +4,8 @@
 > This specification replaces the earlier expansive draft with a narrower and more operationally realistic design.
 > 
 > The goal is not to build a fully autonomous optimization layer immediately. The goal is to build a trustworthy observability and recommendation system that can support future optimization work without destabilizing the existing harness.
+>
+> Status note: this document is now a revision-oriented design spec, not a greenfield build spec. Phase 1 descriptive attribution has already been implemented in the shared harness tooling. The remaining value of this document is to define what should be validated next and what should remain deferred.
 
 ---
 
@@ -23,7 +25,7 @@ The previous version of this spec treated attribution, transfer, proactive optim
 - **Advanced optimization remains advisory until the data is ready.** Lessons, transfer, and meta-evaluation produce recommendations before they produce automated mutations.
 - **Live A/B testing and proactive optimization are explicitly deferred.** These remain research tracks until instrumentation, assignment fairness, and external quality signals are strong enough.
 
-The result is a spec that is still ambitious, but feasible. It preserves the strongest ideas from the original design while reducing false confidence, metric gaming risk, and operational complexity.
+In repository reality, the descriptive-attribution MVP is no longer hypothetical. `attribute.py` and `attribute_validate.py` already implement the first safe slice of this design. That changes the near-term question from "what should we build first" to "is the current attribution output decision-useful enough to justify the next phase." This document should therefore be read as a sequencing and governance spec for the next increments, not as a request to rebuild Phase 1.
 
 ---
 
@@ -76,6 +78,13 @@ Harnessy already has the foundation needed for a conservative meta-harness:
 | `tools/flow-install/skills/_shared/run_metrics.py` | Aggregates run-level quality metrics |
 | `tools/flow-install/skills/_shared/promote_check.py` | Checks whether proven installed changes have been promoted |
 
+**Current analysis layer**
+
+| File | Role |
+|------|------|
+| `tools/flow-install/skills/_shared/attribute.py` | Computes descriptive attribution records and regenerates the component index |
+| `tools/flow-install/skills/_shared/attribute_validate.py` | Produces validation summaries for attribution maturity and usefulness review |
+
 **Mutable improvement layer**
 
 | File | Role |
@@ -98,15 +107,17 @@ The current system can answer:
 - Which gates fail often
 - Which skills need improvement
 - Whether a candidate skill version beat its baseline under ratchet rules
+- Which changed components were associated with observed local score movement after accepted improvements
+- Which components appear repeatedly in local attribution summaries
 
 It cannot yet answer well:
 
-- Which **component** appears to be a bottleneck
-- Which **change type** has historically helped in that component
+- Whether the current component attribution output is actually useful in real proposal review or mutation decisions
+- Which **change type** has historically helped in that component strongly enough to support lessons promotion
 - Which patterns seem reusable across skills
 - Whether the ratchet score is aligned with downstream quality rather than just local gate success
 
-That is the gap this design addresses.
+That is the remaining gap this design addresses.
 
 ---
 
@@ -806,8 +817,8 @@ Mitigation:
 | Phase | Build | Output | Promotion Gate |
 |------|-------|--------|----------------|
 | 0 | Instrumentation and lineage cleanup | Reliable outcome links and version references | Required for all later phases |
-| 1 | Descriptive attribution MVP | `attributions.ndjson`, `component_index.json` | Human usefulness + stability review |
-| 1.5 | Validation gate | `validation_summary.json` | Must pass before phase 2 |
+| 1 | Descriptive attribution MVP | `attributions.ndjson`, `component_index.json` | Implemented; now requires usefulness review |
+| 1.5 | Validation gate | `validation_summary.json` | Partially implemented; must pass before phase 2 |
 | 2 | Advisory lessons registry | `lessons.ndjson` | Lessons are useful and not misleading |
 | 3 | Advisory cross-skill recommendations | `cross_skill_recommendations.ndjson` | Safe recommendation quality |
 | R1 | Reporting-only meta-evaluation | reports only | Requires enough outcome data |
@@ -816,14 +827,14 @@ Mitigation:
 
 ### 18.2 MVP Recommendation
 
-Build only Phase 1 first.
+Do not build a fresh MVP first. Validate the implemented Phase 1 first.
 
 That means:
 
-1. one new analysis module
-2. one new component index artifact
-3. zero evaluator changes
-4. zero autonomous mutation changes
+1. run the existing attribution tooling on enough real cycles to test stability
+2. review whether the current component index changes actual human decisions
+3. keep evaluator changes at zero
+4. keep autonomous mutation changes at zero
 
 ### 18.3 Exit Criteria Between Phases
 
@@ -842,15 +853,15 @@ If the answers are weak, the program pauses.
 
 If work starts now, the first implementation target should be:
 
-**`attribute.py` plus `component_index.json`, and nothing more ambitious.**
+**validation of the existing `attribute.py` and `component_index.json`, and nothing more ambitious.**
 
 This gives immediate value while honoring the constraints that emerged from the feasibility review:
 
 1. it is grounded in data that already exists,
 2. it does not pretend to solve causality,
 3. it does not destabilize the ratchet,
-4. it improves operator visibility immediately, and
-5. it creates the evidence base needed for everything else.
+4. it tests whether the current observability layer improves operator visibility in practice, and
+5. it creates the evidence base needed before lessons or transfer are introduced.
 
 ---
 

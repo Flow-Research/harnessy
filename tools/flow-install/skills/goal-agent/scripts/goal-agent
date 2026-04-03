@@ -184,7 +184,7 @@ def parse_goal_file(path: str) -> dict[str, Any]:
 
     for raw_line in constraints_text.splitlines():
         line = raw_line.strip().lstrip("- ")
-        lowered = line.lower()
+        lowered = line.lower().replace("_", " ")
         if not line:
             continue
         if "max iterations" in lowered:
@@ -341,6 +341,13 @@ def build_identity(run_id: str, worker_session_id: str) -> dict[str, Any]:
             "I delegate ALL implementation work via: claude -p --session-id $WORKER_SESSION_ID",
             "A phase is complete ONLY when verification commands return exit code 0.",
             "If I am about to use Write or Edit on a non-state file, I am violating my role.",
+        ],
+        "delegation_rules": [
+            "ALWAYS delegate implementation work to the worker via claude -p --session-id",
+            "NEVER use Write or Edit on files outside .goal-agent/<run-id>/",
+            "Before each phase, re-read .goal-agent/<run-id>/identity.json to reinforce role",
+            "Before any Write/Edit to non-state files, call goal-agent guard to check policy",
+            "After goal completion or failure, call goal-agent record-outcome",
         ],
         "delegation_command_template": 'claude -p --session-id "$SID" --output-format json --permission-mode auto',
     }

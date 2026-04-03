@@ -3,6 +3,8 @@
 
 > Building on four days of production runs and the Meta-Harness design methodology.
 > This document specifies five layers of evolution for the goal-agent system.
+>
+> Status note: this document now serves as a design-and-gap spec, not an execution-ready implementation plan. The repository contains meaningful Layer 1 scaffolding plus partial setup support for later layers, but the core orchestrator loop, external enforcement boundary, parallel worker runtime, and chain executor are not yet implemented as deterministic runtime code.
 
 ---
 
@@ -11,6 +13,8 @@
 This document is the design specification for Goal Agent v2 — the next evolution of Flow's two-intelligence orchestration system. It is a design artifact, not code. Its audience is the implementer (human or AI) who will build these features, and the architect (Julian) who must approve the direction before any code is written.
 
 Goal Agent v1 has proven the core thesis: a strategic orchestrator driving a tactical worker through `claude -p --session-id` calls, with objective verification gates, reliably produces complex artifacts. Three production runs completed with zero plan revisions and perfect first-pass verification. The architecture works — but it has a ceiling.
+
+In repository reality, Goal Agent v2 is unevenly implemented. The current helper script already creates `identity.json`, `runtime-policy.json`, approval state for generated verification proposals, meta-goal scaffolding, outcome records, and a simple learning registry. However, that should not be confused with a fully implemented v2 runtime. The strongest missing pieces are still the ones that matter most operationally: an enforced external delegation boundary, a deterministic phase-execution loop, real parallel dispatch, real goal-graph execution, and runtime integration between these pieces.
 
 This specification defines five enhancement layers that raise that ceiling, ordered by criticality and dependency:
 
@@ -32,9 +36,9 @@ Layer 1 is non-negotiable. Without reliable delegation enforcement, every other 
 
 ### 2.1 The Two-Intelligence Model
 
-Goal Agent v1 implements a strict separation between strategic reasoning and tactical execution. Two distinct Claude instances collaborate through a well-defined protocol:
+Goal Agent v1 implements a target separation between strategic reasoning and tactical execution. Two distinct Claude instances collaborate through a well-defined protocol, but some of the enforcement is still procedural rather than hard runtime policy:
 
-The **orchestrator** is a Claude Code session running interactively (or in a tmux background session). It reads the user's goal specification, decomposes the objective into sequential phases, crafts focused prompts for each phase, evaluates results against objective verification criteria, and adapts the plan when phases fail. Critically, the orchestrator never writes application code — its tools are limited to `Read`, `Write`, `Edit`, `Bash`, `Grep`, and `Glob`, used exclusively for state management, verification command execution, and prompt file generation. This constraint is enforced by the SKILL.md frontmatter (`disable-model-invocation: true`), ensuring the orchestrator operates through delegation rather than direct implementation.
+The **orchestrator** is a Claude Code session running interactively (or in a tmux background session). It reads the user's goal specification, decomposes the objective into sequential phases, crafts focused prompts for each phase, evaluates results against objective verification criteria, and adapts the plan when phases fail. Critically, the intended model is that the orchestrator never writes application code — its tools are limited to `Read`, `Write`, `Edit`, `Bash`, `Grep`, and `Glob`, used for state management, verification command execution, and prompt file generation. In the current repo this separation is partially scaffolded, not fully guaranteed: the helper script can generate policy artifacts and evaluate proposed actions, but it does not yet prove that every orchestrator side effect is routed through an authoritative external guard.
 
 The **worker** is a headless Claude Code instance invoked via `claude -p` with `--output-format json` and `--permission-mode auto`. It receives a single, focused prompt for one phase, executes it using the full Claude Code tool suite, and returns a structured JSON response. The worker persists its conversation history across calls via `--session-id` (a UUID generated at run initialization), which means later phases benefit from the worker's accumulated understanding of the codebase — without the orchestrator needing to re-explain prior work in every prompt.
 
@@ -56,7 +60,7 @@ A fourth artifact, the **report file** (`.goal-agent/<run-id>/report.md`), is ge
 
 The orchestrator communicates with the worker through a carefully structured prompt format. Each worker prompt contains four sections: **Task** (the specific phase deliverable — never the whole goal), **Context** (what previous phases produced, including file paths and current state), **Expected Output** (concrete file names, function signatures, expected content), and **Constraints** (language, framework, and style requirements from the goal — budget and iteration limits are deliberately withheld from the worker since those are the orchestrator's concern).
 
-Worker prompts are written to `.goal-agent/<run-id>/current-prompt.md` and passed via command substitution: `claude -p --session-id "$SID" "$(cat .goal-agent/$RUN_ID/current-prompt.md)"`. The `--max-budget-usd` flag caps per-phase spend, calculated as total budget divided by number of phases with a buffer.
+Worker prompts are written to `.goal-agent/<run-id>/current-prompt.md`. In current command guidance, the reliable invocation method is to pass the prompt through stdin rather than command substitution, because quoted multi-line prompt content is fragile on the shell path. The `--max-budget-usd` flag caps per-phase spend, calculated as total budget divided by number of phases with a buffer.
 
 ### 2.4 Verification-Driven Completion
 
@@ -100,6 +104,28 @@ Key observations from these runs:
 | No lightweight progress visibility from outside tmux | Users must attach to session to check status | Deferred (improve `status` subcommand) |
 | No mid-run intervention or steering | Only option is kill and restart | Deferred (requires interactive channel design) |
 | Verification checks structure, not substance | Analytical rigor depends on orchestrator judgment | Partially addressed by Layer 4 |
+
+### 2.8 Implementation Reality Check
+
+The current repository should be understood in four buckets:
+
+1. **Implemented scaffolding**
+   - run setup and state directory initialization
+   - `identity.json` and `runtime-policy.json`
+   - generated verification proposal persistence and approval state
+   - meta-goal parsing and chain-state scaffolding
+   - outcome recording and simple learning registry generation
+2. **Partially scaffolded but not operationally complete**
+   - Layer 1 delegation enforcement
+   - Layer 4 self-generated verification
+   - Layer 5 cross-run learning
+3. **Specified but absent as runtime code**
+   - deterministic orchestrator phase loop inside the helper runtime
+   - external pre-action enforcement wrapper for all orchestrator side effects
+   - real multi-worker pool and parallel dispatch engine
+   - real goal DAG executor and artifact handoff engine
+4. **Strategically deferred for current workspace priorities**
+   - broad Layer 2-5 rollout while Flow Platform POC runtime work remains on the critical path
 
 ---
 
@@ -1111,29 +1137,29 @@ Layers are ordered for operational sanity, but not all are hard prerequisites. T
 
 | Phase | Layer | Key Deliverables | Effort | Prerequisites |
 |-------|-------|-----------------|--------|---------------|
-| 1 | Delegation Enforcement | • `identity.json` anchor file + `runtime-policy.json` for run-scoped policy | ~3 days | None |
-| | | • External structural delegation guard (block direct non-state writes and non-whitelisted shell actions) | | |
-| | | • Role reinforcement protocol injecting identity every N phases | | |
-| 2 | Multi-Worker Parallelism | • Dependency graph parser in `plan.md` format (`depends_on` field) | ~5 days | Phase 1 stable |
-| | | • Worker pool with configurable concurrency, spawn/monitor/collect loop | | |
-| | | • `parallel_dispatch` field in `state.json`, conflict detection via pre-dispatch snapshots | | |
-| 3 | Goal Chaining | • Meta-goal file format with `goals:` sequence and `depends_on` references | ~4 days | Phase 1 stable |
-| | | • Chain orchestrator state machine (SELECT → DISPATCH → GATE → NEXT) | | |
-| | | • Artifact passing via `outputs → inputs` declarations between goals | | |
-| 4 | Self-Generated Verification | • Verification proposal step after DECOMPOSE, producing candidate checks | ~3 days | Phase 1 stable |
-| | | • Human approval gate for proposed checks (persisted in run state / prepared goal artifacts) | | |
-| | | • Coverage analysis comparing proposed checks against plan phases | | |
-| 5 | Cross-Run Learning | • Outcome record serialization at run completion (`outcomes/<run-id>.json`) | ~4 days | Phase 1 stable |
-| | | • Registry aggregation computing strategy recommendations by goal type | | |
-| | | • Registry consultation during DECOMPOSE with confidence-weighted suggestions | | |
+| 1 | Delegation Enforcement | • `identity.json` anchor file + `runtime-policy.json` for run-scoped policy | partially scaffolded | None |
+| | | • External structural delegation guard (block direct non-state writes and non-whitelisted shell actions) | not yet enforced end-to-end | |
+| | | • Role reinforcement protocol injecting identity every N phases | partially scaffolded in state, not yet runtime-complete | |
+| 2 | Multi-Worker Parallelism | • Dependency graph parser in `plan.md` format (`depends_on` field) | largely absent | Phase 1 actually enforced |
+| | | • Worker pool with configurable concurrency, spawn/monitor/collect loop | absent | |
+| | | • `parallel_dispatch` field in `state.json`, conflict detection via pre-dispatch snapshots | state field scaffolded; runtime absent | |
+| 3 | Goal Chaining | • Meta-goal file format with `goals:` sequence and `depends_on` references | partially scaffolded | Phase 1 actually enforced |
+| | | • Chain orchestrator state machine (SELECT → DISPATCH → GATE → NEXT) | absent | |
+| | | • Artifact passing via `outputs → inputs` declarations between goals | absent | |
+| 4 | Self-Generated Verification | • Verification proposal step after DECOMPOSE, producing candidate checks | partially scaffolded | Phase 1 actually enforced |
+| | | • Human approval gate for proposed checks (persisted in run state / prepared goal artifacts) | partially scaffolded | |
+| | | • Coverage analysis comparing proposed checks against plan phases | absent | |
+| 5 | Cross-Run Learning | • Outcome record serialization at run completion (`outcomes/<run-id>.json`) | partially scaffolded | Phase 1 actually enforced |
+| | | • Registry aggregation computing strategy recommendations by goal type | partially scaffolded | |
+| | | • Registry consultation during DECOMPOSE with confidence-weighted suggestions | absent | |
 
-**Total estimated effort: ~19 days** across all five layers, assuming sequential implementation.
+The earlier ~19 day estimate assumes a stable runtime foundation that the repo does not yet have. In practice, the first meaningful work item is to complete and validate Layer 1. No reliable end-to-end estimate for Layers 2-5 should be trusted until that foundation exists.
 
 **Validation strategy per layer:** Each layer is tested using the existing trivial test goal (`templates/test-trivial-goal.md`) plus a layer-specific stress goal. Layer 1: run a 10+ phase goal and verify the external policy layer blocks any orchestrator write outside `.goal-agent/`. Layer 2: run a goal with 3 declared-independent phases and verify parallel dispatch only occurs when `output_files` are disjoint. Layer 3: run a 2-goal chain where goal B consumes goal A's artifact and verify large artifacts are passed by reference rather than inline dump. Layer 4: run a goal with `auto_verify: true` and verify the approval gate fires without mutating the source goal file. Layer 5: run 3+ goals of the same type and verify registry recommendations appear.
 
 ### 8.7 Migration Path from v1
 
-Existing v1 goal files require zero modifications. The v2 orchestrator detects the absence of Layer 2+ features (no `depends_on`, no `goals:` meta-goal block, no learning registry) and falls back to v1 sequential execution. The only behavioral change is Layer 1's delegation enforcement — identity anchoring and external structural guards activate unconditionally, as they fix a bug rather than add a feature. Users opt into parallelism, chaining, or learning by adding the relevant fields to their goal files or running `goal-agent learn` after accumulating runs.
+Existing v1 goal files should remain compatible. However, the current repository should not claim that full v2 fallback behavior already exists. Today, the safe claim is narrower: goal parsing and run setup remain backward-compatible, and some v2-oriented artifacts are generated opportunistically. Stronger statements about automatic fallback across Layers 2-5 should only be made once the actual runtime paths exist.
 
 ---
 
