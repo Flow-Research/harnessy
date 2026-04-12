@@ -64,6 +64,24 @@ def build_prompt(state, today):
 
     state_json = json.dumps(compact_state(state), indent=2, default=str)
 
+    # Wiki research block — only included when there is actual activity to report
+    wiki_block = ""
+    wiki_updates = (state.get("wiki_updates") or {}) if isinstance(state, dict) else {}
+    if wiki_updates and wiki_updates.get("domains"):
+        n_sessions = wiki_updates.get("total_recent_sessions", 0)
+        n_pending = wiki_updates.get("total_pending_seeds", 0)
+        wiki_block = (
+            "\n\nThe state includes a `wiki_updates` field with what Julian's autonomous "
+            f"research agents found in the last 24h ({n_sessions} session(s), "
+            f"{n_pending} pending seeds across all domains). "
+            "Add a '## Wiki Research' section near the end of the brief that:\n"
+            "  - Names the domains with new activity and what topic was researched\n"
+            "  - Lists 2-4 key new concepts or findings (use the `topic` field, not raw filenames)\n"
+            "  - Surfaces anything in `errors` or `notes` fields that needs Julian's judgment\n"
+            "  - Mentions pending seeds only if there are several stale ones\n"
+            "Keep it tight — 4-8 lines. If nothing material happened, say so in one line."
+        )
+
     return f"""\
 You are Julian's chief of staff. Read his priorities, the change summary from overnight,
 and the current project status files. Produce a daily brief that tells him:
@@ -85,7 +103,7 @@ Here is the current state data:
 Today's date: {date_str}
 
 Output the brief in markdown format with the sections above. Start with:
-# Daily Brief — {day_of_week}, {month} {day}, {year}"""
+# Daily Brief — {day_of_week}, {month} {day}, {year}{wiki_block}"""
 
 
 def compact_state(state):
@@ -150,6 +168,9 @@ def compact_state(state):
         }
     else:
         compact["jarvis_plan"] = None
+
+    # Wiki updates: keep as-is — already small (<24h log entries + recent findings)
+    compact["wiki_updates"] = state.get("wiki_updates")
 
     return compact
 

@@ -30,6 +30,7 @@ GOAL_AGENT_DIR = os.path.join(PROJECT_ROOT, ".goal-agent")
 AUTOFLOW_STATE = os.path.join(PROJECT_ROOT, ".jarvis", "context", "autoflow", "state.json")
 CRON_YAML = os.path.join(PROJECT_ROOT, ".jarvis", "cron.yaml")
 JARVIS_PLANS = os.path.expanduser("~/.jarvis/plans")
+JARVIS_WIKIS = os.path.expanduser("~/.jarvis/wikis")
 LAST_CRAWL = os.path.expanduser("~/.agents/life/.last-crawl.json")
 
 PROJECT_DIRS = {
@@ -229,6 +230,160 @@ def collect_cron():
     return read_file(CRON_YAML)
 
 
+def collect_wiki_updates():
+    """Scan ~/.jarvis/wikis/*/ for recent autonomous-research activity.
+
+    Reads each domain's `wiki/log.md` for entries in the last 24 hours, the
+    most recent findings files in `.state/findings/`, and the pending seed
+    queue. The morning brief surfaces this so Julian sees what his research
+    agents found overnight.
+    """
+    if not os.path.isdir(JARVIS_WIKIS):
+        return None
+
+    cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
+    log_ts_re = re.compile(r"^\[(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})\]")
+    domains = {}
+    total_pending = 0
+    total_recent_sessions = 0
+
+    for entry in sorted(os.listdir(JARVIS_WIKIS)):
+        domain_root = os.path.join(JARVIS_WIKIS, entry)
+        if not os.path.isdir(domain_root):
+            continue
+        wiki_dir = os.path.join(domain_root, "wiki")
+        if not os.path.isdir(wiki_dir):
+            continue
+
+        # Title from schema.yaml (best-effort, no yaml dep available here)
+        title = entry
+        schema_text = read_file(os.path.join(domain_root, "schema.yaml")) or ""
+        for line in schema_text.splitlines():
+            line = line.strip()
+            if line.startswith("title:"):
+                title = line.split(":", 1)[1].strip().strip("'\"")
+                break
+
+        # Recent log entries (within last 24h)
+        log_text = read_file(os.path.join(wiki_dir, "log.md")) or ""
+        recent_entries = []
+        for line in log_text.splitlines():
+            m = log_ts_re.match(line.strip())
+            if not m:
+                continue
+            try:
+                entry_dt = datetime.datetime.strptime(
+                    f"{m.group(1)} {m.group(2)}:{m.group(3)}",
+                    "%Y-%m-%d %H:%M",
+                )
+            except ValueError:
+                continue
+            if entry_dt >= cutoff:
+                recent_entries.append(line.strip())
+
+        # Recent findings files (read frontmatter for structured fields)
+        findings_dir = os.path.join(domain_root, ".state", "findings")
+        recent_findings = []
+        if os.path.isdir(findings_dir):
+            files = sorted(
+                (f for f in os.listdir(findings_dir) if f.endswith(".md")),
+                reverse=True,
+            )[:5]
+            for f in files:
+                fp = os.path.join(findings_dir, f)
+                if os.path.getmtime(fp) < cutoff.timestamp():
+                    continue
+                fm = _parse_simple_frontmatter(read_file(fp) or "")
+                recent_findings.append(
+                    {
+                        "file": f,
+                        "session_id": fm.get("session_id"),
+                        "topic": fm.get("topic"),
+                        "files_created": fm.get("files_created"),
+                        "errors": fm.get("errors"),
+                    }
+                )
+                total_recent_sessions += 1
+
+        # Pending seed count from seeds.md
+        pending_count = _count_pending_seeds(
+            read_file(os.path.join(domain_root, "seeds.md")) or ""
+        )
+        total_pending += pending_count
+
+        # Active topics from program.md (just the bullet names, best-effort)
+        active_topics = _extract_active_topics(
+            read_file(os.path.join(domain_root, "program.md")) or ""
+        )
+
+        # Skip domains with nothing to report
+        if not recent_entries and not recent_findings and pending_count == 0:
+            continue
+
+        domains[entry] = {
+            "title": title,
+            "pending_seeds": pending_count,
+            "recent_log_entries": recent_entries[-10:],  # most recent 10
+            "recent_findings": recent_findings,
+            "active_topics": active_topics,
+        }
+
+    if not domains:
+        return None
+    return {
+        "domains": domains,
+        "total_pending_seeds": total_pending,
+        "total_recent_sessions": total_recent_sessions,
+    }
+
+
+def _parse_simple_frontmatter(text):
+    """Parse top YAML frontmatter as a flat dict (no yaml dep)."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    block = text[3:end]
+    out = {}
+    for line in block.splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _count_pending_seeds(text):
+    """Count `### ` headings inside the `## Pending` section of a seeds.md file."""
+    if "## Pending" not in text:
+        return 0
+    pending_start = text.find("## Pending")
+    processed_start = text.find("## Processed", pending_start)
+    section = text[pending_start:processed_start] if processed_start != -1 else text[pending_start:]
+    return sum(1 for line in section.splitlines() if line.startswith("### "))
+
+
+def _extract_active_topics(text):
+    """Extract bullet names from the `## Active Topics` section of program.md."""
+    if "## Active Topics" not in text:
+        return []
+    start = text.find("## Active Topics")
+    # Find the next H2 header
+    next_h2 = text.find("\n## ", start + 4)
+    section = text[start:next_h2] if next_h2 != -1 else text[start:]
+    # Strip HTML comments
+    section = re.sub(r"<!--.*?-->", "", section, flags=re.DOTALL)
+    topics = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("- ", "* ")):
+            # Take everything before the first " —" or " -" qualifier
+            name = re.split(r"\s+[—-]\s+", stripped[2:].strip(), maxsplit=1)[0]
+            if name:
+                topics.append(name.strip())
+    return topics[:10]
+
+
 def collect_jarvis_plans():
     """Find latest plan from ~/.jarvis/plans/."""
     if not os.path.isdir(JARVIS_PLANS):
@@ -303,6 +458,7 @@ def main():
         "tmux_sessions": collect_tmux(),
         "cron": collect_cron(),
         "jarvis": collect_jarvis_plans(),
+        "wiki_updates": collect_wiki_updates(),
         "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
     }
 
