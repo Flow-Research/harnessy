@@ -1,0 +1,49 @@
+# {title} Research Program
+
+> Human-only steering file. The research agent reads this every session.
+> Edit freely. Unknown sections are ignored.
+
+## Active Topics
+
+<!--
+List the topics you want the research agent to dig into. Format:
+  - <topic name> — depth: high|medium|low
+Optional metadata after another " — ":
+  - <topic name> — depth: high — last_researched: 2026-04-12
+The agent picks the highest-priority topic with the oldest last_researched
+when no specific topic is provided on the command line.
+-->
+
+- example topic — depth: medium
+
+## Avoid Topics
+
+<!--
+Topics the agent should NOT spend time on, even if they look related.
+-->
+
+- generic LLM benchmarks
+- cryptocurrency price speculation
+
+## Source Preferences
+
+<!--
+prefer:        comma-separated list of preferred source domains
+deprioritize:  comma-separated list of domains to skip when alternatives exist
+-->
+
+prefer: arxiv.org, github.com, ethereum.org
+deprioritize: medium.com, twitter.com
+
+## Quality Thresholds
+
+min_sources_per_concept: 3
+min_words_per_concept: 200
+max_duplicate_concepts: 0
+
+## Cadence
+
+autonomous_research: manual
+schedule: 04:00
+max_sources_per_session: 5
+include_in_morning_brief: true

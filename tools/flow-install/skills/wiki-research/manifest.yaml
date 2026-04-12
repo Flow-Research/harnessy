@@ -1,0 +1,71 @@
+name: wiki-research
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Autonomous research orchestrator for Jarvis Wiki domains. Discovers seeds and program topics, spawns a Claude agent with web tools, drops new sources into raw/, runs the compile pipeline, and emits autoresearch traces for the autoflow ratchet."
+permissions: [read-files, write-files, run-tests, run-validation, run-compilation]
+data_categories: [none]
+egress: [api.anthropic.com]
+invoke: jarvis wiki research
+location: jarvis-cli/src/jarvis/wiki/research.py
+traces:
+  enabled: true
+  gates:
+    quality:
+      - target_selection
+      - agent_session
+      - file_validation
+      - compilation
+      - dedup_check
+    human:
+      - review_findings
+state:
+  - path: "~/.jarvis/wikis/<domain>/.state/research-sessions/"
+    description: "Per-session audit trail (prompt, agent output, findings)"
+  - path: "~/.jarvis/wikis/<domain>/.state/findings/"
+    description: "Flat findings files for the morning brief to surface"
+  - path: "~/.jarvis/wikis/<domain>/program.md"
+    description: "Per-domain steering: active topics, source preferences, thresholds, cadence"
+  - path: "~/.jarvis/wikis/<domain>/seeds.md"
+    description: "User-supplied URL/topic/note queue (consumed by sessions)"
+autoresearch:
+  enabled: true
+  metric_layer: 1
+  time_budget_seconds: 1800
+  evaluation_window: 3
+  constraints:
+    max_regression_rate: 0.1
+    max_human_intervention: 0.5
+  metric_notes: |
+    Layer 1 multiplicative composite over five gates:
+      - target_selection: 1 if a sensible target was picked, else 0
+      - agent_session:    1 if the agent ran without errors, else 0
+      - file_validation:  loops = count of files rejected at validation
+      - compilation:      1 if compile finished cleanly, else 0
+      - dedup_check:      loops = new duplicate_concept lint warnings introduced
+
+    Hard constraints (vetoes):
+      - new duplicate_concept warnings > 0 → revert
+      - file rejection rate > 50% → revert
+      - agent_session error rate > 30% over 3-session window → revert
+
+    Editable surface for the ratchet to mutate:
+      - jarvis-cli/src/jarvis/wiki/agents/research_agent_prompt.md
+      - jarvis-cli/src/jarvis/wiki/prompts.py (is_same_entity, summarize prompts)
+
+    Frozen evaluation infrastructure (never edited by the loop):
+      - jarvis-cli/src/jarvis/wiki/research.py
+      - jarvis-cli/src/jarvis/wiki/compiler.py
+      - jarvis-cli/src/jarvis/wiki/lint.py
+      - tools/flow-install/skills/_shared/ratchet.py
+dependencies:
+  - tool: jarvis
+    description: "Jarvis CLI (provides wiki subcommands)"
+    check: "jarvis --version"
+    required: true
+  - tool: claude
+    description: "Claude Code CLI (used for the research agent subprocess)"
+    check: "claude --version"
+    required: true
