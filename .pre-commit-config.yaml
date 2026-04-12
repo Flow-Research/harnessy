@@ -1,0 +1,51 @@
+# Pre-commit hooks for Flow Network
+# Install once: `pre-commit install` (from repo root)
+# Run manually: `pre-commit run --all-files`
+#
+# Scope: gates new code in jarvis-cli/src/jarvis/wiki on every commit.
+# The rest of the codebase has pre-existing ruff/mypy debt that gets cleaned
+# up incrementally; expand the file globs below as that work lands.
+
+repos:
+  # Built-in cleanup hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+  # Ruff: lint + format on the wiki module (other modules excluded for now)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.14
+    hooks:
+      - id: ruff
+        name: ruff check (wiki module)
+        args: [--fix]
+        files: ^jarvis-cli/(src/jarvis/wiki/|tests/unit/wiki/)
+      - id: ruff-format
+        name: ruff format (wiki module)
+        files: ^jarvis-cli/(src/jarvis/wiki/|tests/unit/wiki/)
+
+  # Mypy strict: same scope as CI
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        name: mypy strict (wiki module)
+        files: ^jarvis-cli/src/jarvis/wiki/
+        args:
+          - --config-file=jarvis-cli/pyproject.toml
+          - --explicit-package-bases
+        additional_dependencies:
+          - pydantic>=2
+          - types-PyYAML
+          - click
+
+  # NOTE: pytest is intentionally NOT in pre-commit. The full suite takes ~16s,
+  # which is too slow for every commit. CI runs pytest. For local dev,
+  # run `cd jarvis-cli && uv run pytest tests/unit/wiki/` after touching wiki code.

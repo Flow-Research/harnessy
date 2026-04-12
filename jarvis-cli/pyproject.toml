@@ -1,0 +1,106 @@
+[project]
+name = "jarvis-scheduler"
+version = "0.1.0"
+description = "AI-powered personal agent CLI for task scheduling, journaling, reading list orchestration, and local Android tooling"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Julian", email = "julian@example.com" }
+]
+keywords = ["anytype", "scheduler", "tasks", "ai", "productivity"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Scheduling",
+]
+
+dependencies = [
+    "anytype-client>=0.2.0,<0.3.0",
+    "anthropic>=0.40.0",
+    "beautifulsoup4>=4.12.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "dateparser>=1.2.0",
+    # Backend abstraction dependencies
+    "notion-client>=2.2.0",
+    "httpx>=0.27.0",
+    "lxml>=5.0.0",
+    "pypdf>=6.0.0",
+    "trafilatura>=2.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Flow-Research/harnessy"
+Repository = "https://github.com/Flow-Research/harnessy"
+Issues = "https://github.com/Flow-Research/harnessy/issues"
+Documentation = "https://github.com/Flow-Research/harnessy/tree/main/Jarvis"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+]
+
+[project.scripts]
+jarvis = "jarvis.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jarvis"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# LLM prompt strings need to stay readable as continuous text — line-length
+# wrapping would change the prompt content the model sees.
+"src/jarvis/wiki/prompts.py" = ["E501"]
+"src/jarvis/wiki/agents/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --cov=src/jarvis --cov-report=term-missing"
+markers = [
+    "integration: tests that require real backend connections (AnyType app or Notion API)",
+]
+
+[tool.coverage.run]
+source = ["src/jarvis"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[dependency-groups]
+dev = [
+    "types-pyyaml>=6.0.12.20260408",
+]
