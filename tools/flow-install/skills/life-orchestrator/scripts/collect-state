@@ -3,7 +3,7 @@
 collect-state — Scan all project state and produce JSON to stdout.
 
 The "cheap detector": answers "did anything change?" not "what does it mean?"
-Runs from project root: /private/workspace
+Runs from project root (auto-detected via git or cwd).
 """
 
 import argparse
@@ -24,7 +24,8 @@ PROJECT_ROOT = os.environ.get(
     ))))
 )
 
-JULIAN_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "private", "julian")
+_USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "julian"))
+PRIVATE_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "private", _USERNAME)
 DOCS_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "docs")
 GOAL_AGENT_DIR = os.path.join(PROJECT_ROOT, ".goal-agent")
 AUTOFLOW_STATE = os.path.join(PROJECT_ROOT, ".jarvis", "context", "autoflow", "state.json")
@@ -32,16 +33,7 @@ CRON_YAML = os.path.join(PROJECT_ROOT, ".jarvis", "cron.yaml")
 JARVIS_PLANS = os.path.expanduser("~/.jarvis/plans")
 JARVIS_WIKIS = os.path.expanduser("~/.jarvis/wikis")
 LAST_CRAWL = os.path.expanduser("~/.agents/life/.last-crawl.json")
-
-PROJECT_DIRS = {
-    "accelerate-africa": "AA partnership (JD, screening, proposal, collaboration plan)",
-    "seas": "SEAS (strategy, meeting notes, concept)",
-    "anchor": "Anchor Markets (PRD)",
-    "sentinel": "Sentinel (requirements spec)",
-    "flow-economics": "Economic model (sustainability doc, Chizi meeting notes)",
-    "flow-content": "Content strategy, drafts",
-    "hiring": "CM requirements",
-}
+NOTES_DIR = os.path.join(PRIVATE_DIR, "notes")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -107,7 +99,7 @@ def scan_dir(dirpath):
 
 def collect_priorities():
     """Parse priorities.md — extract table rows, constraints, personal notes."""
-    text = read_file(os.path.join(JULIAN_DIR, "priorities.md"))
+    text = read_file(os.path.join(PRIVATE_DIR, "priorities.md"))
     if text is None:
         return None
 
@@ -154,25 +146,47 @@ def collect_priorities():
 
 
 def collect_projects():
-    """Scan each project directory under julian/."""
-    projects = {}
-    for dirname, description in PROJECT_DIRS.items():
-        dirpath = os.path.join(JULIAN_DIR, dirname)
-        files, newest = scan_dir(dirpath)
-        status_md = read_file(os.path.join(dirpath, "status.md"))
-        projects[dirname] = {
-            "description": description,
-            "file_count": len(files),
-            "newest_modified": datetime.datetime.fromtimestamp(newest, tz=datetime.timezone.utc).isoformat() if newest > 0 else None,
-            "status_md": status_md,
-            "files": files,
-        }
+    """Auto-discover project directories under the private context folder.
 
-    # Also include standalone files in julian dir
+    Any subdirectory (not starting with . or _) is treated as a project.
+    Description is pulled from status.md first line if present, else the dirname.
+    No hardcoded project list — private context stays private.
+    """
+    projects = {}
+
+    if os.path.isdir(PRIVATE_DIR):
+        for entry in sorted(os.listdir(PRIVATE_DIR)):
+            if entry.startswith((".","_")) or not os.path.isdir(os.path.join(PRIVATE_DIR, entry)):
+                continue
+            # Skip known non-project dirs
+            if entry == "notes":
+                continue
+
+            dirpath = os.path.join(PRIVATE_DIR, entry)
+            files, newest = scan_dir(dirpath)
+            status_md = read_file(os.path.join(dirpath, "status.md"))
+
+            # Extract description from status.md first heading, or use dirname
+            description = entry
+            if status_md:
+                for line in status_md.splitlines():
+                    if line.startswith("# "):
+                        description = line[2:].strip()
+                        break
+
+            projects[entry] = {
+                "description": description,
+                "file_count": len(files),
+                "newest_modified": datetime.datetime.fromtimestamp(newest, tz=datetime.timezone.utc).isoformat() if newest > 0 else None,
+                "status_md": status_md,
+                "files": files,
+            }
+
+    # Also include standalone files in private dir
     for fname in ("decisions.md", "events.md", "facts.md", "preferences.md"):
-        content = read_file(os.path.join(JULIAN_DIR, fname))
+        content = read_file(os.path.join(PRIVATE_DIR, fname))
         if content is not None:
-            projects[f"_julian/{fname}"] = {"content": content}
+            projects[f"_private/{fname}"] = {"content": content}
 
     # Docs directory
     docs_files, docs_newest = scan_dir(DOCS_DIR)
@@ -228,6 +242,24 @@ def collect_tmux():
 def collect_cron():
     """Contents of .jarvis/cron.yaml."""
     return read_file(CRON_YAML)
+
+
+def collect_notes():
+    """Read recent daily notes (today + yesterday) from private/notes/."""
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+    notes = {}
+
+    for day in (today, yesterday):
+        year = day.strftime("%Y")
+        month = day.strftime("%b")
+        dd = day.strftime("%d")
+        path = os.path.join(NOTES_DIR, year, month, f"{dd}.md")
+        content = read_file(path)
+        if content is not None:
+            notes[day.isoformat()] = content
+
+    return notes if notes else None
 
 
 def collect_wiki_updates():
@@ -453,6 +485,7 @@ def main():
     state = {
         "priorities": collect_priorities(),
         "projects": collect_projects(),
+        "notes": collect_notes(),
         "git": collect_git(),
         "agents": collect_agents(),
         "tmux_sessions": collect_tmux(),

@@ -29,7 +29,7 @@ PROJECT_ROOT = os.environ.get(
     ))))
 )
 
-JARVIS_DIR = os.path.join(PROJECT_ROOT, "Jarvis")
+JARVIS_BIN = "jarvis"  # installed globally via: uv tool install --force ./jarvis-cli
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -64,6 +64,23 @@ def build_prompt(state, today):
 
     state_json = json.dumps(compact_state(state), indent=2, default=str)
 
+    # Load standing reminders if they exist
+    reminders_path = os.path.join(AGENTS_LIFE_DIR, "reminders.md")
+    reminders_text = ""
+    try:
+        with open(reminders_path, "r") as f:
+            reminders_text = f.read().strip()
+    except (OSError, IOError):
+        pass
+
+    if reminders_text:
+        reminders_block = (
+            f"At the end of the brief, include a '## Daily Reminders' section with these items:\n"
+            f"{reminders_text}"
+        )
+    else:
+        reminders_block = ""
+
     # Wiki research block — only included when there is actual activity to report
     wiki_block = ""
     wiki_updates = (state.get("wiki_updates") or {}) if isinstance(state, dict) else {}
@@ -83,14 +100,18 @@ def build_prompt(state, today):
         )
 
     return f"""\
-You are Julian's chief of staff. Read his priorities, the change summary from overnight,
-and the current project status files. Produce a daily brief that tells him:
+You are Julian's chief of staff. Read his priorities, daily notes, the change summary from
+overnight, and the current project status files. Produce a daily brief that tells him:
 
 1. What Moved — what progressed across his projects (in plain strategic language, not file names)
 2. What Needs Him — decisions, reviews, approvals only he can do, ranked by urgency
 3. Strategic Picture — where he stands against his quarterly priorities, any warnings about
    spreading too thin or missing deadlines
 4. Background Work — what agents are doing, what completed, what's waiting
+
+Pay special attention to the "notes" field in the state data — these are Julian's own thoughts,
+reminders, and action items captured throughout the day. Use them to understand what's on his
+mind, what he's prioritizing, and what he might be forgetting.
 
 Write like a trusted advisor, not a system log. Be specific. Be honest. If something is
 stalled, say so. If he's overcommitted, flag it.
@@ -102,8 +123,10 @@ Here is the current state data:
 
 Today's date: {date_str}
 
-Output the brief in markdown format with the sections above. Start with:
-# Daily Brief — {day_of_week}, {month} {day}, {year}{wiki_block}"""
+Output the brief in markdown format with the sections above. Do NOT include a title heading —
+the title is already set by the journal entry. Start directly with the first section.
+
+{reminders_block}{wiki_block}"""
 
 
 def compact_state(state):
@@ -155,6 +178,9 @@ def compact_state(state):
         }
     compact["agents"] = agents
 
+    # Notes: keep as-is (today + yesterday, already small)
+    compact["notes"] = state.get("notes") or {}
+
     # Tmux: keep as-is
     compact["tmux_sessions"] = state.get("tmux_sessions", [])
 
@@ -186,7 +212,7 @@ def call_claude(prompt):
                 "--max-budget-usd", "0.50",
             ],
             input=prompt,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=300,
             cwd=PROJECT_ROOT,
         )
         if result.returncode != 0:
@@ -197,7 +223,7 @@ def call_claude(prompt):
         print("Error: 'claude' command not found — is Claude Code installed?", file=sys.stderr)
         return None
     except subprocess.TimeoutExpired:
-        print("Error: claude call timed out after 120s", file=sys.stderr)
+        print("Error: claude call timed out after 300s", file=sys.stderr)
         return None
 
 
@@ -234,31 +260,71 @@ def extract_top_items(brief, n=3):
 
 
 def jarvis_journal(path, today):
-    """Attempt to write the brief to Jarvis journal. Fails gracefully."""
+    """Write the brief to Jarvis journal. Logs failures explicitly to stderr."""
     title = f"Daily Brief — {today.strftime('%B %d, %Y')}"
+    print(f"Writing to Jarvis journal: {title}", file=sys.stderr)
     try:
-        subprocess.run(
-            ["uv", "run", "jarvis", "journal", "write",
+        result = subprocess.run(
+            [JARVIS_BIN, "journal", "write",
              "--file", path,
              "--title", title,
              "--no-deep-dive"],
-            capture_output=True, text=True, timeout=30,
-            cwd=JARVIS_DIR,
+            capture_output=True, text=True, timeout=60,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-        print(f"Note: Jarvis journal integration skipped ({e})", file=sys.stderr)
+        if result.returncode == 0:
+            print("Jarvis journal write: success", file=sys.stderr)
+            return
+        # Non-zero exit: log everything so the failure is visible in cron logs
+        print(
+            f"Jarvis journal write FAILED (exit {result.returncode})",
+            file=sys.stderr,
+        )
+        if result.stdout:
+            print(f"  stdout: {result.stdout.strip()}", file=sys.stderr)
+        if result.stderr:
+            print(f"  stderr: {result.stderr.strip()}", file=sys.stderr)
+    except subprocess.TimeoutExpired as e:
+        print(
+            f"Jarvis journal write TIMED OUT after {e.timeout}s",
+            file=sys.stderr,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(
+            f"Jarvis journal write ERROR: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
 
 
 def send_notification(brief):
-    """Send desktop notification with top items from the brief."""
+    """Send desktop notification. Logs failures explicitly to stderr."""
     summary = extract_top_items(brief)
+    print("Sending desktop notification", file=sys.stderr)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, NOTIFY, "Daily Brief", summary],
             capture_output=True, text=True, timeout=10,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-        print(f"Note: notification failed ({e})", file=sys.stderr)
+        if result.returncode == 0:
+            print("Notification: sent", file=sys.stderr)
+            return
+        print(
+            f"Notification FAILED (exit {result.returncode})",
+            file=sys.stderr,
+        )
+        if result.stdout:
+            print(f"  stdout: {result.stdout.strip()}", file=sys.stderr)
+        if result.stderr:
+            print(f"  stderr: {result.stderr.strip()}", file=sys.stderr)
+    except subprocess.TimeoutExpired as e:
+        print(
+            f"Notification TIMED OUT after {e.timeout}s",
+            file=sys.stderr,
+        )
+    except (FileNotFoundError, OSError) as e:
+        print(
+            f"Notification ERROR: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -279,12 +345,14 @@ def main():
     state = run_collect_state()
 
     # Step 2: Check for changes
-    if not state.get("changed", True) and not args.force:
+    today = datetime.date.today()
+    today_exists = os.path.exists(brief_path(today))
+    is_retry = int(os.environ.get("FLOW_CRON_ATTEMPT", "1")) > 1
+    if not state.get("changed", True) and today_exists and not args.force and not is_retry:
         print("No changes detected, skipping brief", file=sys.stderr)
         sys.exit(0)
 
     # Step 3: Generate brief via Claude
-    today = datetime.date.today()
     prompt = build_prompt(state, today)
 
     print("Generating brief with Claude...", file=sys.stderr)
