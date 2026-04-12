@@ -117,8 +117,16 @@ class WikiDedupe:
                 if ca == cb:
                     continue
 
-                # Already linked via existing aliases?
-                if (
+                # A prior merge may have popped `a` or `b` from `meta` when
+                # that slug was a loser. Canonicals (`ca`, `cb`) are always
+                # still in `meta`, so use them for the alias check.
+                if a not in meta or b not in meta:
+                    if (
+                        cb in meta[ca]["aliases"]
+                        or ca in meta[cb]["aliases"]
+                    ):
+                        continue
+                elif (
                     b in meta[a]["aliases"]
                     or a in meta[b]["aliases"]
                     or ca in meta[cb]["aliases"]

@@ -284,3 +284,27 @@ class TestDedupeFullPass:
         # Both aliases should be merged into react
         # (test that the canonical map updated transitively)
         assert report.confirmed_merges >= 2
+
+    def test_confirm_mode_handles_consumed_losers(self, tmp_path: Path) -> None:
+        """Regression: after --confirm pops a loser slug from meta, subsequent
+        iterations over the original slug list must not crash reading
+        `meta[loser]`. This reproduced the KeyError observed on the live
+        os-agents dedupe run."""
+        _write_concept(tmp_path, "cosmos", body="Cosmos blockchain body. " * 20)
+        _write_concept(tmp_path, "cosmos-blockchain", body="Cosmos bc body. " * 5)
+        _write_concept(tmp_path, "cosmos-network", body="Cosmos net body. " * 5)
+        backend = FakeBackend(
+            same_entity_responses={
+                frozenset({"cosmos", "cosmos-blockchain"}): True,
+                frozenset({"cosmos", "cosmos-network"}): True,
+            }
+        )
+        deduper = _make_dedupe(tmp_path, backend)
+        # This call used to raise KeyError('cosmos-blockchain') after the first
+        # merge popped it from meta but the outer loop continued iterating.
+        report = deduper.run(dry_run=False)
+        assert report.errors == []
+        assert report.confirmed_merges == 2
+        assert (tmp_path / "wiki" / "concepts" / "cosmos.md").exists()
+        assert not (tmp_path / "wiki" / "concepts" / "cosmos-blockchain.md").exists()
+        assert not (tmp_path / "wiki" / "concepts" / "cosmos-network.md").exists()
