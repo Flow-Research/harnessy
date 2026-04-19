@@ -26,6 +26,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _step_parser import extract_step_result  # noqa: E402
+
 # ── Paths ────────────────────────────────────────────────────────────────
 
 STATE_ROOT = Path(".goal-agent")
@@ -230,47 +233,7 @@ def call_claude(
     actual_session_id = output.get("session_id", output.get("sessionId", session_id))
     exit_code = result.returncode
 
-    # Try multiple known paths for the structured result:
-    # 1. structured_output (json-schema validated)
-    # 2. result (generic output)
-    # 3. content (text content)
-    step_result = None
-    for key in ("structured_output", "result", "content"):
-        candidate = output.get(key)
-        if candidate is None:
-            continue
-        if isinstance(candidate, dict) and "action" in candidate:
-            step_result = candidate
-            break
-        if isinstance(candidate, str):
-            try:
-                parsed = json.loads(candidate)
-                if isinstance(parsed, dict) and "action" in parsed:
-                    step_result = parsed
-                    break
-            except json.JSONDecodeError:
-                continue
-
-    if step_result is None:
-        # Last resort: scan the full output for a JSON object with "action"
-        raw = result.stdout
-        import re
-        json_match = re.search(r'\{[^{}]*"action"\s*:', raw)
-        if json_match:
-            # Find the matching closing brace
-            start = json_match.start()
-            depth = 0
-            for i, ch in enumerate(raw[start:], start):
-                if ch == '{':
-                    depth += 1
-                elif ch == '}':
-                    depth -= 1
-                    if depth == 0:
-                        try:
-                            step_result = json.loads(raw[start:i+1])
-                        except json.JSONDecodeError:
-                            pass
-                        break
+    step_result = extract_step_result(output)
 
     if step_result is None:
         step_result = {
@@ -367,7 +330,13 @@ You MUST respond with a JSON object matching the step schema. Every response mus
 - "action": one of decompose, dispatch_worker, advance_phase, retry_phase, replan, finalize, fail
 - "summary": concise explanation of what you did and why
 
-When action=decompose, include "phases" array with the plan.
+When action=decompose, include "phases" array with the plan. Each phase object MUST have:
+  - "id": short identifier (e.g. "phase-1", "discovery", "generation")
+  - "name": human-readable phase name
+  - "description": 1-2 sentences on what the phase accomplishes
+  - "worker_prompt": the prompt the worker subagent will receive for this phase
+The phases together MUST cover every deliverable required by the goal. Do not produce
+a plan whose combined phases leave any required output ungenerated.
 When action=dispatch_worker, you should have already called the Agent tool in this turn to dispatch the worker. Include "worker_result_summary" with what the worker accomplished.
 When action=advance_phase or retry_phase, include "verification_commands" for the supervisor to run.
 When action=finalize, include "report" with the final completion report.
@@ -434,7 +403,8 @@ def run(run_id: str, repo_root: str) -> int:
             f"Read the goal at {goal_file} and the prepared goal at {state_dir}/prepared-goal.md. "
             f"Read {state_dir}/identity.json for your role. "
             f"Begin by decomposing this goal into phases. "
-            f"Respond with action=decompose and the phases array."
+            f"Respond with a JSON object (no markdown fences) containing action=decompose and a phases array. "
+            f"Each phase MUST include string fields: id (e.g. phase-1), name, description, and worker_prompt."
         )
 
     is_first_call = not is_resume
@@ -483,14 +453,14 @@ def run(run_id: str, repo_root: str) -> int:
             phases = step_result.get("phases", [])
             state["phases"] = [
                 {
-                    "id": p["id"],
-                    "name": p["name"],
-                    "description": p.get("description", ""),
+                    "id": p.get("id") or f"phase-{idx + 1}",
+                    "name": p.get("name") or p.get("id") or f"phase-{idx + 1}",
+                    "description": p.get("description", p.get("summary", "")),
                     "status": "pending",
                     "attempts": 0,
                     "verification_results": [],
                 }
-                for p in phases
+                for idx, p in enumerate(phases)
             ]
             state["total_phases"] = len(phases)
             state["current_phase"] = 0
@@ -611,8 +581,12 @@ def run(run_id: str, repo_root: str) -> int:
             current_tools = TOOLS_DECOMPOSE  # analysis only for replanning
             prompt = (
                 f"Replan requested. Re-read the goal at {goal_file}. "
-                f"Previous plan failed. Decompose again with a different strategy. "
-                f"Respond with action=decompose."
+                f"Previous plan failed; read {state_dir}/state.json to see which phases executed. "
+                f"Decompose again with a different strategy. "
+                f"Respond with a JSON object (no markdown fences) containing action=decompose "
+                f"and a phases array where each phase has id, name, description, and worker_prompt. "
+                f"The new plan MUST cover every deliverable the goal requires — do not omit generation "
+                f"steps because you assume they already happened."
             )
 
         elif action == "finalize":
@@ -677,7 +651,33 @@ def main():
     log(f"background-runner starting: run_id={args.run_id}")
     exit_code = run(args.run_id, args.repo_root)
     log(f"background-runner exiting: code={exit_code}")
+
+    if exit_code != 0 and os.environ.get("FLOW_GOAL_AGENT_POSTMORTEM", "1") != "0":
+        _trigger_post_mortem(args.run_id, args.repo_root)
+
     sys.exit(exit_code)
+
+
+def _trigger_post_mortem(run_id: str, repo_root: str) -> None:
+    """Fire-and-forget: invoke the post-mortem script for a failed run.
+
+    Stays out of the critical path — if the post-mortem script is missing or
+    raises, the runner still exits with its original code.
+    """
+    script = Path(__file__).resolve().parent / "post-mortem"
+    run_dir = Path(repo_root) / ".goal-agent" / run_id
+    if not script.exists() or not run_dir.exists():
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script), str(run_dir)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        log(f"post-mortem dispatched for run {run_id}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"post-mortem dispatch failed: {exc}")
 
 
 if __name__ == "__main__":

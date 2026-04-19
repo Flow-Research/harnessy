@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""post-mortem — diagnose a failed goal-agent run.
+
+Triggered by the goal-agent background runner when a run reaches a terminal
+failed state. Runs out-of-process (so a runner crash doesn't prevent the
+diagnosis) and writes artifacts to the run directory.
+
+Phase 1 (this implementation) — review mode only:
+  - Classifies the failure (transient / parser-infra / goal-impossible /
+    budget-exhausted / worker-wrong)
+  - Writes post-mortem.md with the classification + evidence
+  - For parser-infra failures, writes proposed-patch.diff (empty on best-effort)
+  - Appends a one-line summary to ~/.agents/cron/auto-fix.log
+  - Does NOT open PRs or apply patches. That's phase 2.
+
+Invariants:
+  - Only reads files. Never modifies source code.
+  - Scope locked to failures under .goal-agent/<run-id>/.
+  - Idempotent: re-running overwrites post-mortem.md, never creates multiples.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+AUTO_FIX_LOG = Path(
+    os.environ.get("FLOW_AUTO_FIX_LOG")
+    or str(Path.home() / ".agents" / "cron" / "auto-fix.log")
+)
+
+
+@dataclass(frozen=True)
+class Classification:
+    """Outcome of analyzing a failed run's artifacts."""
+
+    klass: str  # transient | parser-infra | goal-impossible | budget-exhausted | worker-wrong | unknown
+    confidence: float
+    summary: str
+    evidence: tuple[str, ...]
+
+
+# ── Classification rules ───────────────────────────────────────────────────
+#
+# Pattern-matched against session.log lines. Order matters — first match wins.
+# Rules are intentionally conservative: when in doubt, return `unknown` so a
+# human looks at it rather than produce a confidently wrong diagnosis.
+
+_RULES: tuple[tuple[str, re.Pattern[str], str, float], ...] = (
+    (
+        "budget-exhausted",
+        re.compile(r"Budget (?:exhausted|limit reached|cap exceeded)", re.I),
+        "budget cap tripped before goal completed",
+        0.95,
+    ),
+    (
+        "parser-infra",
+        re.compile(r"Could not extract structured step result"),
+        "orchestrator could not parse Claude's structured response",
+        0.9,
+    ),
+    (
+        "parser-infra",
+        re.compile(r"Failed to parse Claude JSON response"),
+        "claude subprocess stdout was not valid JSON",
+        0.85,
+    ),
+    (
+        "parser-infra",
+        re.compile(r"KeyError|TypeError|AttributeError", re.I),
+        "runner crashed on unexpected response shape",
+        0.75,
+    ),
+    (
+        "transient",
+        re.compile(r"timed out after|timeout|connection reset|429|rate.limit", re.I),
+        "transient I/O or rate-limit error from Claude subprocess",
+        0.7,
+    ),
+    (
+        "worker-wrong",
+        re.compile(r"Verification FAILED.*attempts=3", re.I),
+        "worker failed the same verification 3 times",
+        0.65,
+    ),
+    (
+        "goal-impossible",
+        re.compile(r"source_material path.*(?:missing|not found)|No such file", re.I),
+        "a path the goal depends on was missing",
+        0.7,
+    ),
+)
+
+
+def classify(session_log_text: str, state: dict) -> Classification:
+    evidence: list[str] = []
+
+    if state.get("status") not in ("failed", "running"):
+        return Classification(
+            klass="unknown",
+            confidence=0.0,
+            summary=f"state status is {state.get('status')!r}, not a failure",
+            evidence=(),
+        )
+
+    if state.get("error"):
+        evidence.append(f"state.error: {state['error']}")
+
+    lines = session_log_text.splitlines()
+    for rule_class, pattern, summary, confidence in _RULES:
+        for line in lines:
+            if pattern.search(line):
+                evidence.append(line.strip())
+                return Classification(
+                    klass=rule_class,
+                    confidence=confidence,
+                    summary=summary,
+                    evidence=tuple(evidence[:8]),
+                )
+
+    # No rule matched — fall back to unknown but surface the last few log lines.
+    evidence.extend(line.strip() for line in lines[-5:] if line.strip())
+    return Classification(
+        klass="unknown",
+        confidence=0.0,
+        summary="no classification rule matched; human review required",
+        evidence=tuple(evidence[:8]),
+    )
+
+
+# ── Report generation ──────────────────────────────────────────────────────
+
+
+def render_post_mortem(run_id: str, run_dir: Path, state: dict, c: Classification) -> str:
+    started = state.get("started_at", "unknown")
+    iterations = state.get("iteration", "unknown")
+    last_phase = state.get("current_phase", "unknown")
+    total_phases = state.get("total_phases", "unknown")
+
+    evidence_block = "\n".join(f"  - {line}" for line in c.evidence) or "  (none)"
+
+    return f"""# Post-mortem — run `{run_id}`
+
+Generated by `post-mortem` at {datetime.now(tz=timezone.utc).isoformat(timespec="seconds")}.
+
+## Classification
+
+- **class**: `{c.klass}`
+- **confidence**: {c.confidence:.2f}
+- **summary**: {c.summary}
+
+## Run context
+
+- started_at: {started}
+- iterations: {iterations}
+- current_phase / total_phases: {last_phase} / {total_phases}
+- run_dir: `{run_dir}`
+
+## Evidence
+
+{evidence_block}
+
+## Recommended action
+
+{_recommendation(c)}
+
+## Next steps for humans
+
+1. Read the full `session.log` and the last `step-NNN-raw.json` in this run dir.
+2. If classification is correct and class is `parser-infra`, review
+   `proposed-patch.diff` (if present) before applying.
+3. For any class other than `parser-infra`, this script does not propose
+   code changes — diagnose and fix manually.
+4. Mark the run terminated by editing `state.json` if it still says `running`.
+"""
+
+
+def _recommendation(c: Classification) -> str:
+    if c.klass == "parser-infra":
+        return (
+            "Treat as a harness bug. Add a unit test that exposes the parse failure, "
+            "patch the parser, bump the skill version, redeploy via "
+            "`node tools/flow-install/index.mjs`, and re-trigger the run manually."
+        )
+    if c.klass == "transient":
+        return "Safe to retry the same run after a cooldown (15+ min). Do not patch code."
+    if c.klass == "budget-exhausted":
+        return (
+            "Do not auto-retry. Decide whether the budget cap should be raised in the "
+            "goal's runtime-policy.json, or whether the goal itself is too broad."
+        )
+    if c.klass == "goal-impossible":
+        return (
+            "The goal references files or paths that no longer exist. Update the goal "
+            "definition or the source artifacts before retrying."
+        )
+    if c.klass == "worker-wrong":
+        return (
+            "Worker repeatedly failed verification. Review the phase's worker_prompt for "
+            "ambiguity. Consider tightening the verification commands."
+        )
+    return "Unknown failure mode — human review required. No automated action recommended."
+
+
+# ── I/O ───────────────────────────────────────────────────────────────────
+
+
+def find_session_log(run_dir: Path) -> str:
+    log_path = run_dir / "session.log"
+    if not log_path.exists():
+        return ""
+    try:
+        return log_path.read_text()
+    except OSError:
+        return ""
+
+
+def find_state(run_dir: Path) -> dict:
+    state_path = run_dir / "state.json"
+    if not state_path.exists():
+        return {}
+    try:
+        return json.loads(state_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_proposed_patch_placeholder(run_dir: Path) -> None:
+    """For parser-infra, leave a stub so humans know where a diff would go.
+
+    Generating the diff itself requires a Claude call and is deferred to phase 2.
+    This stub makes the contract visible without introducing an unreviewed code path.
+    """
+    diff_path = run_dir / "proposed-patch.diff"
+    diff_path.write_text(
+        "# proposed-patch.diff — placeholder\n"
+        "# Phase 1 post-mortem does not synthesize patches automatically.\n"
+        "# A human should read post-mortem.md and produce the fix.\n"
+    )
+
+
+def append_autofix_log(run_id: str, c: Classification) -> None:
+    AUTO_FIX_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with AUTO_FIX_LOG.open("a") as f:
+        f.write(
+            f"[{datetime.now(tz=timezone.utc).isoformat(timespec='seconds')}] "
+            f"run={run_id} class={c.klass} confidence={c.confidence:.2f} "
+            f"summary={c.summary}\n"
+        )
+
+
+# ── CLI ───────────────────────────────────────────────────────────────────
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Generate a post-mortem for a failed goal-agent run.",
+    )
+    parser.add_argument("run_dir", help="Path to .goal-agent/<run-id>/ directory")
+    parser.add_argument(
+        "--json", action="store_true", help="Emit JSON summary to stdout"
+    )
+    args = parser.parse_args(argv)
+
+    run_dir = Path(args.run_dir).resolve()
+    if not run_dir.is_dir():
+        print(f"error: run_dir {run_dir} is not a directory", file=sys.stderr)
+        return 2
+
+    run_id = run_dir.name
+    session_log = find_session_log(run_dir)
+    state = find_state(run_dir)
+
+    classification = classify(session_log, state)
+
+    post_mortem = render_post_mortem(run_id, run_dir, state, classification)
+    (run_dir / "post-mortem.md").write_text(post_mortem)
+
+    if classification.klass == "parser-infra":
+        write_proposed_patch_placeholder(run_dir)
+
+    append_autofix_log(run_id, classification)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "class": classification.klass,
+                    "confidence": classification.confidence,
+                    "summary": classification.summary,
+                    "post_mortem_path": str(run_dir / "post-mortem.md"),
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(f"wrote {run_dir / 'post-mortem.md'}")
+        print(f"class={classification.klass} confidence={classification.confidence:.2f}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
