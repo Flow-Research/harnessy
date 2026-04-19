@@ -72,7 +72,9 @@ const extractManagedBlock = (content) => {
   const startIdx = content.indexOf(startMarker);
   const endIdx = content.indexOf(endMarker, startIdx === -1 ? 0 : startIdx + startMarker.length);
   if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null;
-  return content.slice(startIdx + 1, endIdx + endMarker.length - 1);
+  // startIdx + 1 skips the leading "\n" of startMarker; endIdx + endMarker.length
+  // sits one past the end marker's final ">" so the extracted block includes it.
+  return content.slice(startIdx + 1, endIdx + endMarker.length);
 };
 
 const mergeManagedBlock = (existing, managedSection) => {
@@ -81,7 +83,9 @@ const mergeManagedBlock = (existing, managedSection) => {
   const startIdx = existing.indexOf(startMarker);
   const endIdx = existing.indexOf(endMarker, startIdx === -1 ? 0 : startIdx + startMarker.length);
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    return existing.slice(0, startIdx + 1) + managedSection + existing.slice(endIdx + endMarker.length - 1);
+    // Tail slice starts one past the end marker's final ">"; the previous
+    // "- 1" here caused one extra ">" to accumulate on every install.
+    return existing.slice(0, startIdx + 1) + managedSection + existing.slice(endIdx + endMarker.length);
   }
   return existing.trimEnd() + "\n\n" + managedSection + "\n";
 };
