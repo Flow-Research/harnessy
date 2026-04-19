@@ -4,10 +4,11 @@
 
 | Project | Path | Stack | Status |
 |---------|------|-------|--------|
-| Example Platform (POC) | `Focus/Flow/` | Python/FastAPI, React, Solidity, Base Chain | Active primary |
-| Example Core (P2P Engine) | `Flow/` | Rust, libp2p, RocksDB, Axum, Qdrant | Phase 3 complete, paused |
-| Jarvis CLI | `Jarvis/` | Python 3.11+, Click, AnyType/Notion | Active tooling |
-| Knowledge Base | `knowledge-base/` | Python + Astro, GitHub Actions | Brainstorming |
+| Example Platform (POC) | `projects/Focus/Flow/` | Python/FastAPI, React, Solidity, Base Chain | Active primary |
+| Example Core (P2P Engine) | `projects/Flow/` | Rust, libp2p, RocksDB, Axum, Qdrant | Phase 3 complete, paused |
+| Jarvis CLI | `jarvis-cli/` | Python 3.11+, Click, AnyType/Notion | Active tooling |
+| Knowledge Base | `projects/knowledge-base/` | Python + Astro, GitHub Actions | Brainstorming |
+| Economic Simulator | `projects/econ-sim/` | Python, Streamlit, Plotly | Active research |
 
 ## Installation
 
@@ -16,7 +17,7 @@
 ./install.sh
 
 # Install Jarvis CLI from this workspace
-uv tool install --force ./Jarvis
+uv tool install --force ./jarvis-cli
 
 # Install Flow framework into another project
 node tools/flow-install/index.mjs --yes
@@ -30,17 +31,19 @@ Read `.jarvis/context/README.md` for the knowledge base protocol. Start with `st
 
 | Project | Dev | Test | Lint |
 |---------|-----|------|------|
-| Focus/Flow backend | `cd Focus/Flow/backend && uvicorn app.main:app --reload` | `pytest` | `ruff check` |
-| Focus/Flow frontend | `cd Focus/Flow/frontend && pnpm dev` | — | `pnpm lint` |
+| Focus/Flow backend | `cd projects/Focus/Flow/backend && uvicorn app.main:app --reload` | `pytest` | `ruff check` |
+| Focus/Flow frontend | `cd projects/Focus/Flow/frontend && pnpm dev` | — | `pnpm lint` |
 | Flow (Rust) | `cargo run -p flow-node` | `cargo test -p flow-node` | `cargo clippy -p flow-node -- -D warnings` |
 | Jarvis CLI | `uv run jarvis <command>` | `uv run pytest` | `uv run ruff check` |
+| Econ Simulator | `cd projects/econ-sim && uv run streamlit run src/econ_sim/app.py` | `uv run pytest` | — |
 
 ## Conventions
 
 - **No `.env` commits** — each project has `.env.example`
 - **Jarvis CLI** — always run via `uv run jarvis` or `uv run python -m jarvis`
 - **`{{global}}`** in `.jarvis/context/` files is Jarvis CLI templating; treat as no-op
-- **Sub-project agent files** — `Flow/AGENTS.md` and `Jarvis/AGENTS.md` have project-specific instructions; defer to them when working in those directories
+- **Sub-project agent files** — `projects/Flow/AGENTS.md` and `jarvis-cli/AGENTS.md` have project-specific instructions; defer to them when working in those directories
+- **Content drafts** — all content lives in `.jarvis/context/private/<username>/flow-content/drafts/YYYY/Mon/DD-slug/` as a **folder**, never a standalone `.md` file. Each folder contains `index.md` (YAML frontmatter: title, platform, audience, type, voice, status, scheduled, anytype_id) and optional platform-specific files (`blog.md`, `twitter.md`, `linkedin.md`). See `generation-prompt.md` for the full spec.
 
 ## Skill Usage Protocol
 

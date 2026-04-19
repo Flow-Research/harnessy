@@ -144,10 +144,10 @@ Promote a script into Jarvis only if at least one of these is true:
 
 If you add or change a Jarvis command, update all of:
 
-- `Jarvis/src/jarvis/cli.py`,
-- `Jarvis/AGENTS.md`,
+- `jarvis-cli/src/jarvis/cli.py`,
+- `jarvis-cli/AGENTS.md`,
 - `tools/flow-install/skills/jarvis/commands/jarvis.md`,
-- installed artifacts via `pnpm skills:register` and `uv tool install --force ./Jarvis` when behavior materially changes.
+- installed artifacts via `pnpm skills:register` and `uv tool install --force ./jarvis-cli` when behavior materially changes.
 
 ## Standard Workflow
 

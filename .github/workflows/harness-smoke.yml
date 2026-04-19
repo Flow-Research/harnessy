@@ -6,7 +6,7 @@ on:
       - '.github/workflows/harness-smoke.yml'
       - 'tools/flow-install/**'
       - 'scripts/flow/**'
-      - 'Jarvis/**'
+      - 'jarvis-cli/**'
       - 'README.md'
       - 'tests/fixtures/harness-smoke/**'
   pull_request:
@@ -14,7 +14,7 @@ on:
       - '.github/workflows/harness-smoke.yml'
       - 'tools/flow-install/**'
       - 'scripts/flow/**'
-      - 'Jarvis/**'
+      - 'jarvis-cli/**'
       - 'README.md'
       - 'tests/fixtures/harness-smoke/**'
 

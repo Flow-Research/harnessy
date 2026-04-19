@@ -27,7 +27,7 @@ const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); }
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
 const normalizePath = async (candidate) => { try { return await fs.realpath(candidate); } catch { return path.resolve(candidate); } };
 const resolveInstallPaths = async () => {
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
 };
 const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);
@@ -69,7 +69,7 @@ const run = async () => {
   await requirePath("Memory scopes exist", path.join(contextDir, "scopes", "_scopes.yaml"));
   if (agents?.includes(expectedContextAgentsRef)) pass("AGENTS.md points to context AGENTS", expectedContextAgentsRef);
   else fail("AGENTS.md points to context AGENTS");
-  await requirePath("Install lockfile exists", path.join(projectRoot, "flow-install.lock.json"));
+  await requirePath("Install lockfile exists", path.join(projectRoot, "harnessy.lock.json"));
   await requirePath("register-skills script exists", path.join(scriptsDir, "register-skills.mjs"));
   await requirePath("validate-skills script exists", path.join(scriptsDir, "validate-skills.mjs"));
   await requirePath("register-claude-skills script exists", path.join(scriptsDir, "register-claude-skills.mjs"));
@@ -99,21 +99,24 @@ const run = async () => {
   }
 
   const opencode = await readJsonSafe(GLOBAL_OPENCODE_CONFIG);
+  const opencodeAvailable = opencode !== null;
+  const opencodeCheck = opencodeAvailable ? fail : warn;
   const opencodePaths = [];
   for (const configuredPath of opencode?.skills?.paths || []) opencodePaths.push(await normalizePath(configuredPath));
   const normalizedGlobal = await normalizePath(GLOBAL_SKILLS_DIR);
-  if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode has global skills path", normalizedGlobal);
+  if (!opencodeAvailable) warn("OpenCode not installed", "OpenCode checks downgraded to warnings");
+  else if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode has global skills path", normalizedGlobal);
   else fail("OpenCode has global skills path", normalizedGlobal);
   if (!(await pathExists(projectSkillsRoot))) pass("Project-local skills path optional", projectSkillsRoot);
   else {
     const normalizedProjectSkillsRoot = await normalizePath(projectSkillsRoot);
     if (opencodePaths.includes(normalizedProjectSkillsRoot)) pass("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
-    else fail("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
+    else opencodeCheck("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
   }
 
   const localEntries = await fs.readdir(projectSkillsRoot, { withFileTypes: true }).catch(() => []);
   const localSkills = localEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   const globalCommunityMetadata = await readJsonSafe(GLOBAL_COMMUNITY_METADATA);
   const components = lockfile?.components || {};
   for (const component of ["skills", "claude", "opencode", "scripts", "context", "memory", "agentsMd"]) {
@@ -127,7 +130,7 @@ const run = async () => {
 
   const flowCoreSkills = Array.isArray(lockfile?.flowCoreSkills) ? lockfile.flowCoreSkills : [];
   if (flowCoreSkills.length === 0) {
-    warn("Flow core skills inventory unavailable", "No flowCoreSkills recorded in flow-install.lock.json");
+    warn("Flow core skills inventory unavailable", "No flowCoreSkills recorded in harnessy.lock.json");
   }
   for (const skill of flowCoreSkills) {
     const globalSkillDir = path.join(GLOBAL_SKILLS_DIR, skill);
@@ -138,7 +141,7 @@ const run = async () => {
     if (await pathExists(skillMdPath)) pass("Flow core skill has SKILL.md", skill);
     else fail("Flow core skill has SKILL.md", skill);
     if (opencodePaths.includes(normalizedGlobal) && await pathExists(skillMdPath)) pass("OpenCode can resolve Flow core skill", skill);
-    else fail("OpenCode can resolve Flow core skill", skill);
+    else opencodeCheck("OpenCode can resolve Flow core skill", skill);
     if (await pathExists(claudeSkillLink)) pass("Claude skill symlink exists", skill);
     else fail("Claude skill symlink exists", skill);
   }
@@ -184,6 +187,7 @@ const run = async () => {
       else warn("Community skill has SKILL.md", skill);
 
       if (opencodePaths.includes(normalizedGlobal) && await pathExists(skillMdPath)) pass("OpenCode can resolve community skill", skill);
+      else if (!opencodeAvailable) warn("OpenCode can resolve community skill", skill);
       else if (communityConfig.strict) fail("OpenCode can resolve community skill", skill);
       else warn("OpenCode can resolve community skill", skill);
 
@@ -199,7 +203,7 @@ const run = async () => {
     if (await pathExists(path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill))) pass("Claude skill symlink for local skill", skill);
     else fail("Claude skill symlink for local skill", skill);
     if (opencodePaths.includes(await normalizePath(projectSkillsRoot))) pass("OpenCode can resolve local skill", skill);
-    else fail("OpenCode can resolve local skill", skill);
+    else opencodeCheck("OpenCode can resolve local skill", skill);
   }
 
   const failures = checks.filter((check) => !check.ok);

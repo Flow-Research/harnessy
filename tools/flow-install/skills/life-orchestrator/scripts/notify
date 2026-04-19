@@ -5,6 +5,26 @@ import subprocess
 
 USAGE = "Usage: notify <title> <message>"
 
+# macOS User Notifications truncate around 200 chars anyway, and very long
+# messages are harder to debug if escaping goes wrong. Cap the message.
+MAX_MESSAGE_LEN = 240
+
+
+def escape_applescript_string(s: str) -> str:
+    """Escape a string for use inside an AppleScript double-quoted literal.
+
+    AppleScript string literals use double quotes. Inside, you must escape
+    backslash and double quote. Newlines must also be escaped to \\n because
+    a literal newline breaks the script parser.
+    """
+    return (
+        s.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "")
+    )
+
+
 def main():
     args = sys.argv[1:]
 
@@ -23,11 +43,34 @@ def main():
 
     title, message = args[0], args[1]
 
+    # Trim long messages so notification center doesn't silently drop them
+    # and so escaping bugs don't hide inside a 3000-char payload.
+    if len(message) > MAX_MESSAGE_LEN:
+        message = message[: MAX_MESSAGE_LEN - 1] + "…"
+
     if shutil.which("osascript"):
-        script = f'display notification "{message}" with title "{title}"'
-        subprocess.run(["osascript", "-e", script], check=True)
+        safe_title = escape_applescript_string(title)
+        safe_message = escape_applescript_string(message)
+        script = f'display notification "{safe_message}" with title "{safe_title}"'
+        try:
+            subprocess.run(
+                ["osascript", "-e", script],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            # Don't crash on notification failure — print diagnostic and exit 1
+            # so the caller can log it without everything else blowing up.
+            print(
+                f"[notify] osascript failed (exit {e.returncode}): "
+                f"{(e.stderr or '').strip()}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     else:
         print(f"[notify] {title}: {message}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

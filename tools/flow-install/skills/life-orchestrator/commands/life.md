@@ -64,15 +64,21 @@ Run a comprehensive monthly review using goal-agent.
 1. Read `priorities.md`.
 2. Collect full project state using the collect-state script:
    ```bash
-   python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/collect-state" --scope monthly
+   python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/collect-state"
    ```
 3. Read the monthly review template:
    ```bash
    cat "${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/monthly-review.md"
    ```
-4. Compose a goal file for goal-agent that asks it to produce a monthly review. The goal should:
+4. Read all daily notes from the month (Julian's own thoughts and action items):
+   ```bash
+   NOTES_DIR=".jarvis/context/private/julian/notes/$YEAR/$MONTH"
+   for f in $(ls "$NOTES_DIR"/*.md 2>/dev/null); do echo "=== $(basename $f) ==="; cat "$f"; done
+   ```
+5. Compose a goal file for goal-agent that asks it to produce a monthly review. The goal should:
    - Reference `priorities.md` as the authority on what matters
    - Include the collected state as context
+   - Include the daily notes as Julian's own voice on what mattered throughout the month
    - Follow the monthly review template structure
    - Write output to `$OUTPUT_DIR/monthly-review.md`
 5. Run goal-agent:
@@ -109,7 +115,7 @@ Produce a weekly plan based on the monthly review and current state.
    ```
 3. Collect current project state:
    ```bash
-   python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/collect-state" --scope weekly
+   python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/collect-state"
    ```
 4. Read the weekly plan template:
    ```bash
@@ -119,25 +125,32 @@ Produce a weekly plan based on the monthly review and current state.
    ```bash
    find ~/.agents/life/feedback/ -name "*.md" -newer "$OUTPUT_DIR/week-*-plan.md" 2>/dev/null | head -5 | xargs cat 2>/dev/null
    ```
-6. Synthesize a weekly plan that:
+6. Read daily notes from this week (Julian's own thoughts, action items, reminders):
+   ```bash
+   NOTES_DIR=".jarvis/context/private/julian/notes/$YEAR/$MONTH"
+   for f in $(ls "$NOTES_DIR"/*.md 2>/dev/null | tail -7); do echo "=== $(basename $f) ==="; cat "$f"; done
+   ```
+   These notes are Julian's voice — they reveal what's actually on his mind vs. what the system tracks.
+7. Synthesize a weekly plan that:
    - Aligns with monthly review priorities (or priorities.md if no review exists)
    - Accounts for current project state and momentum
    - Incorporates any feedback captured since last plan
+   - Reflects Julian's daily notes — what he's been thinking about, action items he captured
    - Assigns focus areas to specific days where appropriate
    - Identifies the week's "must-win" deliverable
-7. Write the plan:
+8. Write the plan:
    - File: `$OUTPUT_DIR/week-$WEEK-plan.md`
    - Follow the weekly plan template structure
-8. Create Jarvis tasks for the week's key deliverables:
+9. Create Jarvis tasks for the week's key deliverables:
    ```bash
-   cd Jarvis && uv run jarvis task create "<task title>" --priority <high|medium|low>
+   jarvis task create "<task title>" --priority <high|medium|low>
    ```
-9. Capture trace:
-   ```bash
-   python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
-       --skill "life-orchestrator" --gate "weekly_plan" --gate-type "quality" \
-       --outcome "approved" --feedback "Week $WEEK plan"
-   ```
+10. Capture trace:
+    ```bash
+    python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
+        --skill "life-orchestrator" --gate "weekly_plan" --gate-type "quality" \
+        --outcome "approved" --feedback "Week $WEEK plan"
+    ```
 
 **Output:** `~/.agents/life/YYYY/Mon/week-NN-plan.md`
 
@@ -154,7 +167,7 @@ Two-step daily brief: collect state, then synthesize focus.
 1. Read `priorities.md`.
 2. Run the collect-state script:
    ```bash
-   python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/collect-state" --scope daily
+   python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/collect-state"
    ```
    This script outputs a JSON summary of: git activity across repos, open PRs, calendar events, recent Jarvis tasks, and any changes since yesterday.
 3. Check if there are meaningful changes. If the script reports `"changes_detected": false`, write a minimal brief ("No significant changes — carry forward yesterday's focus") and skip to step 7.
@@ -181,7 +194,7 @@ Two-step daily brief: collect state, then synthesize focus.
 7. Write the brief to `$OUTPUT_DIR/$DAY-daily-brief.md`.
 8. Journal to Anytype:
    ```bash
-   cd Jarvis && uv run jarvis journal write --file "$OUTPUT_DIR/$DAY-daily-brief.md"
+   jarvis journal write --file "$OUTPUT_DIR/$DAY-daily-brief.md"
    ```
 9. Send desktop notification:
    ```bash

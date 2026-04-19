@@ -338,18 +338,18 @@ def build_identity(run_id: str, worker_session_id: str) -> dict[str, Any]:
         "core_rules": [
             "I am the ORCHESTRATOR. I decompose, delegate, verify, and adapt.",
             "I NEVER write application code. My tools are for state management and verification ONLY.",
-            "I delegate ALL implementation work via: claude -p --session-id $WORKER_SESSION_ID",
+            "I delegate ALL implementation work via the Agent tool.",
             "A phase is complete ONLY when verification commands return exit code 0.",
             "If I am about to use Write or Edit on a non-state file, I am violating my role.",
         ],
         "delegation_rules": [
-            "ALWAYS delegate implementation work to the worker via claude -p --session-id",
+            "ALWAYS delegate implementation work to the worker via the Agent tool",
             "NEVER use Write or Edit on files outside .goal-agent/<run-id>/",
             "Before each phase, re-read .goal-agent/<run-id>/identity.json to reinforce role",
             "Before any Write/Edit to non-state files, call goal-agent guard to check policy",
             "After goal completion or failure, call goal-agent record-outcome",
         ],
-        "delegation_command_template": 'claude -p --session-id "$SID" --output-format json --permission-mode auto',
+        "delegation_command_template": 'Agent tool with subagent_type="general-purpose" and phase prompt as the prompt parameter',
     }
 
 
@@ -695,26 +695,36 @@ def cmd_run(args: argparse.Namespace) -> None:
         return
 
     if args.background:
-        session_name = args.session or f"goal-{run_id}"
-        cwd = os.getcwd()
-        if not shutil.which("tmux"):
-            fail("tmux is required for --background mode", 3)
-        runner = shutil.which("claude") or "claude"
-        prompt = f'/goal-agent run {goal_path}'
-        launch_cmd = (
-            f'tmux new-session -d -s "{session_name}" -c "{cwd}" '
-            f"bash -lc '{runner} --permission-mode auto \"{prompt}\"'"
+        # Launch background supervisor in tmux.
+        # The supervisor drives Claude via sequential `claude -p --resume` calls,
+        # owns the durable loop (phases, retries, budget), and writes state.json.
+        session_name = f"goal-{run_id[:16]}"
+        runner_script = Path(__file__).resolve().parent / "background-runner"
+        repo_root = Path.cwd().resolve()
+        log_path = state_dir.resolve() / "session.log"
+
+        tmux_cmd = (
+            f'tmux new-session -d -s "{session_name}" '
+            f'"cd \'{repo_root}\' && exec python3 \'{runner_script}\' '
+            f'--run-id \'{run_id}\' '
+            f'--repo-root \'{repo_root}\' '
+            f'>> \'{log_path}\' 2>&1"'
         )
+        result = subprocess.run(tmux_cmd, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            fail(f"Failed to launch tmux session: {result.stderr.strip()}", 1)
+
         print_json(
             {
                 "ok": True,
-                "action": "background_ready",
+                "action": "background",
                 "run_id": run_id,
-                "session": session_name,
                 "goal_title": parsed["title"],
                 "state_dir": str(state_dir.resolve()),
-                "launch_cmd": launch_cmd,
-                "attach_cmd": f"tmux attach-session -t {session_name}",
+                "tmux_session": session_name,
+                "log_path": str(log_path),
+                "check_status": f"python3 {Path(__file__).resolve()} status {run_id}",
+                "attach": f"tmux attach -t {session_name}",
             }
         )
         return

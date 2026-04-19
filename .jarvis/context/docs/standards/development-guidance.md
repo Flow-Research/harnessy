@@ -8,7 +8,7 @@ This document is the canonical workspace-level source for engineering workflow g
 
 - Follow the active project focus in `status.md`.
 - Use the simplest implementation that validates the current roadmap milestone.
-- Prefer project-local conventions when working inside `Flow/`, `Jarvis/`, or other nested projects.
+- Prefer project-local conventions when working inside `projects/Flow/`, `jarvis-cli/`, or other nested projects.
 - Keep technical debt in the debt registers, not only in comments or chat.
 
 ## Session Rhythm
@@ -27,8 +27,8 @@ This document is the canonical workspace-level source for engineering workflow g
 
 ## Project-Specific Conventions
 
-- `Flow/` Rust patterns and tooling conventions belong in `Flow/AGENTS.md`.
-- `Jarvis/` CLI conventions belong in `Jarvis/AGENTS.md`.
+- `projects/Flow/` Rust patterns and tooling conventions belong in `projects/Flow/AGENTS.md`.
+- `jarvis-cli/` CLI conventions belong in `jarvis-cli/AGENTS.md`.
 - POC implementation constraints belong in `status.md` and `roadmap.md`.
 
 ## Note

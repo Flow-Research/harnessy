@@ -1,0 +1,162 @@
+#!/bin/bash
+# weekly-plan — Generate the weekly plan via Claude.
+#
+# Called by launchd (com.flow-harness.project.weekly-plan). Can also be run
+# manually: `bash tools/flow-install/skills/life-orchestrator/scripts/weekly-plan`
+#
+# Pattern: read inputs into variables, build a prompt, pipe to claude -p via
+# stdin, capture stdout, write to output file. This avoids needing claude to
+# have filesystem read/write permissions outside the project root.
+#
+# Exit codes:
+#   0 = success
+#   1 = transient failure (claude timeout, network — retry OK)
+#   2 = permanent failure (script bug, missing dep — do not retry)
+
+set -u
+
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPTS_DIR/../../../../.." && pwd)"
+
+YEAR=$(date +%Y)
+MONTH=$(date +%b)
+WEEK=$(date +%V)
+
+OUTPUT_DIR="$HOME/.agents/life/$YEAR/$MONTH"
+OUTPUT_FILE="$OUTPUT_DIR/week-$WEEK-plan.md"
+
+# Public, shared project context (safe for any project that installs this skill).
+STATUS_FILE="$PROJECT_ROOT/.jarvis/context/status.md"
+ROADMAP_FILE="$PROJECT_ROOT/.jarvis/context/roadmap.md"
+
+# Priorities are user-private. The path is configurable so the script never
+# hardcodes a path into a specific user's tree.
+#   1. $LIFE_PRIORITIES_FILE if set
+#   2. ~/.agents/life/priorities.md (life-orchestrator convention)
+#   3. otherwise, run without priorities
+PRIORITIES_FILE="${LIFE_PRIORITIES_FILE:-$HOME/.agents/life/priorities.md}"
+
+MONTHLY_REVIEW_FILE="$OUTPUT_DIR/monthly-review.md"
+TEMPLATE_FILE="$SKILL_DIR/templates/weekly-plan.md"
+
+mkdir -p "$OUTPUT_DIR"
+
+cd "$PROJECT_ROOT" || { echo "ERROR: cannot cd to $PROJECT_ROOT" >&2; exit 2; }
+
+# Step 1: collect state
+echo "Collecting state..." >&2
+STATE_JSON=$(python3 "$SCRIPTS_DIR/collect-state" 2>&1)
+if [ $? -ne 0 ]; then
+    echo "ERROR: collect-state failed" >&2
+    echo "$STATE_JSON" >&2
+    exit 2
+fi
+echo "State collected: $(echo "$STATE_JSON" | wc -c) bytes" >&2
+
+# Step 2: read inputs (gracefully handle missing files)
+read_or_warn() {
+    local label="$1"
+    local path="$2"
+    if [ -f "$path" ]; then
+        cat "$path"
+    else
+        echo "WARN: $label not found at $path" >&2
+        echo "(no $label available)"
+    fi
+}
+
+PRIORITIES=$(read_or_warn "priorities" "$PRIORITIES_FILE")
+STATUS=$(read_or_warn "status" "$STATUS_FILE")
+ROADMAP=$(read_or_warn "roadmap" "$ROADMAP_FILE")
+MONTHLY_REVIEW=$(read_or_warn "monthly review" "$MONTHLY_REVIEW_FILE")
+
+if [ ! -f "$TEMPLATE_FILE" ]; then
+    echo "ERROR: weekly-plan template missing at $TEMPLATE_FILE" >&2
+    exit 2
+fi
+TEMPLATE=$(cat "$TEMPLATE_FILE")
+
+# Step 3: build prompt
+PROMPT=$(cat <<EOF
+You are generating a weekly plan for Julian. Output ONLY the plan in markdown — no preamble, no commentary, no questions.
+
+# Priorities
+$PRIORITIES
+
+# Status
+$STATUS
+
+# Roadmap
+$ROADMAP
+
+# Monthly Review
+$MONTHLY_REVIEW
+
+# Weekly Plan Template (follow this structure)
+$TEMPLATE
+
+# Current Project State (JSON)
+\`\`\`json
+$STATE_JSON
+\`\`\`
+
+Produce the weekly plan for Week $WEEK of $YEAR ($MONTH). Output the markdown plan only.
+EOF
+)
+
+# Step 4: invoke claude
+echo "Invoking claude -p..." >&2
+PLAN=$(echo "$PROMPT" | claude -p --output-format text --model sonnet 2>&1)
+CLAUDE_EXIT=$?
+
+if [ $CLAUDE_EXIT -ne 0 ]; then
+    echo "ERROR: claude exited $CLAUDE_EXIT" >&2
+    echo "$PLAN" >&2
+    exit 1
+fi
+
+if [ -z "$PLAN" ]; then
+    echo "ERROR: claude produced empty output" >&2
+    exit 1
+fi
+
+# Step 5: write the plan
+echo "$PLAN" > "$OUTPUT_FILE"
+echo "Weekly plan written to $OUTPUT_FILE ($(wc -c < "$OUTPUT_FILE") bytes)" >&2
+
+# Step 6: push to Jarvis journal (Anytype). Logs failures explicitly so they're
+# visible in cron logs, but does not fail the run if Jarvis is unavailable —
+# the local file is still written.
+#
+# We strip the leading H1 from the body before pushing to the journal — the
+# entry title in Anytype already shows it, so keeping it in the body would
+# duplicate. The local file keeps the H1 (useful when reading directly).
+JOURNAL_TITLE="Weekly Plan — Week $WEEK, $YEAR"
+JOURNAL_BODY_FILE=$(mktemp -t weekly-plan-journal.XXXXXX)
+trap 'rm -f "$JOURNAL_BODY_FILE"' EXIT
+# Skip the first H1 line and any blank lines that follow it
+awk '
+    NR==1 && /^# / { skipping=1; next }
+    skipping && /^$/ { next }
+    { skipping=0; print }
+' "$OUTPUT_FILE" > "$JOURNAL_BODY_FILE"
+
+echo "Writing to Jarvis journal: $JOURNAL_TITLE" >&2
+if command -v jarvis >/dev/null 2>&1; then
+    JOURNAL_OUTPUT=$(jarvis journal write \
+        --file "$JOURNAL_BODY_FILE" \
+        --title "$JOURNAL_TITLE" \
+        --no-deep-dive 2>&1)
+    JOURNAL_EXIT=$?
+    if [ $JOURNAL_EXIT -eq 0 ]; then
+        echo "Jarvis journal write: success" >&2
+    else
+        echo "Jarvis journal write FAILED (exit $JOURNAL_EXIT)" >&2
+        echo "$JOURNAL_OUTPUT" | sed 's/^/  /' >&2
+    fi
+else
+    echo "WARN: jarvis CLI not on PATH — skipping journal write" >&2
+fi
+
+exit 0

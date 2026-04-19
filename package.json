@@ -12,8 +12,8 @@
     "harness:eval:remote": "bash tests/harness/run-remote-install-docker.sh",
     "postinstall": "node scripts/flow/sync-rules.mjs",
     "flow:cleanup": "node scripts/flow/cleanup-stale-plugins.mjs",
-    "flow:sync": "node scripts/flow/register-skills.mjs && node scripts/flow/register-claude-skills.mjs",
-    "flow:sync:force": "node scripts/flow/register-skills.mjs --force && node scripts/flow/register-claude-skills.mjs",
+    "flow:sync": "bash ${HOME}/.cache/harnessy/install.sh --in-place || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes",
+    "flow:sync:force": "bash ${HOME}/.cache/harnessy/install.sh --in-place --force || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes --force",
     "flow:sync:remote": "bash ${HOME}/.cache/harnessy/install.sh --in-place || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes",
     "flow:sync:remote:force": "bash ${HOME}/.cache/harnessy/install.sh --in-place --force || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes --force"
   },

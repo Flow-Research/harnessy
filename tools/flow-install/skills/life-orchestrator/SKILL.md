@@ -43,7 +43,7 @@ Anytype journal (via Jarvis CLI)
 1. **Julian's voice is primary.** `priorities.md` is always read first. It sets the lens through which all project state is interpreted.
 2. **Rhythms compound.** Monthly reviews feed weekly plans, which feed daily briefs. Each layer adds specificity without repeating context.
 3. **Cost-aware.** Monthly runs are expensive (full goal-agent). Weekly runs are moderate (focused Claude session). Daily runs are cheap (scripted collection + short prompt).
-4. **Journal integration.** Daily briefs are written to Anytype via `cd Jarvis && uv run jarvis journal write` for long-term searchability.
+4. **Journal integration.** Daily briefs are written to Anytype via `jarvis journal write` for long-term searchability.
 
 ## Inputs
 

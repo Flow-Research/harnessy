@@ -1,0 +1,684 @@
+#!/usr/bin/env python3
+"""
+background-runner — Deterministic supervisor for goal-agent background orchestration.
+
+Runs inside tmux. Drives a Claude Code session via sequential `claude -p --resume`
+calls. Owns the durable control loop: phase tracking, retries, budget, verification,
+state commits, and recovery.
+
+Claude owns reasoning (decompose, dispatch workers, decide next action).
+This runner owns state (commits to state.json, runs verification, manages retries).
+
+Usage:
+    background-runner --run-id <id> [--repo-root <path>]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+# ── Paths ────────────────────────────────────────────────────────────────
+
+STATE_ROOT = Path(".goal-agent")
+SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas"
+SKILL_DIR = Path(__file__).resolve().parent.parent
+STEP_SCHEMA = SCHEMAS_DIR / "step.schema.json"
+
+# ── Constants ────────────────────────────────────────────────────────────
+
+MAX_PHASE_ATTEMPTS = 3
+MAX_TOTAL_STEPS = 50       # safety cap on total Claude calls
+CLAUDE_TIMEOUT = 600       # 10 minutes per step
+DEFAULT_BUDGET = 5.0
+
+
+# ── State helpers ────────────────────────────────────────────────────────
+
+def read_json(path: Path) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+
+def write_json(path: Path, data: dict) -> None:
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    # Also write to log for crash forensics
+    log(f"State written: status={data.get('status')}, phase={data.get('current_phase')}")
+
+
+def log(msg: str) -> None:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
+
+
+# ── Supervisor state ─────────────────────────────────────────────────────
+
+def init_supervisor_state(state: dict, session_id: str) -> dict:
+    """Create or update supervisor-owned fields in state.json."""
+    state["supervisor"] = {
+        "session_id": session_id,
+        "total_steps": 0,
+        "step_log": [],
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "last_step_at": None,
+    }
+    state["status"] = "running"
+    return state
+
+
+def record_step(state: dict, step_result: dict, response: dict, prompt: str) -> dict:
+    """Record a completed step with full durability metadata."""
+    import hashlib
+    sv = state["supervisor"]
+    sv["total_steps"] += 1
+    sv["last_step_at"] = datetime.now(timezone.utc).isoformat()
+
+    duration_s = response.get("duration_s", 0)
+    cost_usd = response.get("cost_usd", 0)
+
+    sv["step_log"].append({
+        "step": sv["total_steps"],
+        "action": step_result.get("action"),
+        "phase_id": step_result.get("phase_id"),
+        "summary": step_result.get("summary", "")[:200],
+        "duration_s": round(duration_s, 1),
+        "cost_usd": round(cost_usd, 4),
+        "ts": sv["last_step_at"],
+    })
+
+    state["budget_used_estimate"] = round(
+        state.get("budget_used_estimate", 0) + cost_usd, 4
+    )
+
+    # Step-level durability for crash recovery
+    state["last_step"] = {
+        "step_number": sv["total_steps"],
+        "prompt_hash": "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()[:16],
+        "structured_output": step_result,
+        "claude_exit_code": response.get("claude_exit_code", 0),
+        "claude_session_id": response.get("session_id"),
+        "cost_usd": round(cost_usd, 4),
+        "duration_s": round(duration_s, 1),
+        "completed_at": sv["last_step_at"],
+    }
+
+    return state
+
+
+# Tool scoping per orchestrator step
+TOOLS_DECOMPOSE = "Read,Grep,Glob"                          # analyze only
+TOOLS_DISPATCH = "Read,Write,Edit,Grep,Glob,Bash,Agent"     # full capability
+TOOLS_VERIFY = "Read,Bash"                                   # read + run checks
+TOOLS_FINALIZE = "Read,Write"                                # write report only
+
+
+# ── Claude interaction ───────────────────────────────────────────────────
+
+def call_claude(
+    prompt: str,
+    session_id: str,
+    state_dir: Path,
+    remaining_budget: float,
+    is_first_call: bool = False,
+    tools: str = "Read,Write,Edit,Grep,Glob,Bash,Agent",
+    use_bare: bool = False,
+) -> dict:
+    """Make a single claude -p call and return parsed JSON response.
+
+    First call uses --session-id to create the session.
+    Subsequent calls use --resume to continue it.
+    Uses --tools for hard tool restriction (not --allowedTools which only auto-approves).
+    --bare mode: explicit context, requires ANTHROPIC_API_KEY.
+    Non-bare mode: uses existing Claude login, ambient skills/hooks active.
+
+    Returns dict with keys: result (parsed step JSON), session_id, cost_usd, duration_s
+    """
+    cmd = ["claude", "-p"]
+    if use_bare:
+        cmd.append("--bare")
+
+    # First call creates session; subsequent calls resume it
+    if is_first_call:
+        cmd += ["--session-id", session_id]
+    else:
+        cmd += ["--resume", session_id]
+
+    step_budget = min(remaining_budget, 2.0)
+    cmd += [
+        "--output-format", "json",
+        "--permission-mode", "dontAsk",
+        "--tools", tools,               # hard restriction (not --allowedTools)
+        "--max-turns", "25",             # safety guardrail per step
+        "--max-budget-usd", str(step_budget),
+    ]
+
+    # Append orchestrator system prompt on first call
+    system_prompt_file = state_dir / "orchestrator-system.md"
+    if is_first_call and system_prompt_file.exists():
+        cmd += ["--append-system-prompt-file", str(system_prompt_file)]
+
+    # Schema for structured output
+    if STEP_SCHEMA.exists():
+        schema = json.loads(STEP_SCHEMA.read_text())
+        cmd += ["--json-schema", json.dumps(schema)]
+
+    # Settings file for permissions.allow/deny rules
+    settings_file = state_dir / "claude-settings.json"
+    if settings_file.exists():
+        cmd += ["--settings", str(settings_file)]
+
+    cmd.append(prompt)
+
+    log(f"Calling claude (first={is_first_call}, tools={tools}, budget_cap={step_budget:.2f})")
+
+    t0 = time.monotonic()
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=CLAUDE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        duration = time.monotonic() - t0
+        return {
+            "result": {"action": "fail", "summary": f"Claude call timed out after {CLAUDE_TIMEOUT}s", "retryable": True},
+            "session_id": session_id,
+            "cost_usd": 0,
+            "duration_s": duration,
+            "raw_output": "",
+        }
+
+    duration = time.monotonic() - t0
+
+    if result.returncode != 0:
+        log(f"Claude returned exit code {result.returncode}: {result.stderr[:200]}")
+        return {
+            "result": {"action": "fail", "summary": f"Claude exit {result.returncode}: {result.stderr[:200]}", "retryable": True},
+            "session_id": session_id,
+            "cost_usd": 0,
+            "duration_s": duration,
+            "raw_output": result.stdout,
+        }
+
+    # Parse JSON output
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        log(f"Failed to parse Claude JSON output: {result.stdout[:300]}")
+        return {
+            "result": {"action": "fail", "summary": "Failed to parse Claude JSON response", "retryable": True},
+            "session_id": session_id,
+            "cost_usd": 0,
+            "duration_s": duration,
+            "raw_output": result.stdout,
+        }
+
+    # Extract structured result and metadata from Claude's JSON output format.
+    # With --output-format json + --json-schema, Claude returns metadata wrapper
+    # with the validated object in "structured_output" or "result".
+    cost_usd = output.get("cost_usd", output.get("costUSD", 0)) or 0
+    actual_session_id = output.get("session_id", output.get("sessionId", session_id))
+    exit_code = result.returncode
+
+    # Try multiple known paths for the structured result:
+    # 1. structured_output (json-schema validated)
+    # 2. result (generic output)
+    # 3. content (text content)
+    step_result = None
+    for key in ("structured_output", "result", "content"):
+        candidate = output.get(key)
+        if candidate is None:
+            continue
+        if isinstance(candidate, dict) and "action" in candidate:
+            step_result = candidate
+            break
+        if isinstance(candidate, str):
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict) and "action" in parsed:
+                    step_result = parsed
+                    break
+            except json.JSONDecodeError:
+                continue
+
+    if step_result is None:
+        # Last resort: scan the full output for a JSON object with "action"
+        raw = result.stdout
+        import re
+        json_match = re.search(r'\{[^{}]*"action"\s*:', raw)
+        if json_match:
+            # Find the matching closing brace
+            start = json_match.start()
+            depth = 0
+            for i, ch in enumerate(raw[start:], start):
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            step_result = json.loads(raw[start:i+1])
+                        except json.JSONDecodeError:
+                            pass
+                        break
+
+    if step_result is None:
+        step_result = {
+            "action": "fail",
+            "summary": "Could not extract structured step result from Claude response",
+            "retryable": True,
+        }
+
+    return {
+        "result": step_result,
+        "session_id": actual_session_id,
+        "cost_usd": cost_usd,
+        "duration_s": duration,
+        "claude_exit_code": exit_code,
+        "raw_output": result.stdout,
+    }
+
+
+# ── Verification ─────────────────────────────────────────────────────────
+
+def run_verification(commands: list[str], file_checks: list[str]) -> dict:
+    """Run verification commands and file checks deterministically.
+
+    Returns dict with pass/fail status and details.
+    """
+    results = []
+    all_passed = True
+
+    for cmd_str in commands:
+        log(f"Verification: {cmd_str}")
+        try:
+            result = subprocess.run(
+                cmd_str, shell=True,
+                capture_output=True, text=True,
+                timeout=120,
+            )
+            passed = result.returncode == 0
+            results.append({
+                "type": "command",
+                "command": cmd_str,
+                "passed": passed,
+                "exit_code": result.returncode,
+                "stdout": result.stdout[:500],
+                "stderr": result.stderr[:500],
+            })
+            if not passed:
+                all_passed = False
+        except subprocess.TimeoutExpired:
+            results.append({
+                "type": "command",
+                "command": cmd_str,
+                "passed": False,
+                "exit_code": -1,
+                "error": "timeout after 120s",
+            })
+            all_passed = False
+
+    for file_path in file_checks:
+        exists = os.path.exists(file_path)
+        results.append({
+            "type": "file_check",
+            "path": file_path,
+            "passed": exists,
+        })
+        if not exists:
+            all_passed = False
+
+    return {"passed": all_passed, "results": results}
+
+
+# ── Orchestrator system prompt ───────────────────────────────────────────
+
+def generate_orchestrator_system(state_dir: Path, goal_file: str) -> None:
+    """Generate the orchestrator system prompt file from goal context."""
+    identity = read_json(state_dir / "identity.json")
+
+    prompt = f"""You are the orchestrator for a goal-agent run. You drive a multi-phase goal to completion.
+
+## Your Role
+- You are the ORCHESTRATOR. You plan, decompose, dispatch workers, and evaluate.
+- You do NOT implement directly. Use the Agent tool to dispatch worker subagents for implementation.
+- Workers receive focused, phase-specific prompts and return results.
+- You evaluate worker output and decide: advance, retry, replan, or fail.
+
+## Identity
+{json.dumps(identity, indent=2)}
+
+## Goal
+Read the goal specification at: {goal_file}
+Read the prepared goal at: {state_dir}/prepared-goal.md
+
+## Communication Protocol
+You MUST respond with a JSON object matching the step schema. Every response must have:
+- "action": one of decompose, dispatch_worker, advance_phase, retry_phase, replan, finalize, fail
+- "summary": concise explanation of what you did and why
+
+When action=decompose, include "phases" array with the plan.
+When action=dispatch_worker, you should have already called the Agent tool in this turn to dispatch the worker. Include "worker_result_summary" with what the worker accomplished.
+When action=advance_phase or retry_phase, include "verification_commands" for the supervisor to run.
+When action=finalize, include "report" with the final completion report.
+When action=fail, include "error" and "retryable".
+
+## Rules
+- Re-read {state_dir}/identity.json before each phase to reinforce your role.
+- Decompose into 2-7 phases. Each phase has clear deliverables.
+- Max 3 retry attempts per phase before escalating to replan.
+- Workers get focused prompts — ONE phase at a time, never the full goal.
+- Workers do NOT get Agent tool access (no sub-sub-agents).
+- After each phase, return verification_commands for the supervisor to run deterministically.
+"""
+
+    (state_dir / "orchestrator-system.md").write_text(prompt)
+
+
+# ── Main loop ────────────────────────────────────────────────────────────
+
+def run(run_id: str, repo_root: str) -> int:
+    """Main supervisor loop. Returns exit code."""
+    # Check auth — --bare mode requires ANTHROPIC_API_KEY (skips OAuth/keychain).
+    # Without --bare, Claude uses existing login (OAuth/keychain).
+    use_bare = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if use_bare:
+        log("ANTHROPIC_API_KEY found — using --bare mode (explicit context, no ambient discovery)")
+    else:
+        log("No ANTHROPIC_API_KEY — using ambient mode (existing Claude login, local skills/hooks active)")
+
+    os.chdir(repo_root)
+    state_dir = STATE_ROOT / run_id
+    state_path = state_dir / "state.json"
+
+    if not state_path.exists():
+        log(f"State not found: {state_path}")
+        return 1
+
+    state = read_json(state_path)
+    goal_file = state.get("goal_file", "")
+    budget_limit = state.get("budget_limit", DEFAULT_BUDGET)
+
+    # Generate or resume session
+    is_resume = "supervisor" in state and state.get("status") == "running"
+    if is_resume:
+        session_id = state["supervisor"]["session_id"]
+        log(f"Resuming run {run_id}, session {session_id}")
+    else:
+        session_id = str(uuid.uuid4())
+        state = init_supervisor_state(state, session_id)
+        generate_orchestrator_system(state_dir, goal_file)
+        write_json(state_path, state)
+        log(f"Starting run {run_id}, session {session_id}")
+
+    # Build initial prompt
+    if is_resume:
+        current_phase = state.get("current_phase", 0)
+        prompt = (
+            f"We are resuming from phase {current_phase}. "
+            f"Read {state_dir}/state.json for current status. "
+            f"Continue the orchestration from where we left off."
+        )
+    else:
+        prompt = (
+            f"Read the goal at {goal_file} and the prepared goal at {state_dir}/prepared-goal.md. "
+            f"Read {state_dir}/identity.json for your role. "
+            f"Begin by decomposing this goal into phases. "
+            f"Respond with action=decompose and the phases array."
+        )
+
+    is_first_call = not is_resume
+    step_count = state.get("supervisor", {}).get("total_steps", 0)
+    current_tools = TOOLS_DECOMPOSE  # start with analysis-only tools
+
+    while step_count < MAX_TOTAL_STEPS:
+        remaining_budget = budget_limit - state.get("budget_used_estimate", 0)
+        if remaining_budget <= 0:
+            log("Budget exhausted")
+            state["status"] = "failed"
+            state["error"] = "Budget limit reached"
+            write_json(state_path, state)
+            return 1
+
+        # Call Claude with step-appropriate tool scoping
+        response = call_claude(
+            prompt=prompt,
+            session_id=session_id,
+            state_dir=state_dir,
+            remaining_budget=remaining_budget,
+            is_first_call=is_first_call,
+            tools=current_tools,
+            use_bare=use_bare,
+        )
+        is_first_call = False
+        step_result = response["result"]
+        action = step_result.get("action", "fail")
+
+        # Record step with full durability metadata
+        state = record_step(state, step_result, response, prompt)
+        step_count = state["supervisor"]["total_steps"]
+
+        log(f"Step {step_count}: action={action}, phase={step_result.get('phase_id', '-')}")
+
+        # Save raw output for debugging
+        raw_path = state_dir / f"step-{step_count:03d}-raw.json"
+        try:
+            raw_path.write_text(response.get("raw_output", ""))
+        except OSError:
+            pass
+
+        # ── Handle action ────────────────────────────────────────
+
+        if action == "decompose":
+            phases = step_result.get("phases", [])
+            state["phases"] = [
+                {
+                    "id": p["id"],
+                    "name": p["name"],
+                    "description": p.get("description", ""),
+                    "status": "pending",
+                    "attempts": 0,
+                    "verification_results": [],
+                }
+                for p in phases
+            ]
+            state["total_phases"] = len(phases)
+            state["current_phase"] = 0
+            write_json(state_path, state)
+
+            if not phases:
+                state["status"] = "failed"
+                state["error"] = "Claude returned empty phase decomposition"
+                write_json(state_path, state)
+                return 1
+
+            # Prompt for first phase — switch to full tools for worker dispatch
+            p = phases[0]
+            current_tools = TOOLS_DISPATCH
+            prompt = (
+                f"Phase plan stored. Begin executing phase 1: '{p['name']}'. "
+                f"Re-read {state_dir}/identity.json to reinforce your role. "
+                f"Dispatch a worker via the Agent tool for this phase. "
+                f"The worker should NOT use the Agent tool (no sub-sub-agents). "
+                f"Return action=dispatch_worker with the worker_result_summary and verification_commands."
+            )
+
+        elif action == "dispatch_worker":
+            # Worker was dispatched within the Claude call via Agent tool.
+            # Now run verification deterministically.
+            v_commands = step_result.get("verification_commands", [])
+            f_checks = step_result.get("file_checks", [])
+
+            if v_commands or f_checks:
+                v_result = run_verification(v_commands, f_checks)
+                phase_idx = state.get("current_phase", 0)
+
+                if phase_idx < len(state.get("phases", [])):
+                    state["phases"][phase_idx]["verification_results"].append(v_result)
+                    state["phases"][phase_idx]["attempts"] += 1
+
+                write_json(state_path, state)
+
+                # Feed results back to Claude
+                v_summary = json.dumps(v_result, indent=2)
+                if v_result["passed"]:
+                    prompt = (
+                        f"Verification PASSED for phase '{step_result.get('phase_name', '')}'. "
+                        f"Results: {v_summary}\n"
+                        f"Advance to the next phase with action=advance_phase, "
+                        f"or action=finalize if all phases are done."
+                    )
+                else:
+                    attempts = state["phases"][phase_idx]["attempts"] if phase_idx < len(state.get("phases", [])) else 0
+                    if attempts >= MAX_PHASE_ATTEMPTS:
+                        prompt = (
+                            f"Verification FAILED for phase '{step_result.get('phase_name', '')}' "
+                            f"after {attempts} attempts. Results: {v_summary}\n"
+                            f"Decide: action=replan to restructure phases, or action=fail if unrecoverable."
+                        )
+                    else:
+                        prompt = (
+                            f"Verification FAILED for phase '{step_result.get('phase_name', '')}' "
+                            f"(attempt {attempts}/{MAX_PHASE_ATTEMPTS}). Results: {v_summary}\n"
+                            f"Dispatch a worker to fix the issues with action=retry_phase or dispatch_worker."
+                        )
+            else:
+                # No verification specified — trust and advance
+                prompt = (
+                    f"Worker completed phase '{step_result.get('phase_name', '')}' "
+                    f"(no verification commands specified). "
+                    f"Advance to the next phase with action=advance_phase, "
+                    f"or action=finalize if all phases are done."
+                )
+
+        elif action == "advance_phase":
+            phase_idx = state.get("current_phase", 0)
+            if phase_idx < len(state.get("phases", [])):
+                state["phases"][phase_idx]["status"] = "passed"
+            state["current_phase"] = phase_idx + 1
+            write_json(state_path, state)
+
+            phases = state.get("phases", [])
+            if state["current_phase"] >= len(phases):
+                # All phases done — switch to finalize tools
+                current_tools = TOOLS_FINALIZE
+                prompt = (
+                    f"All {len(phases)} phases completed successfully. "
+                    f"Run any final verification from the original goal spec. "
+                    f"Then respond with action=finalize and include the completion report."
+                )
+            else:
+                # Next phase — full tools for worker dispatch
+                current_tools = TOOLS_DISPATCH
+                next_phase = phases[state["current_phase"]]
+                prompt = (
+                    f"Phase {phase_idx + 1} passed. Moving to phase {state['current_phase'] + 1}: "
+                    f"'{next_phase['name']}'. "
+                    f"Re-read {state_dir}/identity.json to reinforce your role. "
+                    f"Dispatch a worker via the Agent tool for this phase. "
+                    f"The worker should NOT use the Agent tool."
+                )
+
+        elif action == "retry_phase":
+            phase_idx = state.get("current_phase", 0)
+            if phase_idx < len(state.get("phases", [])):
+                state["phases"][phase_idx]["attempts"] += 1
+                state["phases"][phase_idx]["status"] = "running"
+            write_json(state_path, state)
+
+            current_tools = TOOLS_DISPATCH  # full tools for retry
+            prompt = (
+                f"Retrying phase '{step_result.get('phase_name', '')}'. "
+                f"Error context: {step_result.get('error', 'see previous step')}. "
+                f"Dispatch a corrective worker via the Agent tool."
+            )
+
+        elif action == "replan":
+            log("Claude requested replan — re-decomposing")
+            state["current_phase"] = 0
+            write_json(state_path, state)
+
+            current_tools = TOOLS_DECOMPOSE  # analysis only for replanning
+            prompt = (
+                f"Replan requested. Re-read the goal at {goal_file}. "
+                f"Previous plan failed. Decompose again with a different strategy. "
+                f"Respond with action=decompose."
+            )
+
+        elif action == "finalize":
+            report = step_result.get("report", step_result.get("summary", "Goal completed."))
+            report_path = state_dir / "report.md"
+            report_path.write_text(report)
+
+            state["status"] = "completed"
+            state["completed_at"] = datetime.now(timezone.utc).isoformat()
+            write_json(state_path, state)
+            log(f"Goal completed. Report: {report_path}")
+            return 0
+
+        elif action == "fail":
+            error = step_result.get("error", step_result.get("summary", "Unknown failure"))
+            retryable = step_result.get("retryable", False)
+
+            if retryable and step_count < MAX_TOTAL_STEPS - 1:
+                log(f"Retryable failure: {error}")
+                prompt = (
+                    f"The previous step failed with: {error}. "
+                    f"This is retryable. Adjust your approach and try again."
+                )
+                continue
+
+            state["status"] = "failed"
+            state["error"] = error
+            write_json(state_path, state)
+            log(f"Goal failed: {error}")
+            return 1
+
+        else:
+            log(f"Unknown action: {action}")
+            state["status"] = "failed"
+            state["error"] = f"Unknown action from Claude: {action}"
+            write_json(state_path, state)
+            return 1
+
+    # Safety cap hit
+    state["status"] = "failed"
+    state["error"] = f"Max steps ({MAX_TOTAL_STEPS}) exceeded"
+    write_json(state_path, state)
+    log(f"Max steps exceeded ({MAX_TOTAL_STEPS})")
+    return 1
+
+
+# ── Entry point ──────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="background-runner",
+        description="Deterministic supervisor for goal-agent background orchestration",
+    )
+    parser.add_argument("--run-id", required=True, help="Goal-agent run ID")
+    parser.add_argument(
+        "--repo-root",
+        default=os.environ.get("FLOW_PROJECT_ROOT", os.getcwd()),
+        help="Repository root (default: cwd or FLOW_PROJECT_ROOT)",
+    )
+    args = parser.parse_args()
+
+    log(f"background-runner starting: run_id={args.run_id}")
+    exit_code = run(args.run_id, args.repo_root)
+    log(f"background-runner exiting: code={exit_code}")
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

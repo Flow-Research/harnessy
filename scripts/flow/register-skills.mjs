@@ -29,7 +29,7 @@ const pathExists = async (p) => { try { await fs.access(p); return true; } catch
 const readFileSafe = async (p) => { try { return await fs.readFile(p, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const readJsonSafe = async (p) => { const raw = await readFileSafe(p); if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
 const resolveInstallPaths = async () => {
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
 };
 const resolveProjectPath = (relativePath) => path.resolve(projectRoot, relativePath);

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["action", "summary"],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["decompose", "dispatch_worker", "advance_phase", "retry_phase", "replan", "finalize", "fail"]
+    },
+    "phase_id": {
+      "type": "string",
+      "description": "Current phase identifier (e.g. phase-1)"
+    },
+    "phase_name": {
+      "type": "string",
+      "description": "Human-readable phase name"
+    },
+    "summary": {
+      "type": "string",
+      "description": "What happened this step — concise explanation of reasoning and outcome"
+    },
+    "worker_prompt": {
+      "type": "string",
+      "description": "Focused prompt for worker subagent (only when action=dispatch_worker)"
+    },
+    "worker_result_summary": {
+      "type": "string",
+      "description": "Summary of what the worker accomplished (after dispatch completes)"
+    },
+    "verification_commands": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Shell commands the supervisor should run to verify this phase"
+    },
+    "file_checks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File paths that should exist after this phase"
+    },
+    "files_touched": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Files created or modified in this step"
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "deliverables": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "description": "Phase decomposition plan (only when action=decompose)"
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "Whether a failure is retryable (transient) or permanent"
+    },
+    "error": {
+      "type": "string",
+      "description": "Error description (only when action=fail or retry_phase)"
+    },
+    "report": {
+      "type": "string",
+      "description": "Final completion report content (only when action=finalize)"
+    }
+  },
+  "additionalProperties": false
+}

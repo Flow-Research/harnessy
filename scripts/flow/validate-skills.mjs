@@ -16,7 +16,7 @@ const DEFAULT_INSTALL_PATHS = {
 const required = ["name","type","version","owner","status","blast_radius","description","permissions","data_categories","egress","invoke","location"];
 const readJsonSafe = async (p) => { try { return JSON.parse(await fs.readFile(p, "utf8")); } catch { return null; } };
 const resolveInstallPaths = async () => {
-  const lockfile = await readJsonSafe(path.join(projectRoot, "flow-install.lock.json"));
+  const lockfile = await readJsonSafe(path.join(projectRoot, "harnessy.lock.json"));
   return { ...DEFAULT_INSTALL_PATHS, ...(lockfile?.installPaths || {}) };
 };
 

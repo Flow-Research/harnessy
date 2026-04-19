@@ -132,7 +132,7 @@ export FLOW_REPO_URL="file://$SOURCE_DIR"
 
 # Install Jarvis
 log "  Installing Jarvis CLI"
-uv tool install --force "$SOURCE_DIR/Jarvis" 2>&1 || {
+uv tool install --force "$SOURCE_DIR/jarvis-cli" 2>&1 || {
   fail "Jarvis installation failed"
   FAILURES=$((FAILURES + 1))
 }

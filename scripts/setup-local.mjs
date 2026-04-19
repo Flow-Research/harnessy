@@ -103,7 +103,7 @@ const setupLocalMd = async () => {
 
   const jarvisPath = await ask(
     "Jarvis CLI path",
-    path.join(projectRoot, "Jarvis")
+    path.join(projectRoot, "jarvis-cli")
   );
 
   const content = template.replace(

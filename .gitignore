@@ -1,14 +1,5 @@
-# === Sub-project repos (separate git repos cloned into workspace) ===
-/Flow/
-/Focus/
-/knowledge-base/
-/anytype/
-/anytype-automation/
-/automerge-go/
-/automerge-repo-quickstart/
-/flow-demo/
-/Flow-bkp/
-/research projects/
+# === Sub-projects (all live under projects/, gitignored wholesale) ===
+/projects/
 /test/
 
 # === Personal context (gitignored per personal-context-protocol) ===

@@ -16,7 +16,7 @@ INSTALL_COMMUNITY="auto"
 FLOW_RECONFIGURE="${FLOW_RECONFIGURE:-0}"
 FLOW_FORCE_SYNC="${FLOW_FORCE_SYNC:-0}"
 
-if [[ -d "$SCRIPT_DIR/tools/flow-install" && -d "$SCRIPT_DIR/Jarvis" ]]; then
+if [[ -d "$SCRIPT_DIR/tools/flow-install" && -d "$SCRIPT_DIR/jarvis-cli" ]]; then
   LOCAL_SOURCE=1
 fi
 
@@ -179,7 +179,7 @@ resolve_flow_source() {
 
 install_jarvis() {
   log "[info] Installing Jarvis CLI into PATH"
-  uv tool install --force "$FLOW_ROOT/Jarvis"
+  uv tool install --force "$FLOW_ROOT/jarvis-cli"
 }
 
 install_flow_framework() {
@@ -269,12 +269,12 @@ clone_subprojects() {
     esac
   fi
 
-  mkdir -p "$FLOW_ROOT/Focus"
-  if [[ ! -d "$FLOW_ROOT/Flow/.git" ]]; then
-    git clone https://github.com/Flow-Research/Flow.git "$FLOW_ROOT/Flow"
+  mkdir -p "$FLOW_ROOT/projects/Focus"
+  if [[ ! -d "$FLOW_ROOT/projects/Flow/.git" ]]; then
+    git clone https://github.com/Flow-Research/Flow.git "$FLOW_ROOT/projects/Flow"
   fi
-  if [[ ! -d "$FLOW_ROOT/Focus/Flow/.git" ]]; then
-    git clone https://github.com/Flow-Research/work-stream.git "$FLOW_ROOT/Focus/Flow"
+  if [[ ! -d "$FLOW_ROOT/projects/Focus/Flow/.git" ]]; then
+    git clone https://github.com/Flow-Research/work-stream.git "$FLOW_ROOT/projects/Focus/Flow"
   fi
 }
 

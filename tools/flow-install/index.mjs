@@ -278,6 +278,7 @@ const main = async () => {
       // Deploy flow-cron to ~/.local/bin/ if not present or outdated
       if (await pathExists(flowCronSource)) {
         await ensureDir(path.join(os.homedir(), ".local", "bin"));
+        await ensureDir(path.join(os.homedir(), ".agents", "cron"));
         await fs.copyFile(flowCronSource, flowCronPath);
         await fs.chmod(flowCronPath, 0o755);
 

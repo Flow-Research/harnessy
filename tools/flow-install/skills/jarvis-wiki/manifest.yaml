@@ -1,0 +1,24 @@
+name: jarvis-wiki
+type: opencode
+version: 0.1.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: >
+  LLM-compiled personal knowledge base. Ingest sources, compile wiki,
+  ask questions, run lint. Each domain has its own schema.
+permissions:
+  - read-files
+  - write-files
+  - run-shell
+data_categories: [none]
+egress:
+  - api.anthropic.com
+invoke: /wiki
+location: tools/flow-install/skills/jarvis-wiki
+dependencies:
+  - tool: jarvis
+    check: "jarvis --version"
+    required: true
+traces:
+  enabled: false

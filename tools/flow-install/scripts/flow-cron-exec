@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""
+flow-cron-exec — Resilient wrapper for flow-cron scheduled tasks.
+
+Wraps any command with retry logic, structured logging, and failure
+notifications. Sits between launchd and the actual task command.
+
+Usage:
+    flow-cron-exec --task <skill/name> [--attempts N] -- <command...>
+
+Exit code convention:
+    0 = success (stop)
+    2 = permanent failure (stop, don't retry — bad args, missing config)
+    * = transient failure (retry with backoff)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ── Config ────────────────────────────────────────────────────────────────
+
+DEFAULT_MAX_ATTEMPTS = 5
+BACKOFF_SECONDS = [30, 60, 120, 300]  # delay after attempt 1, 2, 3, 4
+TASK_LOG_MAX_BYTES = 50_000  # 50KB per-task log cap
+PERMANENT_EXIT = 2           # exit code meaning "don't retry"
+
+CRON_DIR = Path.home() / ".agents" / "cron"
+EXEC_LOG = CRON_DIR / "exec.log.ndjson"
+TASK_LOG_DIR = CRON_DIR / "logs"
+
+NOTIFY_SCRIPT = (
+    Path(__file__).resolve().parent.parent
+    / "skills" / "life-orchestrator" / "scripts" / "notify"
+)
+
+
+# ── Logging ───────────────────────────────────────────────────────────────
+
+def log_event(task: str, event: str, attempt: int, exit_code: int | None = None,
+              duration_s: float | None = None, error: str | None = None) -> None:
+    """Append a structured NDJSON entry to exec.log.ndjson."""
+    CRON_DIR.mkdir(parents=True, exist_ok=True)
+
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "task": task,
+        "event": event,
+        "attempt": attempt,
+    }
+    if exit_code is not None:
+        entry["exit_code"] = exit_code
+    if duration_s is not None:
+        entry["duration_s"] = round(duration_s, 1)
+    if error:
+        entry["error"] = error[:200]
+
+    with open(EXEC_LOG, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+    # Rotate: keep last 5000 lines
+    try:
+        lines = EXEC_LOG.read_text().splitlines()
+        if len(lines) > 10_000:
+            EXEC_LOG.write_text("\n".join(lines[-5_000:]) + "\n")
+    except OSError:
+        pass
+
+
+def rotate_task_log(log_path: Path) -> None:
+    """Truncate per-task log if it exceeds the size cap."""
+    try:
+        if log_path.exists() and log_path.stat().st_size > TASK_LOG_MAX_BYTES:
+            content = log_path.read_text()
+            # Keep the last ~40KB
+            log_path.write_text(content[-40_000:])
+    except OSError:
+        pass
+
+
+# ── Notification ──────────────────────────────────────────────────────────
+
+def notify_failure(task: str, exit_code: int, attempts: int) -> None:
+    """Send desktop notification on final failure."""
+    title = f"flow-cron: {task} failed"
+    message = f"Exit {exit_code} after {attempts} attempt(s)"
+
+    if NOTIFY_SCRIPT.exists():
+        try:
+            subprocess.run(
+                [sys.executable, str(NOTIFY_SCRIPT), title, message],
+                capture_output=True, timeout=10,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    else:
+        # Fallback to osascript directly
+        try:
+            script = f'display notification "{message}" with title "{title}"'
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+
+# ── Execution ─────────────────────────────────────────────────────────────
+
+def run_command(cmd: list[str], task: str, attempt: int, task_log: Path) -> int:
+    """Run a command, capturing output to the per-task log. Returns exit code."""
+    env = os.environ.copy()
+    env["FLOW_CRON_ATTEMPT"] = str(attempt)
+
+    header = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] attempt={attempt}\n"
+
+    with open(task_log, "a") as log_f:
+        log_f.write(header)
+        log_f.flush()
+
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+                env=env,
+                timeout=600,  # 10-minute hard cap per attempt
+            )
+            return result.returncode
+        except subprocess.TimeoutExpired:
+            log_f.write("\n[flow-cron-exec] command timed out after 600s\n")
+            return 124  # standard timeout exit code
+
+
+def main() -> None:
+    # Parse args: --task <name> [--attempts N] -- <command...>
+    args = sys.argv[1:]
+
+    if "--task" not in args or "--" not in args:
+        print("Usage: flow-cron-exec --task <skill/name> [--attempts N] -- <command...>", file=sys.stderr)
+        sys.exit(2)
+
+    task_idx = args.index("--task")
+    sep_idx = args.index("--")
+    task = args[task_idx + 1]
+    cmd = args[sep_idx + 1:]
+
+    max_attempts = DEFAULT_MAX_ATTEMPTS
+    if "--attempts" in args:
+        att_idx = args.index("--attempts")
+        try:
+            max_attempts = max(1, int(args[att_idx + 1]))
+        except (IndexError, ValueError):
+            print("Error: --attempts requires an integer", file=sys.stderr)
+            sys.exit(2)
+
+    if not cmd:
+        print("Error: no command specified after --", file=sys.stderr)
+        sys.exit(2)
+
+    # Set up per-task log
+    TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = task.replace("/", "-")
+    task_log = TASK_LOG_DIR / f"{safe_name}.log"
+    rotate_task_log(task_log)
+
+    # Execute with retries
+    last_exit = 1
+    for attempt in range(1, max_attempts + 1):
+        log_event(task, "start", attempt)
+        t0 = time.monotonic()
+
+        last_exit = run_command(cmd, task, attempt, task_log)
+        duration = time.monotonic() - t0
+
+        if last_exit == 0:
+            log_event(task, "success", attempt, exit_code=0, duration_s=duration)
+            sys.exit(0)
+
+        if last_exit == PERMANENT_EXIT:
+            log_event(task, "permanent_failure", attempt, exit_code=last_exit, duration_s=duration,
+                      error="permanent failure (exit 2), not retrying")
+            notify_failure(task, last_exit, attempt)
+            sys.exit(last_exit)
+
+        # Transient failure
+        if attempt < max_attempts:
+            delay = BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)]
+            log_event(task, "retry", attempt, exit_code=last_exit, duration_s=duration,
+                      error=f"transient failure, retrying in {delay}s")
+            time.sleep(delay)
+        else:
+            log_event(task, "failure", attempt, exit_code=last_exit, duration_s=duration,
+                      error="max attempts reached")
+            notify_failure(task, last_exit, attempt)
+
+    sys.exit(last_exit)
+
+
+if __name__ == "__main__":
+    main()

@@ -2,17 +2,17 @@
 """
 flow-cron — Standardized scheduling for Harnessy skills.
 
-Reads `schedule:` entries from skill manifests and manages system cron jobs
-that invoke those skills on their declared schedule.
+Reads `schedule:` entries from skill manifests and manages scheduled jobs.
+On macOS, uses launchd (survives sleep). On Linux, uses crontab.
 
 Usage:
     flow-cron list                              Show all declared schedules
     flow-cron enable  <skill> <schedule-name>   Activate a schedule
     flow-cron disable <skill> <schedule-name>   Deactivate a schedule
     flow-cron run     <skill> <schedule-name>   Trigger immediately
-    flow-cron install                           Write enabled schedules to crontab
-    flow-cron uninstall                         Remove all flow-cron entries from crontab
-    flow-cron status                            Show active crontab entries
+    flow-cron install                           Install schedules (launchd or crontab)
+    flow-cron uninstall                         Remove all flow-cron schedules
+    flow-cron status                            Show active schedules
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -34,6 +35,11 @@ CRON_STATE_DIR = Path.home() / ".agents" / "cron"
 SCHEDULES_PATH = CRON_STATE_DIR / "schedules.json"
 LOG_PATH = CRON_STATE_DIR / "flow-cron.log"
 CRON_TAG = "# flow-harness"
+
+LAUNCHD_PREFIX = "com.flow-harness"
+LAUNCHD_DIR = Path.home() / "Library" / "LaunchAgents"
+
+IS_MACOS = sys.platform == "darwin"
 
 
 # ── Manifest scanning ─────────────────────────────────────────────────────
@@ -66,7 +72,6 @@ def find_all_schedules() -> list[dict[str, Any]]:
                 continue
 
             skill_name = manifest.get("name", manifest_path.parent.name)
-            skill_dir = manifest_path.parent
 
             for entry in manifest["schedule"]:
                 schedules.append({
@@ -74,8 +79,10 @@ def find_all_schedules() -> list[dict[str, Any]]:
                     "name": entry.get("name", "default"),
                     "cron": entry.get("cron", ""),
                     "command": entry.get("command", ""),
+                    "type": entry.get("type", "prompt"),
                     "description": entry.get("description", ""),
                     "enabled": entry.get("enabled", False),
+                    "attempts": entry.get("attempts", ""),
                     "source": f"skill:{skill_name}",
                     "source_path": str(manifest_path),
                 })
@@ -96,8 +103,10 @@ def find_all_schedules() -> list[dict[str, Any]]:
                     "name": entry.get("name", "default"),
                     "cron": entry.get("cron", ""),
                     "command": entry.get("command", ""),
+                    "type": entry.get("type", "prompt"),
                     "description": entry.get("description", ""),
                     "enabled": entry.get("enabled", False),
+                    "attempts": entry.get("attempts", ""),
                     "source": "project",
                     "source_path": str(project_cron),
                 })
@@ -143,10 +152,291 @@ def is_enabled(state: dict, skill: str, name: str) -> bool:
     return state.get("schedules", {}).get(key, {}).get("enabled", False)
 
 
-# ── Crontab management ───────────────────────────────────────────────────
+# ── Shared helpers ───────────────────────────────────────────────────────
+
+def detect_project_dir() -> str:
+    """Detect the project directory (git root or cwd)."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return os.getcwd()
+
+
+def collect_path_dirs() -> str:
+    """Capture the current PATH for use in scheduled jobs."""
+    return os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+
+
+def build_shell_command(schedule: dict, project_dir: str) -> str:
+    """Build the actual shell command string for a schedule.
+
+    All commands are wrapped through flow-cron-exec for automatic retry,
+    structured logging, and failure notifications.
+    """
+    command = schedule["command"]
+    entry_type = schedule.get("type", "prompt")
+    skill = schedule["skill"]
+    name = schedule["name"]
+    task_id = f"{skill}/{name}"
+
+    exec_script = os.path.join(project_dir, "tools", "flow-install", "scripts", "flow-cron-exec")
+    attempts = schedule.get("attempts", "")
+    attempts_flag = f' --attempts {attempts}' if attempts else ""
+
+    if entry_type == "shell":
+        inner_cmd = command
+    else:
+        inner_cmd = (
+            f'claude -p --dangerously-skip-permissions '
+            f'"{command}"'
+        )
+
+    return (
+        f'cd "{project_dir}" && '
+        f'python3 "{exec_script}" --task "{task_id}"{attempts_flag} -- '
+        f'/bin/zsh -c \'{inner_cmd}\''
+    )
+
+
+# ── launchd (macOS) ─────────────────────────────────────────────────────
+
+def launchd_label(skill: str, name: str) -> str:
+    """Generate a launchd job label."""
+    return f"{LAUNCHD_PREFIX}.{skill}.{name}"
+
+
+def launchd_plist_path(skill: str, name: str) -> Path:
+    """Path to the plist file for a schedule."""
+    return LAUNCHD_DIR / f"{launchd_label(skill, name)}.plist"
+
+
+def parse_cron_to_calendar(cron_expr: str) -> list[dict[str, int]]:
+    """Convert a cron expression to launchd StartCalendarInterval dicts.
+
+    Supports: minute, hour, day-of-month, month, day-of-week.
+    Supports simple values, wildcards (*), and step values (*/N) for hours.
+    """
+    parts = cron_expr.strip().split()
+    if len(parts) != 5:
+        raise ValueError(f"Invalid cron expression (expected 5 fields): {cron_expr}")
+
+    minute, hour, dom, month, dow = parts
+
+    def parse_field(field: str, key: str) -> list[int | None]:
+        """Return list of values for a field. None means wildcard."""
+        if field == "*":
+            return [None]
+        if field.startswith("*/"):
+            step = int(field[2:])
+            ranges = {
+                "Minute": 60, "Hour": 24, "Day": 31,
+                "Month": 12, "Weekday": 7,
+            }
+            max_val = ranges.get(key, 60)
+            return list(range(0, max_val, step))
+        if "-" in field:
+            start, end = field.split("-", 1)
+            return list(range(int(start), int(end) + 1))
+        if "," in field:
+            return [int(v) for v in field.split(",")]
+        return [int(field)]
+
+    minutes = parse_field(minute, "Minute")
+    hours = parse_field(hour, "Hour")
+    doms = parse_field(dom, "Day")
+    months = parse_field(month, "Month")
+    dows = parse_field(dow, "Weekday")
+
+    # Build calendar interval dicts — one per combination of non-wildcard values.
+    # launchd uses 0=Sunday for Weekday.
+    intervals = []
+    for m in minutes:
+        for h in hours:
+            for d in doms:
+                for mo in months:
+                    for w in dows:
+                        entry: dict[str, int] = {}
+                        if m is not None:
+                            entry["Minute"] = m
+                        if h is not None:
+                            entry["Hour"] = h
+                        if d is not None:
+                            entry["Day"] = d
+                        if mo is not None:
+                            entry["Month"] = mo
+                        if w is not None:
+                            entry["Weekday"] = w
+                        if entry:
+                            intervals.append(entry)
+
+    return intervals if intervals else [{}]
+
+
+def build_launchd_plist(schedule: dict, project_dir: str) -> dict:
+    """Build a launchd plist dict for a schedule."""
+    label = launchd_label(schedule["skill"], schedule["name"])
+    shell_cmd = build_shell_command(schedule, project_dir)
+    path = collect_path_dirs()
+    calendar = parse_cron_to_calendar(schedule["cron"])
+
+    plist: dict[str, Any] = {
+        "Label": label,
+        "ProgramArguments": ["/bin/zsh", "-c", shell_cmd],
+        "StartCalendarInterval": calendar if len(calendar) > 1 else calendar[0],
+        "EnvironmentVariables": {
+            "PATH": path,
+            "HOME": str(Path.home()),
+            "LANG": "en_US.UTF-8",
+        },
+        "WorkingDirectory": project_dir,
+        "StandardOutPath": str(LOG_PATH),
+        "StandardErrorPath": str(LOG_PATH),
+        "RunAtLoad": False,
+    }
+
+    return plist
+
+
+def install_launchd(enabled: list[dict], project_dir: str) -> None:
+    """Write plist files and load them into launchd."""
+    LAUNCHD_DIR.mkdir(parents=True, exist_ok=True)
+    CRON_STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    for s in enabled:
+        label = launchd_label(s["skill"], s["name"])
+        plist_path = launchd_plist_path(s["skill"], s["name"])
+        plist = build_launchd_plist(s, project_dir)
+
+        # Unload first if already loaded (idempotent)
+        subprocess.run(
+            ["launchctl", "bootout", f"gui/{os.getuid()}", str(plist_path)],
+            capture_output=True,
+        )
+
+        # Write plist
+        with open(plist_path, "wb") as f:
+            plistlib.dump(plist, f)
+
+        # Load
+        result = subprocess.run(
+            ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0 and "already bootstrapped" not in result.stderr.lower():
+            print(f"  ⚠ Failed to load {label}: {result.stderr.strip()}", file=sys.stderr)
+        else:
+            print(f"  {s['skill']}/{s['name']}: {s['cron']} — {s['description']}")
+
+
+def uninstall_launchd() -> None:
+    """Unload and remove all flow-harness launchd jobs."""
+    if not LAUNCHD_DIR.exists():
+        return
+
+    count = 0
+    for plist_path in sorted(LAUNCHD_DIR.glob(f"{LAUNCHD_PREFIX}.*.plist")):
+        subprocess.run(
+            ["launchctl", "bootout", f"gui/{os.getuid()}", str(plist_path)],
+            capture_output=True,
+        )
+        plist_path.unlink()
+        count += 1
+
+    print(f"Removed {count} flow-harness launchd job(s).")
+
+
+def status_launchd() -> None:
+    """Show active flow-harness launchd jobs."""
+    result = subprocess.run(
+        ["launchctl", "list"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("Failed to query launchd.", file=sys.stderr)
+        return
+
+    entries = []
+    for line in result.stdout.splitlines():
+        if LAUNCHD_PREFIX in line:
+            entries.append(line)
+
+    if not entries:
+        print("No flow-harness jobs in launchd.")
+        return
+
+    print(f"Active launchd jobs ({len(entries)}):\n")
+    print(f"  {'PID':<8} {'Exit':<8} Label")
+    print(f"  {'─'*6}  {'─'*6}  {'─'*40}")
+    for line in entries:
+        parts = line.split("\t")
+        if len(parts) >= 3:
+            pid = parts[0].strip() or "-"
+            exit_code = parts[1].strip() or "-"
+            label = parts[2].strip()
+            short_label = label.replace(f"{LAUNCHD_PREFIX}.", "")
+            print(f"  {pid:<8} {exit_code:<8} {short_label}")
+
+    # Show last execution results from structured log
+    exec_log = CRON_STATE_DIR / "exec.log.ndjson"
+    if exec_log.exists():
+        last_results = _parse_last_results(exec_log)
+        if last_results:
+            print(f"\nLast execution results:\n")
+            print(f"  {'Task':<35} {'Status':<12} {'Attempts':<10} {'When'}")
+            print(f"  {'─'*33}  {'─'*10}  {'─'*8}  {'─'*20}")
+            for task, info in sorted(last_results.items()):
+                status = info["event"]
+                attempts = info["attempt"]
+                when = info["ts"][:16].replace("T", " ")
+                # Color-code status
+                if status == "success":
+                    marker = "ok"
+                elif status == "permanent_failure":
+                    marker = "PERM FAIL"
+                elif status == "failure":
+                    marker = "FAILED"
+                else:
+                    marker = status
+                print(f"  {task:<35} {marker:<12} {attempts:<10} {when}")
+    else:
+        print("\nNo execution history yet (exec.log.ndjson not found).")
+
+    # Also show plist files for reference
+    if LAUNCHD_DIR.exists():
+        plists = sorted(LAUNCHD_DIR.glob(f"{LAUNCHD_PREFIX}.*.plist"))
+        if plists:
+            print(f"\nPlist files ({len(plists)}):")
+            for p in plists:
+                print(f"  {p}")
+
+
+def _parse_last_results(exec_log: Path) -> dict[str, dict]:
+    """Parse exec.log.ndjson and return the last terminal event per task."""
+    last = {}
+    terminal_events = {"success", "failure", "permanent_failure"}
+    try:
+        for line in exec_log.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("event") in terminal_events:
+                last[entry["task"]] = entry
+    except OSError:
+        pass
+    return last
+
+
+# ── Crontab (Linux fallback) ────────────────────────────────────────────
 
 def get_current_crontab() -> str:
-    """Read current crontab contents."""
     try:
         result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         return result.stdout if result.returncode == 0 else ""
@@ -155,15 +445,29 @@ def get_current_crontab() -> str:
 
 
 def write_crontab(content: str) -> None:
-    """Write content to crontab."""
     proc = subprocess.run(["crontab", "-"], input=content, capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"Error writing crontab: {proc.stderr}", file=sys.stderr)
         sys.exit(1)
 
 
+def remove_flow_path(crontab: str) -> str:
+    lines = crontab.splitlines()
+    cleaned = []
+    skip_next = False
+    for line in lines:
+        if "# flow-harness-path" in line:
+            skip_next = True
+            continue
+        if skip_next and line.startswith("PATH="):
+            skip_next = False
+            continue
+        skip_next = False
+        cleaned.append(line)
+    return "\n".join(cleaned) + "\n" if cleaned else ""
+
+
 def remove_flow_entries(crontab: str) -> str:
-    """Remove all flow-harness tagged entries from crontab."""
     lines = crontab.splitlines()
     cleaned = []
     skip_next = False
@@ -179,42 +483,37 @@ def remove_flow_entries(crontab: str) -> str:
 
 
 def build_cron_entry(schedule: dict, project_dir: str) -> str:
-    """Build a crontab entry for a schedule.
-
-    The entry runs `claude -p` with the schedule's command as a prompt,
-    working from the project directory.
-    """
     cron_expr = schedule["cron"]
-    command = schedule["command"]
     skill = schedule["skill"]
     name = schedule["name"]
-
-    log_file = str(LOG_PATH)
-
-    # Build the command that cron will execute
-    cron_command = (
-        f'cd "{project_dir}" && '
-        f'claude -p --permission-mode auto '
-        f'"{command}" '
-        f'>> "{log_file}" 2>&1'
-    )
+    shell_cmd = build_shell_command(schedule, project_dir)
 
     return (
         f"{CRON_TAG}: {skill}/{name}\n"
-        f"{cron_expr} {cron_command}"
+        f"{cron_expr} {shell_cmd}"
     )
 
 
-def detect_project_dir() -> str:
-    """Detect the project directory (git root or cwd)."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        )
-        return result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return os.getcwd()
+def install_crontab(enabled: list[dict], project_dir: str) -> None:
+    """Write enabled schedules to crontab (Linux)."""
+    CRON_STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    current = get_current_crontab()
+    cleaned = remove_flow_entries(current)
+    cleaned = remove_flow_path(cleaned)
+
+    path_dirs = collect_path_dirs()
+    path_line = f"# flow-harness-path\nPATH={path_dirs}\n"
+
+    entries = []
+    for s in enabled:
+        entries.append(build_cron_entry(s, project_dir))
+
+    new_crontab = cleaned.rstrip("\n") + "\n\n" + path_line + "\n".join(entries) + "\n"
+    write_crontab(new_crontab)
+
+    for s in enabled:
+        print(f"  {s['skill']}/{s['name']}: {s['cron']} — {s['description']}")
 
 
 # ── Commands ──────────────────────────────────────────────────────────────
@@ -241,27 +540,23 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 
 def cmd_enable(args: argparse.Namespace) -> None:
-    """Enable a schedule."""
     state = load_state()
     key = get_schedule_key(args.skill, args.schedule_name)
-    if key not in state.get("schedules", {}):
-        state.setdefault("schedules", {})[key] = {}
+    state.setdefault("schedules", {})[key] = state.get("schedules", {}).get(key, {})
     state["schedules"][key]["enabled"] = True
     save_state(state)
     print(f"Enabled: {key}")
-    print("Run 'flow-cron install' to update crontab.")
+    print("Run 'flow-cron install' to apply.")
 
 
 def cmd_disable(args: argparse.Namespace) -> None:
-    """Disable a schedule."""
     state = load_state()
     key = get_schedule_key(args.skill, args.schedule_name)
-    if key not in state.get("schedules", {}):
-        state.setdefault("schedules", {})[key] = {}
+    state.setdefault("schedules", {})[key] = state.get("schedules", {}).get(key, {})
     state["schedules"][key]["enabled"] = False
     save_state(state)
     print(f"Disabled: {key}")
-    print("Run 'flow-cron install' to update crontab.")
+    print("Run 'flow-cron install' to apply.")
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -278,34 +573,32 @@ def cmd_run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     project_dir = detect_project_dir()
-    command = target["command"]
+    shell_cmd = build_shell_command(target, project_dir)
 
     print(f"Running: {args.skill}/{args.schedule_name}")
-    print(f"Command: {command}")
+    print(f"Command: {shell_cmd}")
     print(f"Working directory: {project_dir}")
     print()
 
-    # Log the run
     CRON_STATE_DIR.mkdir(parents=True, exist_ok=True)
     with open(LOG_PATH, "a") as log:
         log.write(f"\n[{datetime.now(timezone.utc).isoformat()}] Manual trigger: {args.skill}/{args.schedule_name}\n")
 
-    # Execute
+    # Execute using the same shell command that launchd/cron would use
     os.chdir(project_dir)
     result = subprocess.run(
-        ["claude", "-p", "--permission-mode", "auto", command],
+        ["/bin/zsh", "-c", shell_cmd],
         cwd=project_dir,
     )
     sys.exit(result.returncode)
 
 
 def cmd_install(args: argparse.Namespace) -> None:
-    """Write enabled schedules to system crontab."""
+    """Install enabled schedules using launchd (macOS) or crontab (Linux)."""
     manifests = find_all_schedules()
     state = load_state()
     project_dir = detect_project_dir()
 
-    # Collect enabled schedules
     enabled = []
     for s in manifests:
         if is_enabled(state, s["skill"], s["name"]) or s["enabled"]:
@@ -315,51 +608,59 @@ def cmd_install(args: argparse.Namespace) -> None:
         print("No enabled schedules to install.")
         return
 
-    # Build new crontab
-    current = get_current_crontab()
-    cleaned = remove_flow_entries(current)
+    if IS_MACOS:
+        # Remove old crontab entries if migrating from cron → launchd
+        old_crontab = get_current_crontab()
+        if CRON_TAG in old_crontab:
+            cleaned = remove_flow_entries(old_crontab)
+            cleaned = remove_flow_path(cleaned)
+            write_crontab(cleaned)
+            print("Migrated: removed old flow-harness crontab entries.\n")
 
-    entries = []
-    for s in enabled:
-        entries.append(build_cron_entry(s, project_dir))
-
-    new_crontab = cleaned.rstrip("\n") + "\n\n" + "\n".join(entries) + "\n"
-    write_crontab(new_crontab)
-
-    print(f"Installed {len(enabled)} schedule(s) to crontab:")
-    for s in enabled:
-        print(f"  {s['skill']}/{s['name']}: {s['cron']} — {s['description']}")
+        print(f"Installing {len(enabled)} schedule(s) via launchd:")
+        install_launchd(enabled, project_dir)
+        print()
+        print("launchd jobs will fire even if your Mac was asleep at the scheduled time.")
+    else:
+        print(f"Installing {len(enabled)} schedule(s) via crontab:")
+        install_crontab(enabled, project_dir)
 
 
 def cmd_uninstall(args: argparse.Namespace) -> None:
-    """Remove all flow-harness entries from crontab."""
+    """Remove all flow-harness scheduled jobs."""
+    if IS_MACOS:
+        uninstall_launchd()
+
+    # Always clean crontab too (handles migration leftovers)
     current = get_current_crontab()
-    cleaned = remove_flow_entries(current)
-    write_crontab(cleaned)
-    print("Removed all flow-harness cron entries.")
+    if CRON_TAG in current:
+        cleaned = remove_flow_entries(current)
+        cleaned = remove_flow_path(cleaned)
+        write_crontab(cleaned)
+        print("Removed flow-harness crontab entries.")
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """Show active flow-harness crontab entries."""
-    current = get_current_crontab()
-    lines = current.splitlines()
-
-    flow_entries = []
-    for i, line in enumerate(lines):
-        if CRON_TAG in line:
-            if i + 1 < len(lines):
-                flow_entries.append((line, lines[i + 1]))
-
-    if not flow_entries:
-        print("No flow-harness entries in crontab.")
-        return
-
-    print(f"Active cron entries ({len(flow_entries)}):\n")
-    for tag, entry in flow_entries:
-        label = tag.replace(CRON_TAG + ": ", "")
-        print(f"  {label}")
-        print(f"    {entry}")
-        print()
+    """Show active flow-harness scheduled jobs."""
+    if IS_MACOS:
+        status_launchd()
+    else:
+        current = get_current_crontab()
+        lines = current.splitlines()
+        flow_entries = []
+        for i, line in enumerate(lines):
+            if CRON_TAG in line:
+                if i + 1 < len(lines):
+                    flow_entries.append((line, lines[i + 1]))
+        if not flow_entries:
+            print("No flow-harness entries in crontab.")
+            return
+        print(f"Active cron entries ({len(flow_entries)}):\n")
+        for tag, entry in flow_entries:
+            label = tag.replace(CRON_TAG + ": ", "")
+            print(f"  {label}")
+            print(f"    {entry}")
+            print()
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
@@ -385,9 +686,9 @@ def main() -> None:
     p_run.add_argument("skill")
     p_run.add_argument("schedule_name")
 
-    sub.add_parser("install", help="Write enabled schedules to crontab")
-    sub.add_parser("uninstall", help="Remove flow-harness entries from crontab")
-    sub.add_parser("status", help="Show active crontab entries")
+    sub.add_parser("install", help="Install schedules (launchd on macOS, crontab on Linux)")
+    sub.add_parser("uninstall", help="Remove all flow-harness schedules")
+    sub.add_parser("status", help="Show active schedules")
 
     args = parser.parse_args()
 

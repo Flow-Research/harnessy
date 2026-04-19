@@ -49,7 +49,7 @@ dependencies:
     check: "claude --version"
     required: true
   - tool: tmux
-    description: "Terminal multiplexer for background orchestration"
+    description: "Terminal multiplexer (optional, Agent tool preferred for background dispatch)"
     check: "tmux -V"
     required: false
   - tool: python3

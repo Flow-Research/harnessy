@@ -12,7 +12,7 @@ argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run
 
 You are the **orchestrator intelligence** in a two-AI system. Your job is to achieve a goal by decomposing it into phases and driving a **separate Claude Code worker** to implement each phase. You reason about strategy, evaluate progress, and adapt — the worker writes the code.
 
-The worker is a full Claude Code instance called via `claude -p --session-id`. It has the same intelligence and tool access as you, but receives focused, phase-specific prompts that you craft. The worker remembers its conversation across calls (session persistence via `--session-id`).
+The worker is dispatched via the **Agent tool** — a Claude Code subagent with full tool access. You craft focused, phase-specific prompts and dispatch them as Agent calls. For sequential phases, run the Agent in foreground; for parallel phases, use `run_in_background: true`.
 
 The setup script now also creates run-scoped `identity.json` and `runtime-policy.json` files. Treat them as the authoritative on-disk contract for your role and for any external enforcement wrapper.
 
@@ -59,7 +59,7 @@ YOU (Orchestrator)          WORKER (Claude -p)
    ```
 2. If the setup script outputs a JSON context block, read it to get: `run_id`, `worker_session_id`, `goal_file`, `state_dir`, `constraints`.
    The setup script also creates `identity.json` and `runtime-policy.json` in the state directory. Re-read `identity.json` before every phase to reinforce your delegation role.
-3. **If `action` is `background_ready`:** The script outputs a `launch_cmd` string. You MUST execute it directly via the Bash tool to create the tmux session — do NOT wrap it in Python or any other intermediary. Then report the session name and attach command to the user.
+3. **If `action` is `agent_dispatch`:** The script outputs a `prepared_goal_path`. Read that file and use the **Agent tool** with `run_in_background: true` to dispatch the goal as a background subagent. Report the agent status to the user.
 4. Follow the command specification in `${AGENTS_SKILLS_ROOT}/goal-agent/commands/goal-agent.md` exactly.
 5. Never modify the source goal file — it is the user's specification. Persist generated verification approvals only in run state or prepared goal artifacts.
 6. Always persist state after each phase completion or failure.
@@ -68,8 +68,12 @@ YOU (Orchestrator)          WORKER (Claude -p)
 ## Critical Rules
 
 ### Worker Communication
-- Call the worker ONLY via `claude -p` with `--session-id`, `--output-format json`, and `--permission-mode auto`.
-- **ALWAYS write the prompt to `.goal-agent/<run-id>/current-prompt.md` first, then pipe it via stdin:** `cat .goal-agent/<run-id>/current-prompt.md | claude -p --session-id ... --output-format json --permission-mode auto`. NEVER pass the prompt as a trailing command-line argument — it will fail with special characters.
+- Delegate implementation work via the **Agent tool** — not `claude -p`.
+- Write the prompt to `.goal-agent/<run-id>/current-prompt.md` first, then read it and pass the content as the Agent's `prompt` parameter.
+- Use `subagent_type: "general-purpose"` for implementation work.
+- For sequential phases: run Agent in foreground (default).
+- For parallel phases: dispatch multiple Agent calls in a single message with `run_in_background: true`.
+- For file isolation: use `isolation: "worktree"`.
 - Craft focused, phase-specific prompts. Do NOT dump the entire goal into a single worker call.
 - Include context about what was done in previous phases so the worker builds on existing work.
 - The worker operates in the SAME working directory as you.

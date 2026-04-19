@@ -101,7 +101,7 @@ The setup script also writes:
 - `runtime-policy.json` — machine-enforced allowlist for orchestrator writes and shell command classes
 - `prepared-goal.md` or `prepared-goals/` — mutable copies used for injected context or approved checks
 
-If `--background` was specified, the setup script outputs `"action": "background_ready"` with a `launch_cmd` field. You MUST execute `launch_cmd` directly via the Bash tool to create the tmux session. Then report the session name and attach command to the user and stop — the tmux session runs its own Claude instance.
+If `--background` was specified, the script launches a tmux session with a deterministic supervisor (`background-runner`) that drives the orchestration via sequential `claude -p --resume` calls. The output includes `"action": "background"`, the `tmux_session` name, and commands to check status or attach. Report these to the user. The goal runs autonomously to completion — no further action needed from you.
 
 ### Step 1: Analyze Goal
 
@@ -182,29 +182,24 @@ Build a focused prompt for THIS phase only. Structure:
 
 #### 3b. Call the Worker
 
-**IMPORTANT: Always write the prompt to a file first, then pass via stdin.** Passing prompts as command-line arguments fails when they contain quotes, newlines, or special characters (which they always do in practice).
+**Write the prompt to a file first**, then use the Agent tool to dispatch.
 
-```bash
+```
 # Step 1: Write prompt to file
 # (use the Write tool to write the prompt to .goal-agent/$RUN_ID/current-prompt.md)
 
-# Step 2: Pass via stdin pipe — this is the ONLY reliable method
-cat .goal-agent/$RUN_ID/current-prompt.md | claude -p \
-  --session-id "$WORKER_SESSION_ID" \
-  --output-format json \
-  --permission-mode auto \
-  --model "$MODEL" \
-  --max-budget-usd "$PHASE_BUDGET" \
-  --allowedTools "$ALLOWED_TOOLS"
+# Step 2: Use the Agent tool to dispatch the worker
+Agent(
+  description: "<3-5 word summary of this phase>",
+  prompt: "<contents of current-prompt.md>",
+  subagent_type: "general-purpose",
+  run_in_background: false  # true for parallel phases
+)
 ```
 
-Where:
-- `$WORKER_SESSION_ID` — from setup (persistent across calls)
-- `$MODEL` — from goal constraints (default: sonnet)
-- `$PHASE_BUDGET` — total budget divided by number of phases, with buffer
-- `$ALLOWED_TOOLS` — from goal constraints (default: "Bash,Read,Write,Edit,Glob,Grep")
+The Agent tool runs within the same Claude Code session — no separate process, no permission prompts, full tool access. The worker result is returned directly.
 
-**Never pass the prompt as a trailing argument** (`claude -p ... "$PROMPT"`) — it will fail with "Input must be provided either through stdin or as a prompt argument" when the shell can't parse the special characters.
+For parallel phases, dispatch multiple Agent calls in a single message with `run_in_background: true`.
 
 #### 3c. Evaluate the Worker's Output
 

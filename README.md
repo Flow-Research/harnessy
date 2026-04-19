@@ -149,7 +149,7 @@ node /path/to/harnessy/tools/flow-install/index.mjs --yes
 pnpm skills:validate
 pnpm skills:register
 pnpm harness:verify
-uv tool install --force ./Jarvis
+uv tool install --force ./jarvis-cli
 jarvis --help
 ```
 
@@ -165,7 +165,7 @@ jarvis --help
 | `pnpm harness:verify` | Verify repo, OpenCode, and Claude harness parity |
 | `pnpm harness:eval` | Run isolated fixture-based Flow installation acceptance checks |
 | `pnpm harness:eval:remote` | Run remote-style Docker bootstrap validation using `install.sh` |
-| `uv tool install --force ./Jarvis` | Install the local Jarvis CLI build |
+| `uv tool install --force ./jarvis-cli` | Install the local Jarvis CLI build |
 | `node tools/flow-install/index.mjs --yes` | Install Flow into the current repo |
 | `node tools/flow-install/index.mjs --dry-run` | Preview install changes |
 
@@ -173,11 +173,11 @@ jarvis --help
 
 ### 1. Jarvis CLI
 
-`Jarvis/` is the user-facing agent CLI.
+`jarvis-cli/` is the user-facing agent CLI.
 
 Install paths:
 
-- local workspace: `uv tool install --force ./Jarvis`
+- local workspace: `uv tool install --force ./jarvis-cli`
 - GitHub: `uv tool install --force "git+https://github.com/Flow-Research/harnessy.git#subdirectory=jarvis-cli"`
 
 Jarvis currently provides task planning, journaling, reading-list workflows, context operations, and Android APK tooling.
@@ -377,6 +377,6 @@ This repo is the hub/source repo for the Harnessy.
 
 - shared skill source: `tools/flow-install/skills/`
 - bootstrap entry point: `install.sh`
-- Jarvis package source: `Jarvis/`
+- Jarvis package source: `jarvis-cli/`
 
 If you are extending the framework, update the shared source here first, then test installation into a fresh target repo or sandbox project.

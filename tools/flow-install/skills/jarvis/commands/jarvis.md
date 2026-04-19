@@ -45,7 +45,7 @@ Here is the complete command documentation from Jarvis:
 
 ## Maintenance Rule
 
-This skill depends on live `jarvis docs --json` output, but the human-written guidance in this file must still be updated whenever important CLI commands are added, changed, or removed. Keep `src/jarvis/cli.py`, `Jarvis/AGENTS.md`, and this file in sync, then refresh installed artifacts with `pnpm skills:register` and `uv tool install --force ./Jarvis`.
+This skill depends on live `jarvis docs --json` output, but the human-written guidance in this file must still be updated whenever important CLI commands are added, changed, or removed. Keep `src/jarvis/cli.py`, `jarvis-cli/AGENTS.md`, and this file in sync, then refresh installed artifacts with `pnpm skills:register` and `uv tool install --force ./jarvis-cli`.
 
 ## User Request
 

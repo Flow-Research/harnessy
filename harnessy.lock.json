@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-04-03T00:46:01.108Z",
+  "timestamp": "2026-04-12T21:21:46.789Z",
   "project": "harnessy",
   "monorepo": null,
   "apps": [],
@@ -42,6 +42,8 @@
     "goal-agent",
     "issue-flow",
     "jarvis",
+    "jarvis-wiki",
+    "life-orchestrator",
     "local-run",
     "mvp-tech-spec",
     "prd",
@@ -58,7 +60,8 @@
     "tech-spec",
     "tech-spec-review",
     "test-quality-validator",
-    "tmux-agent-launcher"
+    "tmux-agent-launcher",
+    "wiki-research"
   ],
   "communitySkills": {
     "mode": "full",

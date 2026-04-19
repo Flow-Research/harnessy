@@ -40,7 +40,7 @@ copy_fixture() {
 }
 
 install_jarvis() {
-  uv tool install --force "$WORKSPACE_ROOT/Jarvis" >/dev/null
+  uv tool install --force "$WORKSPACE_ROOT/jarvis-cli" >/dev/null
   if [[ -x "$BIN_DIR/jarvis" ]]; then
     record_pass "Jarvis CLI installed in isolated HOME" "$BIN_DIR/jarvis"
   else
