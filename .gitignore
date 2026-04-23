@@ -6,6 +6,19 @@
 .jarvis/context/local.md
 .jarvis/context/private/
 .jarvis/cron.yaml
+.jarvis/context/projects.md
+.jarvis/context/status.md
+.jarvis/context/roadmap.md
+.jarvis/context/team.md
+.jarvis/context/decisions.md
+.jarvis/context/technical-debt.md
+.jarvis/context/meetings/
+.jarvis/context/plans/
+.jarvis/context/runbooks/
+.jarvis/context/specs/
+.jarvis/context/docs/strategy/
+tools/flow-install/skills/jarvis/jarvis.local.md
+jarvis-cli/specs/
 
 # === Agent tool working directories ===
 .claude/
@@ -44,6 +57,7 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 .coverage
+coverage/
 
 # === Logs ===
 *.log

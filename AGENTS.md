@@ -2,48 +2,46 @@
 
 ## Workspace Structure
 
-| Project | Path | Stack | Status |
+| Component | Path | Stack | Status |
 |---------|------|-------|--------|
-| Example Platform (POC) | `projects/Focus/Flow/` | Python/FastAPI, React, Solidity, Base Chain | Active primary |
-| Example Core (P2P Engine) | `projects/Flow/` | Rust, libp2p, RocksDB, Axum, Qdrant | Phase 3 complete, paused |
-| Jarvis CLI | `jarvis-cli/` | Python 3.11+, Click, AnyType/Notion | Active tooling |
-| Knowledge Base | `projects/knowledge-base/` | Python + Astro, GitHub Actions | Brainstorming |
-| Economic Simulator | `projects/econ-sim/` | Python, Streamlit, Plotly | Active research |
+| Installer framework | `tools/flow-install/` | Node.js, generated scripts, skill distribution | Active |
+| Jarvis CLI | `jarvis-cli/` | Python 3.11+, Click, AnyType/Notion | Active |
+| Shared context vault | `.jarvis/context/` | Markdown, YAML, protocol docs | Active |
+| Shared skills | `tools/flow-install/skills/` | Skill manifests, templates, scripts | Active |
 
 ## Installation
 
 ```bash
-# Full Harnessy workspace bootstrap (after publishing harnessy)
+# Full Harnessy workspace bootstrap
 ./install.sh
 
 # Install Jarvis CLI from this workspace
 uv tool install --force ./jarvis-cli
 
-# Install Flow framework into another project
+# Install Harnessy into another project
 node tools/flow-install/index.mjs --yes
 ```
 
 ## Context Loading
 
-Read `.jarvis/context/README.md` for the knowledge base protocol. Start with `status.md`, `roadmap.md`, and `team.md` for orientation. For ideation, issue intake, PRD, and architecture tradeoff work, also read `.jarvis/context/docs/strategy/README.md` when it exists and follow its suggested read order.
+Read `.jarvis/context/README.md` for the knowledge base protocol. Start with the
+root context files and standards docs there. Prefer deeper project-local context
+when working inside a nested app.
 
 ## Key Commands
 
-| Project | Dev | Test | Lint |
+| Component | Dev | Test | Lint / Verify |
 |---------|-----|------|------|
-| Focus/Flow backend | `cd projects/Focus/Flow/backend && uvicorn app.main:app --reload` | `pytest` | `ruff check` |
-| Focus/Flow frontend | `cd projects/Focus/Flow/frontend && pnpm dev` | — | `pnpm lint` |
-| Flow (Rust) | `cargo run -p flow-node` | `cargo test -p flow-node` | `cargo clippy -p flow-node -- -D warnings` |
-| Jarvis CLI | `uv run jarvis <command>` | `uv run pytest` | `uv run ruff check` |
-| Econ Simulator | `cd projects/econ-sim && uv run streamlit run src/econ_sim/app.py` | `uv run pytest` | — |
+| Installer framework | `node tools/flow-install/index.mjs --dry-run` | `pnpm harness:eval` | `pnpm harness:verify` |
+| Jarvis CLI | `uv run jarvis <command>` | `cd jarvis-cli && uv run pytest` | `cd jarvis-cli && uv run ruff check` |
+| Root skills/context | — | `pnpm skills:validate` | `pnpm skills:register` |
 
 ## Conventions
 
-- **No `.env` commits** — each project has `.env.example`
+- **No `.env` commits** — each component uses `.env.example`
 - **Jarvis CLI** — always run via `uv run jarvis` or `uv run python -m jarvis`
 - **`{{global}}`** in `.jarvis/context/` files is Jarvis CLI templating; treat as no-op
-- **Sub-project agent files** — `projects/Flow/AGENTS.md` and `jarvis-cli/AGENTS.md` have project-specific instructions; defer to them when working in those directories
-- **Content drafts** — all content lives in `.jarvis/context/private/<username>/flow-content/drafts/YYYY/Mon/DD-slug/` as a **folder**, never a standalone `.md` file. Each folder contains `index.md` (YAML frontmatter: title, platform, audience, type, voice, status, scheduled, anytype_id) and optional platform-specific files (`blog.md`, `twitter.md`, `linkedin.md`). See `generation-prompt.md` for the full spec.
+- **Sub-project agent files** — `jarvis-cli/AGENTS.md` and any nested project `AGENTS.md` files override root guidance in their directories
 
 ## Skill Usage Protocol
 
@@ -58,21 +56,15 @@ Read `.jarvis/context/README.md` for the knowledge base protocol. Start with `st
 
 ## Autoresearch Convention
 
-All Flow skills include `autoresearch: enabled: true` in their `manifest.yaml` by default. This enables the autonomous self-improvement ratchet loop via `/autoflow`:
+Core skills include `autoresearch: enabled: true` in their `manifest.yaml` by
+default. This enables the autonomous self-improvement ratchet loop via
+`/autoflow`.
 
 - **Protocol**: `${AGENTS_SKILLS_ROOT}/_shared/autoresearch.md` defines the three-file contract (editable skills / fixed evaluation / human control)
 - **Metric**: Multiplicative composite score (`ratchet.py`) — weakness in any dimension drags the entire score
 - **Hard gates**: Catastrophic failures and regressions are vetoes, not soft penalties
 - **When creating skills**: `/skill-create` includes autoresearch by default. Set `time_budget_seconds` by blast_radius: high=1800, medium=1200, low=600
 - **Human control**: `program.md` at the repo root steers the loop. Agents read it every iteration but never modify it.
-
-## Technical Debt Tracking Law
-
-- Treat intentional shortcuts, deferred migrations, and knowingly postponed cleanup as **tracked technical debt**, not informal notes.
-- Maintain debt in `.jarvis/context/technical-debt.md` and per-epic in `.jarvis/context/specs/<epic>/tech_debt.md`.
-- Every debt item must include: ID, status, type, scope, context, impact, proposed resolution, target phase, and links.
-- Do not hide debt in chat responses or TODO comments alone. Persist it in the debt registers.
-- When debt is resolved or accepted, update the status in the register.
 
 ## Personal Context
 
@@ -87,7 +79,7 @@ All Flow skills include `autoresearch: enabled: true` in their `manifest.yaml` b
 
 > `FLOW_SKIP_SUBPROJECTS=true`
 
-This repo is Flow-managed.
+This repo is Harnessy-managed.
 
 - Read `.jarvis/context/README.md`
 - Read `.jarvis/context/AGENTS.md`

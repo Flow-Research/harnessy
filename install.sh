@@ -55,8 +55,8 @@ Usage:
 
 Modes:
   default           Bootstrap a full Harnessy workspace locally
-  --here            Install Flow into the current repository in-place
-  --target PATH     Install Flow into the specified repository in-place
+  --here            Install Harnessy into the current repository in-place
+  --target PATH     Install Harnessy into the specified repository in-place
 
 Flags:
   --yes             Non-interactive mode
@@ -246,12 +246,12 @@ install_community_skills() {
 
 clone_subprojects() {
   if [[ "$INSTALL_MODE" == "in-place" ]]; then
-    log "[skip] In-place install selected; not cloning Flow sub-projects"
+    log "[skip] In-place install selected; not cloning bundled sub-projects"
     return
   fi
 
   if [[ "$FLOW_SKIP_SUBPROJECTS" == "1" ]]; then
-    log "[skip] Skipping Flow sub-project clone"
+    log "[skip] Skipping bundled sub-project clone"
     return
   fi
 
@@ -261,21 +261,11 @@ clone_subprojects() {
   fi
 
   if [[ "$FLOW_NONINTERACTIVE" != "1" ]]; then
-    printf 'Clone Example Core and Example Platform repos into the workspace? [y/N]: '
-    read -r answer
-    case "$answer" in
-      y|Y|yes|YES) ;;
-      *) log "[skip] Skipping sub-project clone"; return ;;
-    esac
+    log "[skip] No bundled sub-project repositories to clone"
+    return
   fi
 
-  mkdir -p "$FLOW_ROOT/projects/Focus"
-  if [[ ! -d "$FLOW_ROOT/projects/Flow/.git" ]]; then
-    git clone https://github.com/Flow-Research/Flow.git "$FLOW_ROOT/projects/Flow"
-  fi
-  if [[ ! -d "$FLOW_ROOT/projects/Focus/Flow/.git" ]]; then
-    git clone https://github.com/Flow-Research/work-stream.git "$FLOW_ROOT/projects/Focus/Flow"
-  fi
+  log "[skip] No bundled sub-project repositories to clone"
 }
 
 print_summary() {

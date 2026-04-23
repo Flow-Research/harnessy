@@ -90,7 +90,7 @@ uv tool install --force "git+https://github.com/Flow-Research/harnessy.git#subdi
 jarvis --help
 ```
 
-### Option 3: Install Flow into an existing project
+### Option 3: Install Harnessy into an existing project
 
 From the target project root, use in-place mode:
 
@@ -166,7 +166,7 @@ jarvis --help
 | `pnpm harness:eval` | Run isolated fixture-based Flow installation acceptance checks |
 | `pnpm harness:eval:remote` | Run remote-style Docker bootstrap validation using `install.sh` |
 | `uv tool install --force ./jarvis-cli` | Install the local Jarvis CLI build |
-| `node tools/flow-install/index.mjs --yes` | Install Flow into the current repo |
+| `node tools/flow-install/index.mjs --yes` | Install Harnessy into the current repo |
 | `node tools/flow-install/index.mjs --dry-run` | Preview install changes |
 
 ## Architecture
@@ -184,7 +184,7 @@ Jarvis currently provides task planning, journaling, reading-list workflows, con
 
 ### 2. Shared skills
 
-Shared Flow skills live in:
+Shared core skills live in:
 
 ```text
 tools/flow-install/skills/

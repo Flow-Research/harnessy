@@ -41,7 +41,7 @@ dependencies = [
 Homepage = "https://github.com/Flow-Research/harnessy"
 Repository = "https://github.com/Flow-Research/harnessy"
 Issues = "https://github.com/Flow-Research/harnessy/issues"
-Documentation = "https://github.com/Flow-Research/harnessy/tree/main/Jarvis"
+Documentation = "https://github.com/Flow-Research/harnessy/tree/main/jarvis-cli"
 
 [project.optional-dependencies]
 dev = [

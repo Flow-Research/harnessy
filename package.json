@@ -1,7 +1,7 @@
 {
   "name": "harnessy",
   "private": true,
-  "description": "Harnessy — agent harness for any project",
+  "description": "Harnessy agent harness for any project",
   "scripts": {
     "setup": "node scripts/setup-local.mjs",
     "skills:validate": "node scripts/flow/validate-skills.mjs",

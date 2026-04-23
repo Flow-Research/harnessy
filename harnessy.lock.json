@@ -64,7 +64,7 @@
     "wiki-research"
   ],
   "communitySkills": {
-    "mode": "full",
+    "mode": "none",
     "expected": [
       "00-andruia-consultant",
       "007",
@@ -1322,9 +1322,9 @@
     ],
     "expectedCount": 1253,
     "strict": true,
-    "repoDir": "/private/home/antigravity-skills",
-    "sourceDir": "/private/home/antigravity-skills/skills",
-    "installDir": "/private/home/.agents/skills",
+    "repoDir": null,
+    "sourceDir": null,
+    "installDir": null,
     "updatedAt": "2026-03-20T21:53:18.091Z"
   },
   "contextAgents": {

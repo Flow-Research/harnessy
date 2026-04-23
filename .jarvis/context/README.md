@@ -2,79 +2,65 @@
 
 ## Purpose
 
-This directory is the canonical knowledge base for the Harnessy workspace. AI agents, Jarvis CLI, and human contributors read these files for project context.
+This directory is the canonical knowledge base for the Harnessy workspace. AI
+agents, Jarvis CLI, and human contributors read these files for project context.
 
 ## Loading Order
 
-For **general context**, read in this order:
-1. `status.md` — Active work and current execution truth
-2. `roadmap.md` — Phase ordering, milestones, and what is deferred
-3. `team.md` — Ownership, delegation, and coordination model
-4. `technical-debt.md` — Current debt register and cleanup obligations
+For general context, read in this order:
 
-For **strategy, ideation, issue intake, PRD, and architecture tradeoff** work, also read:
-5. `docs/strategy/README.md` — Strategy folder guide and suggested read order when present
-6. The relevant strategy docs linked from `docs/strategy/README.md`
+1. `README.md` — protocol overview and file map
+2. `AGENTS.md` — context-vault operating rules
+3. `skills/_catalog.md` — installed project skill inventory
+4. `scopes/_scopes.yaml` — scope registry for memory files
 
-Optional supporting docs when relevant:
-7. `projects.md` — Workspace inventory, paths, and project roles
-8. `decisions.md` — Settled architectural and economic decisions
+For development work, also read:
 
-For **architecture/design** tasks, also read:
-9. `docs/flow-poc-architecture.md` — Current POC system architecture
-10. `docs/flow-deep-system-analysis.md` — Reference analysis of the broader Flow vision
+5. `docs/standards/development-guidance.md` — engineering workflow guidance
+6. `docs/contribution-protocol.md` — contribution and maintenance workflow
 
-For **development** tasks, also read:
-11. `docs/standards/development-guidance.md` — Workspace engineering workflow guidance
+For specialized maintenance tasks, read as needed:
 
-For **meeting context**, browse:
-12. `meetings/PROTOCOL.md` — Meeting notes template and naming convention
-13. `meetings/YYYY/Mon/DD-<title>.md` — Individual meeting notes (most recent first)
+7. `docs/personal-context-protocol.md`
+8. `docs/reusable-script-standard.md`
+9. `docs/skill-promotion-maintainer-playbook.md`
+10. `docs/autoflow-autoresearch-system.md`
 
 ## Canonical Root Files
 
-| File | Role | Updated |
-|------|------|---------|
-| `status.md` | Canonical current-state document for focus, blockers, constraints, and sprint work | 2026-03 |
-| `roadmap.md` | Canonical phase and milestone guide | 2026-03 |
-| `team.md` | Canonical ownership and delegation guide | 2026-03 |
-| `technical-debt.md` | Project-level debt register | 2026-03 |
+| File | Role |
+|------|------|
+| `README.md` | Knowledge-base protocol and loading guidance |
+| `AGENTS.md` | Context-vault agent instructions |
+| `skills/_catalog.md` | Installed project skill inventory |
+| `scopes/_scopes.yaml` | Scope registry for memory files |
 
-## Optional Supporting Root Files
+## Standards And Reference Docs
 
-| File | Role | Updated |
-|------|------|---------|
-| `projects.md` | Workspace catalog with paths, stacks, and project roles | 2026-03 |
-| `decisions.md` | Architecture and economics decisions | 2026-03 |
-
-## Standards and Reference Docs
-
-| File | Role | Updated |
-|------|------|---------|
-| `docs/standards/development-guidance.md` | Workspace engineering workflow guidance | 2026-03 |
-| `docs/standards/technical-debt-tracking-standard.md` | Required debt tracking structure | 2026-03 |
-| `docs/flow-poc-architecture.md` | Current POC architecture (Bittensor, orchestrator, agents) | 2026-03 |
-| `docs/flow-deep-system-analysis.md` | Deep reference analysis of the full Flow ecosystem | 2026-03 |
-| `docs/flow-v1-unit-economics-model-appendix.md` | Detailed unit economics appendix | 2026-03 |
-| `docs/contribution-protocol.md` | Contribution workflow for Flow core, skills, knowledge, and memory | 2026-03 |
-| `docs/skill-promotion-maintainer-playbook.md` | Maintainer-specific skill promotion workflow | 2026-03 |
-
-## Standard Strategy Folder
-
-- `docs/strategy/` is the standard home for strategic intent, operating thesis, and business-model documents.
-- Repos adopting Flow should store org-level strategy docs there and keep a `docs/strategy/README.md` index.
-- `issue-flow` and brainstorming should cite this folder when it exists so epics and issues stay aligned with strategy instead of only local implementation context.
+| File | Role |
+|------|------|
+| `docs/standards/development-guidance.md` | Workspace engineering workflow guidance |
+| `docs/standards/technical-debt-tracking-standard.md` | Debt tracking structure reference |
+| `docs/contribution-protocol.md` | Contribution workflow for skills, context, and tooling |
+| `docs/reusable-script-standard.md` | Reusable-script authoring standard |
+| `docs/skill-promotion-maintainer-playbook.md` | Maintainer workflow for skill promotion |
+| `docs/personal-context-protocol.md` | Personal-context layout and ownership rules |
+| `docs/autoflow-autoresearch-system.md` | Autoflow and autoresearch reference |
 
 ## Template Syntax
 
-Files may start with `{{global}}`. This is a **Jarvis CLI feature** that includes global context from `~/.jarvis/context/`. Other agents should treat `{{global}}` as a no-op marker and read the rest of the file normally.
+Files may start with `{{global}}`. This is a Jarvis CLI feature that includes
+global context from `~/.jarvis/context/`. Other agents should treat `{{global}}`
+as a no-op marker and read the rest of the file normally.
 
 ## Tiers
 
-- **Workspace-level** (this directory): Shared Harnessy truth
-- **Project-level** (e.g. `Flow/.jarvis/context/`): Project-specific overrides and implementation details
+- Workspace-level (this directory): shared Harnessy truth
+- Project-level (for example `some-app/.jarvis/context/`): project-specific
+  overrides and implementation details
 - Project-level files take precedence when working inside a specific sub-project
 
 ## Freshness Convention
 
-The `Updated` column in the catalog tracks when each file was last meaningfully updated. Files older than 2 months should be reviewed before relying on them for current decisions.
+Review files before relying on them for current decisions if they appear stale
+relative to the code or install scripts they describe.

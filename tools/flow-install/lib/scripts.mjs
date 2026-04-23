@@ -139,7 +139,7 @@ export const patchPackageJson = async (projectRoot, { dryRun = false, scriptsDir
 };
 
 // ---------------------------------------------------------------------------
-// Script generators (fallback if Harnessy scripts/ not available)
+// Script generators (fallback if Harnessy scripts/ are not available)
 // ---------------------------------------------------------------------------
 
 function generateRegisterSkills() {
@@ -296,8 +296,7 @@ const registerClaude = async () => {
   await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin", "marketplace.json"), {
     name: "harnessy",
     owner: {
-      name: "Flow Research",
-      email: "support@flowresearch.dev",
+      name: "Harnessy",
     },
     plugins: [{
       name: FLOW_CLAUDE_PLUGIN_ID,

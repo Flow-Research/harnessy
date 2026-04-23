@@ -32,7 +32,7 @@ jarvis --help
 
 ```bash
 git clone https://github.com/Flow-Research/harnessy.git
-cd harnessy/Jarvis
+cd harnessy/jarvis-cli
 uv sync
 uv run jarvis --help
 ```
@@ -48,7 +48,7 @@ jarvis --help
 
 ```bash
 git clone https://github.com/Flow-Research/harnessy.git
-cd harnessy/Jarvis
+cd harnessy/jarvis-cli
 pip install -e .
 
 jarvis --help

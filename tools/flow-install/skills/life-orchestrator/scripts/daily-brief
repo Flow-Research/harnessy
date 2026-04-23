@@ -5,7 +5,7 @@ daily-brief — Turn collect-state JSON into a chief-of-staff style daily brief.
 Step 2 of the daily crawl pipeline:
   collect-state (cheap sensor) → daily-brief (Claude-powered synthesis)
 
-Runs from project root: /private/workspace
+Runs from the active Harnessy project root.
 """
 
 import argparse

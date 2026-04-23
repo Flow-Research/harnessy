@@ -296,7 +296,7 @@ The repo ships a `.pre-commit-config.yaml` at the root that runs ruff + mypy on 
 
 ```bash
 pip install pre-commit  # or: uv tool install pre-commit
-cd /private/home/Documents/Code/Flow\ Network
+cd /path/to/harnessy
 pre-commit install
 ```
 
@@ -576,7 +576,7 @@ All exceptions include `backend` attribute for identifying the source.
 ### Context Vault
 
 - Project context: `.jarvis/context/`
-- Loading order: projects.md -> focus.md -> priorities.md -> goals.md -> decisions.md
+- Loading order: `README.md` -> `AGENTS.md` -> `skills/_catalog.md` -> `scopes/_scopes.yaml`
 - `{{global}}` in context files is Jarvis CLI templating; treat as no-op
 
 ### Memory System
