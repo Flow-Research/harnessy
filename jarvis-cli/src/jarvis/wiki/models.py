@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _default_owner() -> str:
+    """Resolve the wiki owner from the environment, falling back to 'unknown'."""
+    return os.environ.get("FLOW_USER", os.environ.get("USER", "unknown"))
 
 
 class SourceType(str, Enum):
@@ -67,7 +73,7 @@ class WikiDomain(BaseModel):
     title: str
     description: str = ""
     version: str = "0.1.0"
-    owner: str = "julian"
+    owner: str = Field(default_factory=_default_owner)
     language: str = "en"
     created: date = Field(default_factory=date.today)
     updated: date = Field(default_factory=date.today)

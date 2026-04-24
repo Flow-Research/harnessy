@@ -28,6 +28,8 @@ PROJECT_ROOT = os.environ.get(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ))))
 )
+_USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "default"))
+_USER_PROJECT_PREFIX = f"_{_USERNAME}/"
 
 JARVIS_BIN = "jarvis"  # installed globally via: uv tool install --force ./jarvis-cli
 
@@ -88,30 +90,30 @@ def build_prompt(state, today):
         n_sessions = wiki_updates.get("total_recent_sessions", 0)
         n_pending = wiki_updates.get("total_pending_seeds", 0)
         wiki_block = (
-            "\n\nThe state includes a `wiki_updates` field with what Julian's autonomous "
+            "\n\nThe state includes a `wiki_updates` field with what the user's autonomous "
             f"research agents found in the last 24h ({n_sessions} session(s), "
             f"{n_pending} pending seeds across all domains). "
             "Add a '## Wiki Research' section near the end of the brief that:\n"
             "  - Names the domains with new activity and what topic was researched\n"
             "  - Lists 2-4 key new concepts or findings (use the `topic` field, not raw filenames)\n"
-            "  - Surfaces anything in `errors` or `notes` fields that needs Julian's judgment\n"
+            "  - Surfaces anything in `errors` or `notes` fields that needs the user's judgment\n"
             "  - Mentions pending seeds only if there are several stale ones\n"
             "Keep it tight — 4-8 lines. If nothing material happened, say so in one line."
         )
 
     return f"""\
-You are Julian's chief of staff. Read his priorities, daily notes, the change summary from
-overnight, and the current project status files. Produce a daily brief that tells him:
+You are the user's chief of staff. Read their priorities, daily notes, the change summary from
+overnight, and the current project status files. Produce a daily brief that tells them:
 
-1. What Moved — what progressed across his projects (in plain strategic language, not file names)
-2. What Needs Him — decisions, reviews, approvals only he can do, ranked by urgency
-3. Strategic Picture — where he stands against his quarterly priorities, any warnings about
+1. What Moved — what progressed across their projects (in plain strategic language, not file names)
+2. What Needs Them — decisions, reviews, approvals only they can do, ranked by urgency
+3. Strategic Picture — where they stand against their quarterly priorities, any warnings about
    spreading too thin or missing deadlines
 4. Background Work — what agents are doing, what completed, what's waiting
 
-Pay special attention to the "notes" field in the state data — these are Julian's own thoughts,
-reminders, and action items captured throughout the day. Use them to understand what's on his
-mind, what he's prioritizing, and what he might be forgetting.
+Pay special attention to the "notes" field in the state data — these are the user's own thoughts,
+reminders, and action items captured throughout the day. Use them to understand what's on their
+mind, what they're prioritizing, and what they might be forgetting.
 
 Write like a trusted advisor, not a system log. Be specific. Be honest. If something is
 stalled, say so. If he's overcommitted, flag it.
@@ -149,7 +151,7 @@ def compact_state(state):
     # Projects: keep status_md (truncated), file count, newest modified — drop file lists
     projects = {}
     for name, info in (state.get("projects") or {}).items():
-        if name.startswith("_julian/") or name == "_docs":
+        if name.startswith(_USER_PROJECT_PREFIX) or name == "_docs":
             continue  # skip standalone files and docs index
         status_md = info.get("status_md") or ""
         projects[name] = {

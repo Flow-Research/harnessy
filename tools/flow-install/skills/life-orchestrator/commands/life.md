@@ -7,7 +7,7 @@ argument-hint: "monthly | weekly | daily | status | feedback \"...\""
 
 ## Purpose
 
-Produce rhythmic life orchestration outputs — monthly reviews, weekly plans, and daily briefs — grounded in Julian's priorities and current project state.
+Produce rhythmic life orchestration outputs — monthly reviews, weekly plans, and daily briefs — grounded in the user's priorities and current project state.
 
 ## Ownership
 
@@ -41,13 +41,13 @@ OUTPUT_DIR=$LIFE_DIR/$YEAR/$MONTH
 
 ### Priority Reading (ALWAYS First)
 
-Before collecting any project state, read Julian's priorities:
+Before collecting any project state, read the user's priorities:
 
 ```bash
 cat ~/.agents/life/priorities.md
 ```
 
-This file is Julian's voice. It defines what matters right now, what to deprioritize, and what to ignore. All subsequent state collection and synthesis must be filtered through this lens.
+This file is the user's voice. It defines what matters right now, what to deprioritize, and what to ignore. All subsequent state collection and synthesis must be filtered through this lens.
 
 ---
 
@@ -70,15 +70,15 @@ Run a comprehensive monthly review using goal-agent.
    ```bash
    cat "${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/monthly-review.md"
    ```
-4. Read all daily notes from the month (Julian's own thoughts and action items):
+4. Read all daily notes from the month (the user's own thoughts and action items):
    ```bash
-   NOTES_DIR=".jarvis/context/private/julian/notes/$YEAR/$MONTH"
+   NOTES_DIR=".jarvis/context/private/${FLOW_USER:-${USER}}/notes/$YEAR/$MONTH"
    for f in $(ls "$NOTES_DIR"/*.md 2>/dev/null); do echo "=== $(basename $f) ==="; cat "$f"; done
    ```
 5. Compose a goal file for goal-agent that asks it to produce a monthly review. The goal should:
    - Reference `priorities.md` as the authority on what matters
    - Include the collected state as context
-   - Include the daily notes as Julian's own voice on what mattered throughout the month
+   - Include the daily notes as the user's own voice on what mattered throughout the month
    - Follow the monthly review template structure
    - Write output to `$OUTPUT_DIR/monthly-review.md`
 5. Run goal-agent:
@@ -125,17 +125,17 @@ Produce a weekly plan based on the monthly review and current state.
    ```bash
    find ~/.agents/life/feedback/ -name "*.md" -newer "$OUTPUT_DIR/week-*-plan.md" 2>/dev/null | head -5 | xargs cat 2>/dev/null
    ```
-6. Read daily notes from this week (Julian's own thoughts, action items, reminders):
+6. Read daily notes from this week (the user's own thoughts, action items, reminders):
    ```bash
-   NOTES_DIR=".jarvis/context/private/julian/notes/$YEAR/$MONTH"
+   NOTES_DIR=".jarvis/context/private/${FLOW_USER:-${USER}}/notes/$YEAR/$MONTH"
    for f in $(ls "$NOTES_DIR"/*.md 2>/dev/null | tail -7); do echo "=== $(basename $f) ==="; cat "$f"; done
    ```
-   These notes are Julian's voice — they reveal what's actually on his mind vs. what the system tracks.
+   These notes are the user's voice — they reveal what's actually on their mind vs. what the system tracks.
 7. Synthesize a weekly plan that:
    - Aligns with monthly review priorities (or priorities.md if no review exists)
    - Accounts for current project state and momentum
    - Incorporates any feedback captured since last plan
-   - Reflects Julian's daily notes — what he's been thinking about, action items he captured
+   - Reflects the user's daily notes — what they've been thinking about, action items they captured
    - Assigns focus areas to specific days where appropriate
    - Identifies the week's "must-win" deliverable
 8. Write the plan:

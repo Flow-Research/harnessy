@@ -21,7 +21,7 @@ curl -s http://127.0.0.1:31009/v1/spaces/<space_id>/members/<member_id> \
 {
   "member": {
     "id": "...",
-    "name": "Julian",
+    "name": "Alice",
     "icon": "...",
     "role": "owner",
     "global_name": "..."

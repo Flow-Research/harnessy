@@ -93,7 +93,7 @@ After you finish (or hit the cap, or run out of viable sources), output **one JS
     }
   ],
   "errors": [],
-  "notes": "any short observation Julian should see in the morning brief"
+  "notes": "any short observation the user should see in the morning brief"
 }
 ```
 

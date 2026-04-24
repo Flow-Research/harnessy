@@ -79,7 +79,7 @@ TEMPLATE=$(cat "$TEMPLATE_FILE")
 
 # Step 3: build prompt
 PROMPT=$(cat <<EOF
-You are generating a weekly plan for Julian. Output ONLY the plan in markdown — no preamble, no commentary, no questions.
+You are generating a weekly plan for the user. Output ONLY the plan in markdown — no preamble, no commentary, no questions.
 
 # Priorities
 $PRIORITIES

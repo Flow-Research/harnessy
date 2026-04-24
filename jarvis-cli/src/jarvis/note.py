@@ -1,12 +1,15 @@
 """Quick note capture for the life orchestrator.
 
 Appends timestamped notes to daily markdown files at:
-  .jarvis/context/private/julian/notes/YYYY/Mon/dd.md
+  .jarvis/context/private/<user>/notes/YYYY/Mon/dd.md
+
+The `<user>` segment is resolved from $FLOW_USER, then $USER, then "default".
 
 These notes are read by the life orchestrator's collect-state script
 and incorporated into daily briefs.
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -15,25 +18,27 @@ from rich.console import Console
 
 console = Console()
 
+_USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "default"))
+
 # Default notes directory (relative to project root)
-NOTES_DIR = Path(".jarvis/context/private/julian/notes")
+NOTES_DIR = Path(f".jarvis/context/private/{_USERNAME}/notes")
 
 
 def _resolve_notes_dir() -> Path:
-    """Find the project root by looking for priorities.md in the julian context."""
+    """Find the project root by looking for priorities.md in the user's private context."""
     # Walk up from cwd looking for the priorities.md file (only exists at the real project root)
     cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
-        priorities = parent / ".jarvis" / "context" / "private" / "julian" / "priorities.md"
+        priorities = parent / ".jarvis" / "context" / "private" / _USERNAME / "priorities.md"
         if priorities.is_file():
             notes_dir = priorities.parent / "notes"
             notes_dir.mkdir(parents=True, exist_ok=True)
             return notes_dir
-    # Fallback: walk up for any .jarvis/context/private/julian/
+    # Fallback: walk up for any .jarvis/context/private/<user>/
     for parent in [cwd, *cwd.parents]:
-        julian_ctx = parent / ".jarvis" / "context" / "private" / "julian"
-        if julian_ctx.is_dir():
-            notes_dir = julian_ctx / "notes"
+        user_ctx = parent / ".jarvis" / "context" / "private" / _USERNAME
+        if user_ctx.is_dir():
+            notes_dir = user_ctx / "notes"
             notes_dir.mkdir(parents=True, exist_ok=True)
             return notes_dir
     # Last resort: use cwd-relative path
@@ -95,8 +100,9 @@ def append_note(text: str, category: str | None = None) -> Path:
 def note_command(text: tuple[str, ...], category: str | None, interactive: bool) -> None:
     """Capture a quick note for the daily brief.
 
-    Notes are appended to .jarvis/context/private/julian/notes/YYYY/Mon/dd.md
-    and automatically picked up by the life orchestrator's daily brief.
+    Notes are appended to .jarvis/context/private/<user>/notes/YYYY/Mon/dd.md
+    (where <user> resolves from $FLOW_USER, $USER, or "default") and are
+    automatically picked up by the life orchestrator's daily brief.
 
     Examples:
         jarvis note "Decided to deprioritize Sentinel"

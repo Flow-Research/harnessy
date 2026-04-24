@@ -21,7 +21,7 @@ Publish a validated skill with proper approvals, then update catalog metadata an
 ## Steps
 1. **Run `/skill-validate <skill-name>`** and confirm PASS.
 2. **Enforce approval gate**
-   - If `blast_radius: high`, require explicit approval (Julian or Sayo). If missing, STOP.
+   - If `blast_radius: high`, require explicit approval from an authorized maintainer. If missing, STOP.
 3. **Update catalog entry**
    - Increment version if needed
    - Update `updated` date

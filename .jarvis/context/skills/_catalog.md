@@ -710,7 +710,7 @@ updated: 2026-04-02
 
 ## Notes
 
-- **Owner is required**. If unowned, default to Julian.
+- **Owner is required**. If unowned, default to the project's primary maintainer.
 - **Blast radius drives approvals** (low/medium self-publish, high needs explicit approval).
 - **permissions/data_categories/egress** are mandatory for medium/high skills.
 - Keep entries concise and consistent. This file is a registry, not a full spec.

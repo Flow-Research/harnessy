@@ -1,6 +1,6 @@
 """Per-domain research seed queue (`seeds.md`).
 
-`seeds.md` is the user-supplied input queue for autonomous research. Julian
+`seeds.md` is the user-supplied input queue for autonomous research. The user
 adds URLs, topics, and notes via `jarvis wiki seed`; the research agent reads
 the Pending section, processes entries, and moves them to Processed.
 

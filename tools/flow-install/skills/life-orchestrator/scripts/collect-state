@@ -24,7 +24,7 @@ PROJECT_ROOT = os.environ.get(
     ))))
 )
 
-_USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "julian"))
+_USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "default"))
 PRIVATE_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "private", _USERNAME)
 DOCS_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "docs")
 GOAL_AGENT_DIR = os.path.join(PROJECT_ROOT, ".goal-agent")
@@ -267,7 +267,7 @@ def collect_wiki_updates():
 
     Reads each domain's `wiki/log.md` for entries in the last 24 hours, the
     most recent findings files in `.state/findings/`, and the pending seed
-    queue. The morning brief surfaces this so Julian sees what his research
+    queue. The morning brief surfaces this so the user sees what their research
     agents found overnight.
     """
     if not os.path.isdir(JARVIS_WIKIS):
