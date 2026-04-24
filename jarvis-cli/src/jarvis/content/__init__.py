@@ -1,1 +1,1 @@
-"""Content management module for Flow Network content pipeline."""
+"""Content management module for the content publishing pipeline."""

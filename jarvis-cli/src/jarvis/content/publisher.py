@@ -22,11 +22,20 @@ class ContentPublisher:
         content_root: Local root directory for content files
     """
 
-    def __init__(self, client: AnyTypeClient, space_id: str, content_root: Path) -> None:
+    def __init__(
+        self,
+        client: AnyTypeClient,
+        space_id: str,
+        content_root: Path,
+        root_collection_name: str | None = None,
+    ) -> None:
         self.client = client
         self.space_id = space_id
         self.content_root = content_root
-        self.hierarchy = ContentHierarchy(client, space_id)
+        if root_collection_name is None:
+            self.hierarchy = ContentHierarchy(client, space_id)
+        else:
+            self.hierarchy = ContentHierarchy(client, space_id, root_collection_name)
 
     def approve_and_push(self, piece_dir: Path) -> str:
         """Approve a content piece and push to AnyType.

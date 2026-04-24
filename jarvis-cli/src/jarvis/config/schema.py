@@ -51,6 +51,38 @@ class BackendsConfig(BaseModel):
     )
 
 
+class ContentConfig(BaseModel):
+    """Configuration for the content publishing pipeline.
+
+    Values here replace previously-hardcoded identifiers so the CLI is not
+    tied to any particular workspace layout or AnyType space/collection name.
+    """
+
+    root_path: str | None = Field(
+        default=None,
+        description=(
+            "Local path to the content root directory. May be absolute or "
+            "relative to the current working directory / git root. When unset, "
+            "the CLI searches `.jarvis/context/private/<user>/content` and "
+            "then `<user>/flow-content` as a backwards-compat fallback."
+        ),
+    )
+    anytype_space_name: str | None = Field(
+        default=None,
+        description=(
+            "Case-insensitive name of the AnyType space to target for content "
+            "publishing. When unset, the standard space-selection prompt runs."
+        ),
+    )
+    anytype_root_collection: str = Field(
+        default="Content",
+        description=(
+            "Name of the top-level AnyType collection under which the "
+            "year/month/piece hierarchy is created."
+        ),
+    )
+
+
 class AnalyticsConfig(BaseModel):
     """Analytics configuration (opt-in only)."""
 
@@ -80,6 +112,7 @@ class JarvisConfig(BaseSettings):
         description="Which backend to use for all operations",
     )
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
+    content: ContentConfig = Field(default_factory=ContentConfig)
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
 
     @field_validator("active_backend")

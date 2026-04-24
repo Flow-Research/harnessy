@@ -1,7 +1,9 @@
 """Content hierarchy manager for AnyType integration.
 
-Manages the Flow Content → Year → Month → Piece structure in AnyType.
-Each content piece is a collection containing index + platform-specific pages.
+Manages the <root> → Year → Month → Piece structure in AnyType, where
+<root> is configurable via ContentConfig.anytype_root_collection (default
+"Content"). Each content piece is a collection containing index +
+platform-specific pages.
 """
 
 from pathlib import Path
@@ -16,37 +18,47 @@ MONTHS = [
 ]
 
 
+DEFAULT_ROOT_COLLECTION = "Content"
+
+
 class ContentHierarchy:
-    """Manages Flow Content → Year → Month → Piece hierarchy in AnyType.
+    """Manages <root> → Year → Month → Piece hierarchy in AnyType.
 
     Mirrors the local folder structure:
-        drafts/2026/Apr/02-flow-thesis-thread/
+        drafts/2026/Apr/02-thesis-thread/
     As AnyType collections:
-        Flow Content → 2026 → April → 02 - Your AI Agent Should Have a Job
+        <root_collection_name> → 2026 → April → 02 - Your Piece Title
 
     Attributes:
         client: AnyType client instance
         space_id: AnyType space ID to work in
+        root_collection_name: Name of the top-level collection (default "Content")
     """
 
-    def __init__(self, client: AnyTypeClient, space_id: str) -> None:
+    def __init__(
+        self,
+        client: AnyTypeClient,
+        space_id: str,
+        root_collection_name: str = DEFAULT_ROOT_COLLECTION,
+    ) -> None:
         self.client = client
         self.space_id = space_id
+        self.root_collection_name = root_collection_name
         self._root_id: str | None = None
         self._year_cache: dict[int, str] = {}
         self._month_cache: dict[tuple[int, int], str] = {}
 
     def get_content_root(self) -> str:
-        """Get or create the Flow Content top-level collection."""
+        """Get or create the top-level content collection."""
         if self._root_id:
             return self._root_id
         self._root_id = self.client.get_or_create_collection(
-            self.space_id, "Flow Content"
+            self.space_id, self.root_collection_name
         )
         return self._root_id
 
     def get_year_container(self, year: int) -> str:
-        """Get or create a year container under Flow Content."""
+        """Get or create a year container under the content root."""
         if year in self._year_cache:
             return self._year_cache[year]
         root_id = self.get_content_root()
@@ -120,7 +132,7 @@ class ContentHierarchy:
         return piece_id
 
     def push_strategy(self, strategy_path: Path) -> str:
-        """Push the content strategy document as a page under Flow Content root.
+        """Push the content strategy document as a page under the content root.
 
         Args:
             strategy_path: Path to content-strategy.md

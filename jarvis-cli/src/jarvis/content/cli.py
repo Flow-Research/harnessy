@@ -7,8 +7,14 @@ Provides the `jarvis content` command group with subcommands:
 - migrate: Restructure flat files to folder model
 - status: Show summary counts by status
 - strategy: Push content strategy to AnyType
+
+Workspace paths and AnyType space/collection names are configurable
+via `~/.jarvis/config.yaml` (see ContentConfig) or JARVIS_* env vars.
 """
 
+import getpass
+import os
+import subprocess
 from pathlib import Path
 
 import click
@@ -16,11 +22,40 @@ from rich.console import Console
 from rich.table import Table
 
 from jarvis.anytype_client import AnyTypeClient
+from jarvis.config import get_config
 
 console = Console()
 
-# Default content root relative to project
-DEFAULT_CONTENT_ROOT = ".jarvis/context/private/julian/flow-content"
+
+def _git_root() -> Path | None:
+    """Return the current git repository root, or None when not in a git tree."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        return Path(result.stdout.strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def _candidate_roots(base: Path, user: str) -> list[Path]:
+    """Candidate content roots to probe when no explicit path is configured."""
+    private_dir = base / ".jarvis" / "context" / "private"
+    candidates = [
+        private_dir / user / "content",
+        private_dir / user / "flow-content",  # backward-compat
+    ]
+    # Any sibling user folder with a content or flow-content dir.
+    if private_dir.exists():
+        for child in sorted(private_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            for leaf in ("content", "flow-content"):
+                c = child / leaf
+                if c not in candidates:
+                    candidates.append(c)
+    return candidates
 
 
 def get_connected_client() -> AnyTypeClient:
@@ -34,42 +69,70 @@ def get_connected_client() -> AnyTypeClient:
         raise SystemExit(1)
 
 
-def get_space_for_flow(client: AnyTypeClient) -> tuple[str, str]:
-    """Find the Flow space in AnyType."""
-    spaces = client.get_spaces()
-    for space_id, space_name in spaces:
-        if space_name.lower() == "flow":
-            return space_id, space_name
+def get_target_space(client: AnyTypeClient) -> tuple[str, str]:
+    """Find the configured AnyType space, or prompt for selection.
 
-    # Fall back to saved/first space
+    Uses `content.anytype_space_name` from config (case-insensitive match).
+    Falls back to the shared space-selection prompt if unset or not found.
+    """
+    target_name = get_config().content.anytype_space_name
+    if target_name:
+        target_lower = target_name.lower()
+        for space_id, space_name in client.get_spaces():
+            if space_name.lower() == target_lower:
+                return space_id, space_name
+
     from jarvis.journal.cli import get_space_selection
     return get_space_selection(client)
 
 
 def resolve_content_root() -> Path:
-    """Find the content root directory."""
-    path = Path.cwd() / DEFAULT_CONTENT_ROOT
-    if path.exists():
-        return path
-    # Try from git root
-    import subprocess
-    try:
-        git_root = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-        path = Path(git_root) / DEFAULT_CONTENT_ROOT
-        if path.exists():
-            return path
-    except subprocess.CalledProcessError:
-        pass
-    console.print(f"[red]Content root not found: {DEFAULT_CONTENT_ROOT}[/red]")
+    """Find the content root directory.
+
+    Resolution order:
+    1. `content.root_path` from config (absolute or relative to CWD / git root)
+    2. `.jarvis/context/private/<user>/content` under CWD or git root
+    3. `.jarvis/context/private/<user>/flow-content` (backward-compat)
+    4. Any sibling `private/<other-user>/content` or `flow-content` folder
+    """
+    cfg = get_config()
+    user = os.environ.get("USER") or getpass.getuser()
+    search_bases = [Path.cwd()]
+    git_root = _git_root()
+    if git_root is not None and git_root not in search_bases:
+        search_bases.append(git_root)
+
+    if cfg.content.root_path:
+        configured = Path(cfg.content.root_path).expanduser()
+        if configured.is_absolute():
+            if configured.exists():
+                return configured
+        else:
+            for base in search_bases:
+                candidate = base / configured
+                if candidate.exists():
+                    return candidate
+        console.print(
+            f"[red]Configured content root not found: {cfg.content.root_path}[/red]"
+        )
+        raise SystemExit(1)
+
+    for base in search_bases:
+        for candidate in _candidate_roots(base, user):
+            if candidate.exists():
+                return candidate
+
+    console.print(
+        "[red]Content root not found. Set `content.root_path` in "
+        "~/.jarvis/config.yaml or create "
+        ".jarvis/context/private/<user>/content.[/red]"
+    )
     raise SystemExit(1)
 
 
 @click.group()
 def content_cli() -> None:
-    """Manage Flow Network content pipeline."""
+    """Manage the content publishing pipeline."""
 
 
 @content_cli.command(name="list")
@@ -133,10 +196,15 @@ def approve(path: str | None, approve_all: bool) -> None:
 
     content_root = resolve_content_root()
     client = get_connected_client()
-    space_id, space_name = get_space_for_flow(client)
+    space_id, space_name = get_target_space(client)
     console.print(f"[dim]Using space: {space_name}[/dim]")
 
-    publisher = ContentPublisher(client, space_id, content_root)
+    publisher = ContentPublisher(
+        client,
+        space_id,
+        content_root,
+        root_collection_name=get_config().content.anytype_root_collection,
+    )
 
     if approve_all:
         pieces = find_drafts(content_root / "drafts", status="review")
@@ -167,10 +235,15 @@ def push(force: bool) -> None:
 
     content_root = resolve_content_root()
     client = get_connected_client()
-    space_id, space_name = get_space_for_flow(client)
+    space_id, space_name = get_target_space(client)
     console.print(f"[dim]Using space: {space_name}[/dim]")
 
-    publisher = ContentPublisher(client, space_id, content_root)
+    publisher = ContentPublisher(
+        client,
+        space_id,
+        content_root,
+        root_collection_name=get_config().content.anytype_root_collection,
+    )
     results = publisher.push_pending(force=force)
 
     if results:
@@ -221,8 +294,13 @@ def strategy() -> None:
 
     content_root = resolve_content_root()
     client = get_connected_client()
-    space_id, space_name = get_space_for_flow(client)
+    space_id, space_name = get_target_space(client)
     console.print(f"[dim]Using space: {space_name}[/dim]")
 
-    publisher = ContentPublisher(client, space_id, content_root)
+    publisher = ContentPublisher(
+        client,
+        space_id,
+        content_root,
+        root_collection_name=get_config().content.anytype_root_collection,
+    )
     publisher.push_strategy()

@@ -31,6 +31,20 @@ backends:
   #     tags: "Tags"
   #     done: "Done"
 
+# Content publishing pipeline
+# Leave any field unset to use built-in defaults / prompts.
+content:
+  # Local path to the content root (relative to repo or absolute).
+  # Defaults to `.jarvis/context/private/<user>/content` if unset.
+  # root_path: ".jarvis/context/private/me/content"
+
+  # Name of the AnyType space to target. Case-insensitive.
+  # If unset, the standard space-selection prompt runs.
+  # anytype_space_name: "MySpace"
+
+  # Top-level AnyType collection under which year/month/piece hierarchy lives.
+  anytype_root_collection: "Content"
+
 # Analytics (opt-in)
 analytics:
   enabled: false
