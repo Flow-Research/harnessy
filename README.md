@@ -45,7 +45,7 @@ After installation, a project gets this baseline structure:
     └── postinstall
 ```
 
-Shared/core skills are sourced from `tools/flow-install/skills/` and installed into `~/.agents/skills/`.
+Harnessy core skills are sourced from `tools/flow-install/skills/` and installed into `~/.agents/skills/`.
 Project-specific skills stay in each repo's `.agents/skills/` directory and are copied into `~/.agents/skills/` by the generated scripts, which also refresh Claude Code and OpenCode registration.
 
 ## Installation
@@ -374,7 +374,7 @@ It is designed to be re-runnable and skip already-current parts.
 
 ## Publishing Notes
 
-This repo is the hub/source repo for the Harnessy.
+This repo is the source repo for Harnessy.
 
 - shared skill source: `tools/flow-install/skills/`
 - bootstrap entry point: `install.sh`
