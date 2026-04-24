@@ -23,7 +23,7 @@ For the maintainer-specific playbook for promoting a local skill from an install
 
 | Class | Purpose | Canonical home | Review level |
 |---|---|---|---|
-| `flow-core` | Installer, framework, shared docs, shared automation | repo root, `tools/flow-install/`, shared docs | Harnessy maintainer |
+| `harnessy-core` | Installer, framework, shared docs, shared automation | repo root, `tools/flow-install/`, shared docs | Harnessy maintainer |
 | `project-local-skill` | Skill useful only inside one installed app or repo | `.agents/skills/` | Project owner |
 | `shared-skill-candidate` | Local skill proposed for reuse across Harnessy installs | Start in `.agents/skills/`, promote to `tools/flow-install/skills/` | Harnessy maintainer |
 | `shared-knowledge` | Durable tracked context or documentation | `.jarvis/context/` tracked files | Scope owner |
@@ -92,6 +92,22 @@ If the answer is unclear, default to the narrower scope first:
 
 ## Execution Workflow
 
+## Contributor Fast Path
+
+Use this short path when contributing back from a Harnessy-installed repo.
+
+1. Start in the narrowest valid scope.
+2. Prove value locally before proposing shared distribution.
+3. Run the standard validation commands in the installed repo.
+4. Choose one outcome: keep local, propose shared skill candidate, or change Harnessy core.
+5. If proposing promotion, attach a promotion packet and validation evidence to the upstream PR.
+
+For shared skill proposals, use:
+
+```text
+.jarvis/context/templates/contribution/shared-skill-candidate-packet.md
+```
+
 ## Phase 1: Classify
 
 Decide which path applies.
@@ -99,6 +115,8 @@ Decide which path applies.
 ### Path A: Harnessy core
 
 Use when changing installer behavior, shared docs, shared scripts, or shared Harnessy skills.
+
+This is the public name for the shared framework path. Internal folder names such as `tools/flow-install/` remain implementation details.
 
 ### Path B: Project-local skill
 
@@ -149,6 +167,8 @@ The candidate must accumulate:
 - no project-specific assumptions
 - complete governance metadata
 - docs and validation evidence
+
+Before opening the upstream PR, prepare a promotion packet using the shared template.
 
 ### Shared knowledge / shared memory candidate
 
@@ -235,6 +255,28 @@ Review questions:
 3. Is anything sensitive or private being over-shared?
 4. Does this duplicate an existing artifact?
 5. If promoted, is it reusable enough to justify shared status?
+
+## Promotion Packet Standard
+
+Any installed-project proposal to promote a local skill into Harnessy shared skills should include a concise promotion packet in the PR description or linked file.
+
+Minimum required fields:
+
+- skill name
+- source repo
+- source path
+- problem statement
+- local proof / real use case
+- genericization notes
+- validation evidence
+- governance metadata
+- adoption plan for the source repo
+
+Canonical template:
+
+```text
+.jarvis/context/templates/contribution/shared-skill-candidate-packet.md
+```
 
 ## Phase 5: Promote
 

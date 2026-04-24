@@ -22,7 +22,7 @@ Examples:
 - shared lifecycle scripts
 - shared Harnessy skills in `tools/flow-install/skills/`
 
-Use the `flow-core` path in `.jarvis/context/docs/contribution-protocol.md`.
+Use the `harnessy-core` path in `.jarvis/context/docs/contribution-protocol.md`.
 
 ### I built a skill for one installed app or one repo
 
@@ -47,6 +47,10 @@ Use the `project-local-skill` path in `.jarvis/context/docs/contribution-protoco
 Treat it as a `shared-skill-candidate` first. Do not skip the local-skill stage.
 
 Promotion rules live in `.jarvis/context/docs/contribution-protocol.md`.
+
+Before opening an upstream PR, prepare a promotion packet using:
+
+- `.jarvis/context/templates/contribution/shared-skill-candidate-packet.md`
 
 ### I learned something useful during work
 
@@ -73,6 +77,30 @@ pnpm skills:validate
 pnpm skills:register
 pnpm harness:verify
 ```
+
+## Fast Path: Installed Project -> Harnessy
+
+Use this path when you built something in a Harnessy-installed repo and want to contribute it back upstream.
+
+1. Build it in the installed repo first.
+2. Keep it local first unless it is clearly Harnessy-wide from day one.
+3. Run:
+
+```bash
+pnpm skills:validate
+pnpm skills:register
+pnpm harness:verify
+```
+
+4. Decide the outcome:
+
+- local only
+- shared skill candidate
+- Harnessy core change
+
+5. If it is a shared skill candidate, fill out `.jarvis/context/templates/contribution/shared-skill-candidate-packet.md`.
+6. Open the upstream Harnessy PR with the packet content and validation evidence.
+7. If accepted, adopt the shared version back in the installed repo intentionally.
 
 ## Non-Negotiable Rules
 

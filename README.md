@@ -18,6 +18,7 @@ Contribution workflow:
 
 - `CONTRIBUTING.md` - contributor routing and core rules
 - `.jarvis/context/docs/contribution-protocol.md` - full Git-native contribution and correctness protocol
+- `.jarvis/context/templates/contribution/shared-skill-candidate-packet.md` - standard upstream packet for promoting a local skill into Harnessy shared skills
 
 ## What You Get
 
