@@ -15,6 +15,7 @@ TARGET_ROOT=""
 INSTALL_COMMUNITY="auto"
 FLOW_RECONFIGURE="${FLOW_RECONFIGURE:-0}"
 FLOW_FORCE_SYNC="${FLOW_FORCE_SYNC:-0}"
+FLOW_REFRESH_SOURCE="${FLOW_REFRESH_SOURCE:-0}"
 
 if [[ -d "$SCRIPT_DIR/tools/flow-install" && -d "$SCRIPT_DIR/jarvis-cli" ]]; then
   LOCAL_SOURCE=1
@@ -51,7 +52,7 @@ usage() {
 Harnessy installer
 
 Usage:
-  ./install.sh [--here] [--target PATH] [--yes] [--reconfigure] [--no-community] [--community]
+  ./install.sh [--here] [--target PATH] [--yes] [--reconfigure] [--refresh-source] [--no-community] [--community]
 
 Modes:
   default           Bootstrap a full Harnessy workspace locally
@@ -61,6 +62,7 @@ Modes:
 Flags:
   --yes             Non-interactive mode
   --force           Force-sync all skills (bypass version check)
+  --refresh-source  Pull latest changes into the cached Harnessy source before install
   --reconfigure     Ask for install destinations again even if saved in lockfile
   --no-community    Skip community skill installation
   --community       Force community skill installation
@@ -89,6 +91,9 @@ parse_args() {
         ;;
       --force)
         FLOW_FORCE_SYNC=1
+        ;;
+      --refresh-source)
+        FLOW_REFRESH_SOURCE=1
         ;;
       --reconfigure)
         FLOW_RECONFIGURE=1
@@ -157,6 +162,18 @@ ensure_node_and_pnpm() {
 resolve_flow_source() {
   if [[ "$LOCAL_SOURCE" -eq 1 ]]; then
     FLOW_ROOT="$SCRIPT_DIR"
+    local source_root cache_root
+    source_root="$(cd "$FLOW_ROOT" && pwd)"
+    cache_root="$FLOW_CACHE_DIR"
+    if [[ -d "$cache_root" ]]; then
+      cache_root="$(cd "$cache_root" && pwd)"
+    fi
+
+    if [[ "$FLOW_REFRESH_SOURCE" == "1" && -d "$FLOW_ROOT/.git" && "$source_root" == "$cache_root" ]]; then
+      log "[info] Refreshing cached Harnessy checkout at $FLOW_ROOT"
+      git -C "$FLOW_ROOT" pull --ff-only
+    fi
+
     log "[ok] Using local Harnessy checkout: $FLOW_ROOT"
     return
   fi
