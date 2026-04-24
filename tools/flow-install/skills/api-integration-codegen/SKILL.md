@@ -1,6 +1,6 @@
 ---
 name: api-integration-codegen
-description: "Generate API integration test suites from Flow regression artifacts using a delivery-profile-driven adapter layer."
+description: "Generate API integration test suites from Harnessy regression artifacts using a delivery-profile-driven adapter layer."
 disable-model-invocation: false
 allowed-tools: Read, Write, Grep, Glob, Bash, ApplyPatch
 argument-hint: "[--suite <X>] [--profile .flow/delivery-profile.json] [--delta]"

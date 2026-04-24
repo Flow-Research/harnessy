@@ -596,7 +596,7 @@ version: 0.2.2
 status: experimental
 owner: julian
 blast_radius: medium
-description: "Generate structured browser and API regression scenarios from approved specs using the Flow delivery profile and regression artifact contract."
+description: "Generate structured browser and API regression scenarios from approved specs using the Harnessy delivery profile and regression artifact contract."
 location: tools/flow-install/skills/spec-to-regression
 invoke: "/spec-to-regression"
 permissions: [read-source, read-specs, write-regression-specs, write-coverage-matrix]
@@ -616,7 +616,7 @@ version: 0.2.2
 status: experimental
 owner: julian
 blast_radius: medium
-description: "Generate API integration test suites from Flow regression artifacts using profile-driven suite metadata, helper imports, and project adapters."
+description: "Generate API integration test suites from Harnessy regression artifacts using profile-driven suite metadata, helper imports, and project adapters."
 location: tools/flow-install/skills/api-integration-codegen
 invoke: "/api-integration-codegen"
 permissions: [read-source, read-regression-spec, write-test-suites, execute-scripts]
@@ -636,7 +636,7 @@ version: 0.2.1
 status: experimental
 owner: julian
 blast_radius: medium
-description: "Generate browser integration test suites from Flow regression artifacts using profile-driven fixtures, imports, and selector verification."
+description: "Generate browser integration test suites from Harnessy regression artifacts using profile-driven fixtures, imports, and selector verification."
 location: tools/flow-install/skills/browser-integration-codegen
 invoke: "/browser-integration-codegen"
 permissions: [read-source, read-regression-spec, read-dom-artifacts, write-test-suites, execute-scripts]
@@ -656,7 +656,7 @@ version: 0.2.1
 status: experimental
 owner: julian
 blast_radius: low
-description: "Validate generated or maintained tests for coverage completeness, correctness, and false-green risks using Flow regression artifacts and delivery-profile rules."
+description: "Validate generated or maintained tests for coverage completeness, correctness, and false-green risks using Harnessy regression artifacts and delivery-profile rules."
 location: tools/flow-install/skills/test-quality-validator
 invoke: "/test-quality-validator"
 permissions: [read-source, read-specs, read-regression-specs, read-test-files, write-reports]

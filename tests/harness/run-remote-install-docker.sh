@@ -95,7 +95,7 @@ for line in Path(sys.argv[1]).read_text().splitlines():
 if not seen:
     raise SystemExit(1)
 PY
-  echo "PASS opencode loaded Flow core skill"
+  echo "PASS opencode loaded Harnessy core skill"
   opencode run --format json "/ab-test-setup We are testing signup CTA button copy." > /tmp/opencode-community-skill.json
   python3 - /tmp/opencode-community-skill.json <<"PY"
 import json, sys
@@ -113,15 +113,15 @@ if not seen:
     raise SystemExit(1)
 PY
   echo "PASS opencode loaded community skill"
-  claude -p "/brainstorm" > /tmp/claude-flow-skill.txt
-  python3 - /tmp/claude-flow-skill.txt <<"PY"
+  claude -p "/brainstorm" > /tmp/claude-harnessy-skill.txt
+  python3 - /tmp/claude-harnessy-skill.txt <<"PY"
 import sys
 from pathlib import Path
 text = Path(sys.argv[1]).read_text()
 if "Dont worry about having it all figured out" not in text:
     raise SystemExit(1)
 PY
-  echo "PASS claude executed Flow core slash skill"
+  echo "PASS claude executed Harnessy core slash skill"
   claude -p "/ab-test-setup We are testing signup CTA button copy." > /tmp/claude-community-skill.txt
   python3 - /tmp/claude-community-skill.txt <<"PY"
 import sys

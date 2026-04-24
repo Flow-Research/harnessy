@@ -1,5 +1,5 @@
 /**
- * Flow hook configuration loader.
+ * Harnessy hook configuration loader.
  * Reads .jarvis/hooks.yaml with graceful defaults when missing.
  */
 

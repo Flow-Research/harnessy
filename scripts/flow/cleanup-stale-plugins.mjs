@@ -42,7 +42,7 @@ const parseFrontmatter = (content) => {
 };
 
 const main = async () => {
-  console.log("Flow cleanup" + (dryRun ? " (dry run)" : "") + "\n");
+  console.log("Harnessy cleanup" + (dryRun ? " (dry run)" : "") + "\n");
 
   const entries = await fs.readdir(GLOBAL_SKILLS_DIR, { withFileTypes: true }).catch(() => []);
   const skills = [];

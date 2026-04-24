@@ -4,7 +4,7 @@
  * flow-install — project structure auto-detection
  *
  * Detects monorepo type, workspace apps/packages, git org,
- * and existing Flow infrastructure in the target project.
+ * and existing Harnessy infrastructure in the target project.
  */
 
 import fs from "node:fs/promises";
@@ -29,7 +29,7 @@ export const detectProject = async (projectRoot) => {
     packages: [],         // [{ name, path, relativePath }]
     gitOrg: null,         // string or null
     gitRepo: null,        // string or null
-    existing: {           // existing Flow infrastructure
+    existing: {           // existing Harnessy infrastructure
       jarvisContext: false,
       agentsDirLocal: false,
       pluginsOpencode: false,

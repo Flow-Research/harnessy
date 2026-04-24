@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-stale-gate-monitor — SLA watchdog for Flow autoflow gates.
+stale-gate-monitor — SLA watchdog for Harnessy autoflow gates.
 
 Checks for issues and goal-agent runs that have been waiting for human
 review beyond the configured SLA threshold, and emits notifications.
@@ -250,7 +250,7 @@ def send_notification(stale_items: List[Dict[str, Any]], threshold_hours: float)
     Future: desktop notifications, webhook, or gh issue comment.
     """
     count = len(stale_items)
-    summary = f"Flow: {count} stale gate(s) exceed {threshold_hours}h SLA"
+    summary = f"Harnessy: {count} stale gate(s) exceed {threshold_hours}h SLA"
     print(f"\n[NOTIFICATION] {summary}")
 
 
@@ -322,7 +322,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="stale-gate-monitor",
         description=(
-            "SLA watchdog for Flow autoflow gates. "
+            "SLA watchdog for Harnessy autoflow gates. "
             "Checks for issues and goal-agent runs stuck in waiting_human "
             "or stale running states beyond the configured SLA threshold."
         ),

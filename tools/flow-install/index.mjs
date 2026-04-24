@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * flow-install — Idempotent installer for the Flow framework
+ * flow-install — Idempotent installer for the Harnessy framework
  *
  * Installs skills, context vault, memory system, lifecycle scripts,
  * and AGENTS.md section into any project. Registers skills with both
@@ -368,10 +368,10 @@ const main = async () => {
     log.header("Installation complete");
     console.log("  Next steps:");
     console.log("    1. Review .jarvis/context/ and fill in project context files");
-    console.log("    2. Review .jarvis/context/AGENTS.md and add any project notes outside the Flow-managed block");
+    console.log("    2. Review .jarvis/context/AGENTS.md and add any project notes outside the Harnessy-managed block");
     console.log("    3. Review .jarvis/context/scopes/_scopes.yaml and customize scopes");
-    console.log("    4. Review AGENTS.md Flow section");
-    console.log("    5. Re-run with --update-context-agents when you want to apply newer Flow protocol updates");
+    console.log("    4. Review AGENTS.md Harnessy section");
+    console.log("    5. Re-run with --update-context-agents when you want to apply newer Harnessy protocol updates");
     console.log("    6. Commit: harnessy.lock.json, .jarvis/, AGENTS.md changes");
     console.log("    7. Run: pnpm skills:register (to sync project-specific skills and refresh agent registration)");
     console.log("    8. Run: pnpm harness:verify");

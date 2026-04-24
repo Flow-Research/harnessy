@@ -75,7 +75,7 @@ const installSkillExecutables = async (skillDir) => {
     if (entry.name.endsWith(".md")) continue;
     if (path.extname(entry.name) !== "") continue;
     if (RESERVED_SCRIPT_NAMES.has(entry.name)) {
-      console.log("  WARN skipping command shim " + entry.name + "; reserved by Flow lifecycle scripts");
+      console.log("  WARN skipping command shim " + entry.name + "; reserved by Harnessy lifecycle scripts");
       continue;
     }
     const sourcePath = path.join(scriptsDir, entry.name);
@@ -151,8 +151,7 @@ const registerClaude = async () => {
   await writeJson(path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin", "marketplace.json"), {
     name: "harnessy",
     owner: {
-      name: "Flow Research",
-      email: "support@flowresearch.dev",
+      name: "Harnessy",
     },
     plugins: [{
       name: FLOW_CLAUDE_PLUGIN_ID,

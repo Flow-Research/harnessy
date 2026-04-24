@@ -1,4 +1,4 @@
-# Pre-commit hooks for Flow Network
+# Pre-commit hooks for Harnessy
 # Install once: `pre-commit install` (from repo root)
 # Run manually: `pre-commit run --all-files`
 #

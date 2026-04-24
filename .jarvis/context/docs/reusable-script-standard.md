@@ -10,7 +10,7 @@ Standardize how contributors create reusable automation that can be:
 
 This keeps deterministic logic in one place, makes behavior testable, and avoids duplicating business logic across scripts, skills, and Jarvis.
 
-If a reusable script is intended for terminal use, it must also be exposed as a PATH-callable command via Flow-managed installation into the user-local bin directory.
+If a reusable script is intended for terminal use, it must also be exposed as a PATH-callable command via Harnessy-managed installation into the user-local bin directory.
 
 ## Core Rule
 
@@ -29,7 +29,7 @@ Build the deterministic executable first. Then add the thinnest possible integra
 | Core Jarvis workflow used repeatedly | Script + Jarvis subcommand | Keeps Jarvis UX stable without duplicating logic |
 | One-off repo lifecycle task | Root `scripts/` utility | Fits existing workspace conventions |
 | Skill-owned helper logic (repo-local) | `.agents/skills/<name>/scripts/` | Best for repo-specific automation |
-| Skill-owned helper logic (shared/global) | `tools/flow-install/skills/<name>/scripts/` | Best for shared Flow-distributed skills |
+| Skill-owned helper logic (shared/global) | `tools/flow-install/skills/<name>/scripts/` | Best for shared Harnessy-distributed skills |
 
 ## Required Artifacts
 
@@ -41,7 +41,7 @@ Every reusable script should ship with the following artifacts.
 - Put skill-owned runtime helpers in `.agents/skills/<skill-name>/scripts/`.
 - Prefer Node `.mjs`, Python, or POSIX shell based on the environment the repo already supports.
 - Keep orchestration and judgment out of the script when possible.
-- If the script should be runnable directly from a shell, name the executable after the final command and make it executable so Flow can install it into the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`).
+- If the script should be runnable directly from a shell, name the executable after the final command and make it executable so Harnessy can install it into the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`).
 
 ### 2. Command contract
 
@@ -111,7 +111,7 @@ Examples in this repo:
 
 ### Skill-owned scripts
 
-Use `.agents/skills/<skill-name>/scripts/` for repo-local skills and `tools/flow-install/skills/<skill-name>/scripts/` for shared/global Flow skills.
+Use `.agents/skills/<skill-name>/scripts/` for repo-local skills and `tools/flow-install/skills/<skill-name>/scripts/` for shared/global Harnessy skills.
 
 Requirements:
 
@@ -125,7 +125,7 @@ Requirements:
 
 ### PATH exposure
 
-Flow-managed terminal commands are installed into the user-local bin directory.
+Harnessy-managed terminal commands are installed into the user-local bin directory.
 
 - Resolution order: `$XDG_BIN_HOME` if set, otherwise `~/.local/bin`.
 - Shared/global skill scripts should be installed there by `flow-install`.

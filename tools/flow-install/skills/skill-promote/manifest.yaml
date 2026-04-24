@@ -4,7 +4,7 @@ version: 0.1.0
 owner: julian
 status: experimental
 blast_radius: medium
-description: "Promote improvements from the installed skill copy back to the Flow repo source, with evidence-backed commit messages."
+description: "Promote improvements from the installed skill copy back to the Harnessy repo source, with evidence-backed commit messages."
 permissions: [read, write]
 data_categories: [none]
 egress: []

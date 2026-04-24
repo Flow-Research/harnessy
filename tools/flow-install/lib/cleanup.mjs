@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Standardized stale-artifact cleanup for Flow skill registration.
+ * Standardized stale-artifact cleanup for Harnessy skill registration.
  *
  * Uses a registry pattern: each cleanup task is a {name, description, check, clean}
  * object. To add a new cleanup, append to CLEANUP_TASKS.

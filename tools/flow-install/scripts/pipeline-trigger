@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-pipeline-trigger — Cron-callable pipeline guard for Flow autoflow.
+pipeline-trigger — Cron-callable pipeline guard for Harnessy autoflow.
 
 Discovers eligible GitHub issues labeled 'autoflow', then launches a single
 planner goal-agent that analyzes dependencies and orchestrates child agents
@@ -683,7 +683,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="pipeline-trigger",
         description=(
-            "Cron guard for the Flow autoflow pipeline. "
+            "Cron guard for the Harnessy autoflow pipeline. "
             "Discovers eligible issues, then launches a single planner "
             "goal-agent that builds execution waves and triggers child agents."
         ),

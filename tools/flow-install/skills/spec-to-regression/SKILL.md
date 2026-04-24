@@ -1,6 +1,6 @@
 ---
 name: spec-to-regression
-description: "Generate browser and API regression scenarios from approved product and technical specs using the Flow delivery profile and regression artifact contract."
+description: "Generate browser and API regression scenarios from approved product and technical specs using the Harnessy delivery profile and regression artifact contract."
 disable-model-invocation: false
 allowed-tools: Read, Write, Grep, Glob, Bash
 argument-hint: "--epic <epic_name> | --spec-dir <path> [--profile .flow/delivery-profile.json]"
@@ -14,7 +14,7 @@ Translate approved specs into structured browser and API regression scenarios wi
 
 ## Required contract
 
-- spec root from the active Flow spec-root contract
+- spec root from the active Harnessy spec-root contract
 - regression artifact paths from `.flow/delivery-profile.json`
 - role inventory from `.flow/delivery-profile.json`
 

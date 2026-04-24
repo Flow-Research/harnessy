@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Shared dependency checker for Flow skills.
+# Shared dependency checker for Harnessy skills.
 # Reads dependencies from a skill's manifest.yaml and validates them.
 #
 # Usage:

@@ -1,6 +1,6 @@
 ---
 name: browser-integration-codegen
-description: "Generate browser integration suites from Flow regression artifacts using profile-driven routes, fixtures, and helper imports."
+description: "Generate browser integration suites from Harnessy regression artifacts using profile-driven routes, fixtures, and helper imports."
 disable-model-invocation: false
 allowed-tools: Read, Write, Grep, Glob, Bash, ApplyPatch
 argument-hint: "[--suite <NN>] [--profile .flow/delivery-profile.json] [--delta] [--inspect-first]"

@@ -1,22 +1,22 @@
 ---
 name: skill-promote
-description: Promote trace-driven improvements from the installed skill copy back to the Flow repo source.
+description: Promote trace-driven improvements from the installed skill copy back to the shared Harnessy source.
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 argument-hint: "<skill-name> [--dry-run] [--all]"
 ---
 
-# Skill Promote — Sync Improvements to Flow Source
+# Skill Promote — Sync Improvements to Shared Source
 
 ## Purpose
 
-After `/skill-improve` applies changes to the installed copy at `~/.agents/skills/<skill-name>/`, those improvements only exist locally. This skill promotes them back to the Flow repo source at `tools/flow-install/skills/<skill-name>/` so they become permanent and distributable.
+After `/skill-improve` applies changes to the installed copy at `~/.agents/skills/<skill-name>/`, those improvements only exist locally. This skill promotes them back to the shared Harnessy source at `tools/flow-install/skills/<skill-name>/` so they become permanent and distributable.
 
 ## Inputs
 
 - `skill-name` — the skill to promote (or `--all` to check all skills)
 - `--dry-run` — show what would change without applying
-- `--all` — scan all shared Flow skills for unpromoted improvements
+- `--all` — scan all shared Harnessy skills for unpromoted improvements
 
 Template paths are resolved from `${AGENTS_SKILLS_ROOT}/skill-promote/`.
 
@@ -39,14 +39,14 @@ Also read `~/.agents/traces/<skill-name>/improvements.ndjson` to identify which 
 
 If no unpromoted improvements exist, report "No unpromoted improvements for `<skill-name>`." and stop.
 
-### 2. Resolve Flow repo path
+### 2. Resolve Harnessy repo path
 
-Find the Flow repo root. Check in order:
+Find the Harnessy repo root. Check in order:
 1. Current working directory — if it contains `tools/flow-install/skills/`, use it
 2. `$FLOW_REPO_ROOT` environment variable
 3. `$HOME/.cache/harnessy/` (cached installer source)
 
-If the Flow repo can't be found, report the error and ask the user to cd into it or set `FLOW_REPO_ROOT`.
+If the Harnessy repo can't be found, report the error and ask the user to cd into it or set `FLOW_REPO_ROOT`.
 
 ### 3. Diff installed vs source
 
@@ -78,7 +78,7 @@ If `--dry-run`, stop here.
 
 ### 4. Confirm with user
 
-Ask: "Apply these improvements to the Flow repo source? (yes / no)"
+Ask: "Apply these improvements to the shared Harnessy source? (yes / no)"
 
 ### 5. Apply the promotion
 
@@ -90,7 +90,7 @@ cp "${AGENTS_SKILLS_ROOT}/<skill-name>/<file>" "<flow-repo>/tools/flow-install/s
 
 ### 6. Stage and show the diff
 
-Stage the changes in the Flow repo:
+Stage the changes in the Harnessy repo:
 
 ```bash
 git add "tools/flow-install/skills/<skill-name>/"
@@ -104,7 +104,7 @@ Show the user the staged diff for final review.
 Do NOT commit automatically. Instead, suggest:
 
 ```
-Changes staged in the Flow repo. Recommended next steps:
+Changes staged in the Harnessy repo. Recommended next steps:
 
 1. Review: git diff --cached
 2. Commit:
@@ -190,6 +190,6 @@ If provided, capture via trace_capture.py with gate "run_retrospective" and gate
 ## Output
 
 - Diff summary with improvement evidence
-- Staged changes in Flow repo (not committed)
+- Staged changes in Harnessy repo (not committed)
 - Suggested commit message with trace evidence
 - Promotion record in improvements.ndjson

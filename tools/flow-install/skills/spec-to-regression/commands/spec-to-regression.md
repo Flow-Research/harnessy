@@ -1,5 +1,5 @@
 ---
-description: Generate browser and API regression scenarios from approved specs using the Flow delivery profile
+description: Generate browser and API regression scenarios from approved specs using the Harnessy delivery profile
 argument-hint: "--epic <epic_name> | --spec-dir <path> [--profile .flow/delivery-profile.json]"
 ---
 

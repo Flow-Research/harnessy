@@ -1,5 +1,5 @@
 ---
-description: Generate browser integration suites from the Flow browser regression spec using the delivery profile
+description: Generate browser integration suites from the Harnessy browser regression spec using the delivery profile
 argument-hint: "[--suite <NN>] [--profile .flow/delivery-profile.json] [--delta] [--inspect-first]"
 ---
 

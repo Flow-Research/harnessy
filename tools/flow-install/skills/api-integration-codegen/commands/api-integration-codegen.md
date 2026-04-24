@@ -1,5 +1,5 @@
 ---
-description: Generate API integration suites from the Flow API regression spec using the delivery profile
+description: Generate API integration suites from the Harnessy API regression spec using the delivery profile
 argument-hint: "[--suite <X>] [--profile .flow/delivery-profile.json] [--delta]"
 ---
 

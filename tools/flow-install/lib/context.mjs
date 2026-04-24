@@ -162,7 +162,7 @@ For strategy, ideation, issue intake, PRD, and architecture tradeoff work, also 
 
 - \`projects.md\` — Workspace or repo inventory when present
 - \`decisions.md\` — Settled architectural decisions when present
-- \`AGENTS.md\` — Full Flow agent protocol for this installed repo
+- \`AGENTS.md\` — Full Harnessy agent protocol for this installed repo
 
 ## Standard Strategy Folder
 

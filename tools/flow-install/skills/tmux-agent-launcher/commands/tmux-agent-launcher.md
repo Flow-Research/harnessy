@@ -26,8 +26,8 @@ t attach <session-name> [--dry-run] [--json]
 t list [--json]
 ```
 
-This command is intended to be installed into the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`) by Flow so it is runnable directly from the terminal when that directory is on `PATH`.
-Flow also installs a short alias command, `t`, from the same skill.
+This command is intended to be installed into the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`) by Harnessy so it is runnable directly from the terminal when that directory is on `PATH`.
+Harnessy also installs a short alias command, `t`, from the same skill.
 
 ## Arguments
 

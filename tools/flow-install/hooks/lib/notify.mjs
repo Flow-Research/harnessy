@@ -1,5 +1,5 @@
 /**
- * Flow hook notification utilities.
+ * Harnessy hook notification utilities.
  * Desktop notifications (macOS/Linux) and webhook delivery.
  */
 

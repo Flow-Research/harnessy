@@ -98,7 +98,7 @@ Ask the user: "Which proposals do you want to apply? (all / numbers / none)"
 
 Improvements are applied to the **installed copy** at `${AGENTS_SKILLS_ROOT}/<skill-name>/` (`~/.agents/skills/<skill-name>/`). This is the copy agents read at runtime, so improvements take effect immediately.
 
-The source of truth in the Flow repo (`tools/flow-install/skills/<skill-name>/`) is NOT modified. When the improvement is proven stable, promote it back to Flow via the normal contribution path (PR to `Flow-Research/harnessy`).
+The source of truth in the Harnessy shared source tree (`tools/flow-install/skills/<skill-name>/`) is NOT modified. When the improvement is proven stable, promote it back through the normal contribution path.
 
 For each accepted proposal:
 
@@ -135,7 +135,7 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_query.py" summarize --skill "<skill
 
 ### 8. Check promotion status
 
-After applying improvements, check if the skill has unpromoted improvements relative to the Flow repo source:
+After applying improvements, check if the skill has unpromoted improvements relative to the shared source tree:
 
 ```bash
 python3 "${AGENTS_SKILLS_ROOT}/_shared/promote_check.py" check \
@@ -144,7 +144,7 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/promote_check.py" check \
     --source-root "<flow-repo>/tools/flow-install/skills"
 ```
 
-Use the Flow repo root from the current working directory if `tools/flow-install/skills/` exists, otherwise fall back to `$HOME/.cache/harnessy/tools/flow-install/skills`.
+Use the Harnessy repo root from the current working directory if `tools/flow-install/skills/` exists, otherwise fall back to `$HOME/.cache/harnessy/tools/flow-install/skills`.
 
 ### 9. Report
 
@@ -153,7 +153,7 @@ Summarize:
 - New skill version
 - Trace IDs consumed
 - Next steps: "Run `/skill-validate <skill-name>` to verify the updated skill"
-- If unpromoted improvements exist: "This skill now has N unpromoted improvements (installed v<X> vs source v<Y>). Run `/skill-promote <skill-name>` to push them to the Flow repo source."
+- If unpromoted improvements exist: "This skill now has N unpromoted improvements (installed v<X> vs source v<Y>). Run `/skill-promote <skill-name>` to push them to the shared source tree."
 
 ## When to run this skill
 

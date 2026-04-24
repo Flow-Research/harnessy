@@ -61,8 +61,8 @@ const run = async () => {
 
   await requirePath("AGENTS.md exists", agentsPath);
   const agents = await readFileSafe(agentsPath);
-  if (agents?.includes("<!-- flow:start -->") && agents?.includes("<!-- flow:end -->")) pass("AGENTS.md Flow section present");
-  else fail("AGENTS.md Flow section present");
+  if (agents?.includes("<!-- flow:start -->") && agents?.includes("<!-- flow:end -->")) pass("AGENTS.md Harnessy section present");
+  else fail("AGENTS.md Harnessy section present");
 
   await requirePath("Context README exists", path.join(contextDir, "README.md"));
   await requirePath("Context AGENTS exists", path.join(contextDir, "AGENTS.md"));
@@ -130,18 +130,18 @@ const run = async () => {
 
   const flowCoreSkills = Array.isArray(lockfile?.flowCoreSkills) ? lockfile.flowCoreSkills : [];
   if (flowCoreSkills.length === 0) {
-    warn("Flow core skills inventory unavailable", "No flowCoreSkills recorded in harnessy.lock.json");
+    warn("Harnessy core skills inventory unavailable", "No flowCoreSkills recorded in harnessy.lock.json");
   }
   for (const skill of flowCoreSkills) {
     const globalSkillDir = path.join(GLOBAL_SKILLS_DIR, skill);
     const claudeSkillLink = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill);
     const skillMdPath = path.join(globalSkillDir, "SKILL.md");
-    if (await pathExists(globalSkillDir)) pass("Flow core skill installed globally", skill);
-    else fail("Flow core skill installed globally", skill);
-    if (await pathExists(skillMdPath)) pass("Flow core skill has SKILL.md", skill);
-    else fail("Flow core skill has SKILL.md", skill);
-    if (opencodePaths.includes(normalizedGlobal) && await pathExists(skillMdPath)) pass("OpenCode can resolve Flow core skill", skill);
-    else opencodeCheck("OpenCode can resolve Flow core skill", skill);
+    if (await pathExists(globalSkillDir)) pass("Harnessy core skill installed globally", skill);
+    else fail("Harnessy core skill installed globally", skill);
+    if (await pathExists(skillMdPath)) pass("Harnessy core skill has SKILL.md", skill);
+    else fail("Harnessy core skill has SKILL.md", skill);
+    if (opencodePaths.includes(normalizedGlobal) && await pathExists(skillMdPath)) pass("OpenCode can resolve Harnessy core skill", skill);
+    else opencodeCheck("OpenCode can resolve Harnessy core skill", skill);
     if (await pathExists(claudeSkillLink)) pass("Claude skill symlink exists", skill);
     else fail("Claude skill symlink exists", skill);
   }

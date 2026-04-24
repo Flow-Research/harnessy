@@ -133,7 +133,7 @@ install_uv() {
 
 ensure_node_and_pnpm() {
   if ! need_command node; then
-    log "[error] node is required for Flow installation. Install Node 18+ and rerun."
+    log "[error] node is required for Harnessy installation. Install Node 18+ and rerun."
     exit 1
   fi
 
@@ -149,7 +149,7 @@ ensure_node_and_pnpm() {
   fi
 
   if ! need_command pnpm; then
-    log "[error] pnpm is required for Flow installation. Install pnpm and rerun."
+    log "[error] pnpm is required for Harnessy installation. Install pnpm and rerun."
     exit 1
   fi
 }
@@ -157,7 +157,7 @@ ensure_node_and_pnpm() {
 resolve_flow_source() {
   if [[ "$LOCAL_SOURCE" -eq 1 ]]; then
     FLOW_ROOT="$SCRIPT_DIR"
-    log "[ok] Using local Flow checkout: $FLOW_ROOT"
+    log "[ok] Using local Harnessy checkout: $FLOW_ROOT"
     return
   fi
 
@@ -168,11 +168,11 @@ resolve_flow_source() {
   fi
 
   if [[ -d "$FLOW_ROOT/.git" ]]; then
-    log "[info] Updating existing Flow checkout at $FLOW_ROOT"
+    log "[info] Updating existing Harnessy checkout at $FLOW_ROOT"
     git -C "$FLOW_ROOT" pull --ff-only
   else
     mkdir -p "$(dirname "$FLOW_ROOT")"
-    log "[info] Cloning Flow into $FLOW_ROOT"
+    log "[info] Cloning Harnessy into $FLOW_ROOT"
     git clone "$FLOW_REPO_URL" "$FLOW_ROOT"
   fi
 }
@@ -202,7 +202,7 @@ install_flow_framework() {
   fi
 
   if [[ "$INSTALL_MODE" == "in-place" ]]; then
-    log "[info] Installing Flow framework into target repo: $TARGET_ROOT"
+    log "[info] Installing Harnessy framework into target repo: $TARGET_ROOT"
     if [[ "$use_tty" == "1" ]]; then
       node "$FLOW_ROOT/tools/flow-install/index.mjs" "${flow_args[@]}" --target "$TARGET_ROOT" </dev/tty
     else
@@ -211,7 +211,7 @@ install_flow_framework() {
     return
   fi
 
-  log "[info] Installing Flow framework into project root"
+  log "[info] Installing Harnessy framework into project root"
   (
     cd "$FLOW_ROOT"
     if [[ "$use_tty" == "1" ]]; then
@@ -275,7 +275,7 @@ print_summary() {
   fi
 
   log ""
-  log "Flow installation complete"
+  log "Harnessy installation complete"
   log "- Installer source: $FLOW_ROOT"
   log "- Install target: $installed_root"
   log "- Jarvis: $(command -v jarvis || printf 'not found')"
@@ -283,7 +283,7 @@ print_summary() {
   log "- Terminal command shims: $(local_commands_dir)"
   log "- Lifecycle scripts: $HOME/.scripts"
   if ! path_has_entry "$(local_commands_dir)"; then
-    log "- PATH warning: add '$(local_commands_dir)' to your shell PATH for Flow-installed commands"
+    log "- PATH warning: add '$(local_commands_dir)' to your shell PATH for Harnessy-installed commands"
   fi
   log ""
   log "Next steps:"

@@ -3,8 +3,8 @@
 /**
  * flow-install — .jarvis/context/AGENTS.md management
  *
- * Scaffolds a full Flow protocol file on first install and only updates the
- * Flow-managed block when explicitly requested or accepted interactively.
+ * Scaffolds a full Harnessy protocol file on first install and only updates the
+ * Harnessy-managed block when explicitly requested or accepted interactively.
  */
 
 import crypto from "node:crypto";
@@ -17,9 +17,9 @@ const FLOW_CONTEXT_END = "<!-- flow-context:end -->";
 export const CONTEXT_AGENTS_VERSION = "1.1.0";
 
 const generateManagedSection = (installPaths) => `${FLOW_CONTEXT_START}
-## Flow Protocol
+## Harnessy Protocol
 
-This repo is Flow-managed. Use this file as the canonical Flow agent protocol for the installed project.
+This repo is Harnessy-managed. Use this file as the canonical Harnessy agent protocol for the installed project.
 
 ### Session Start
 
@@ -35,7 +35,7 @@ This repo is Flow-managed. Use this file as the canonical Flow agent protocol fo
 - Global skills live in \`~/.agents/skills/\`
 - Project-local skills live in \`${installPaths.skillsDir}/\` when present
 - Run \`pnpm skills:register\` after adding or updating project-local skills
-- Run \`pnpm harness:verify\` to confirm Flow, community, OpenCode, and Claude parity
+- Run \`pnpm harness:verify\` to confirm Harnessy, community, OpenCode, and Claude parity
 
 ### Context Vault
 
@@ -52,13 +52,13 @@ This repo is Flow-managed. Use this file as the canonical Flow agent protocol fo
 - Keep debt tracked in the debt registers, not only in chat or TODO comments
 ${FLOW_CONTEXT_END}`;
 
-const generateInitialFile = (installPaths) => `# Flow Context AGENTS
+const generateInitialFile = (installPaths) => `# Harnessy Context AGENTS
 
-This file contains Flow's installed agent protocol for this repository.
+This file contains Harnessy's installed agent protocol for this repository.
 
-- Flow manages only the dedicated managed block below.
+- Harnessy manages only the dedicated managed block below.
 - You can add project-specific notes above or below the managed block.
-- Future Flow updates should merge only the managed block, never replace this file.
+- Future Harnessy updates should merge only the managed block, never replace this file.
 
 ${generateManagedSection(installPaths)}
 `;
@@ -125,13 +125,13 @@ export const syncContextAgents = async (
   let shouldUpdate = forceUpdate;
   if (!shouldUpdate && promptOnUpdate && process.stdout.isTTY && process.stdin.isTTY) {
     shouldUpdate = await promptConfirm(
-      `Flow update available for ${contextDirRel}/AGENTS.md. Apply managed-section update now?`,
+      `Harnessy update available for ${contextDirRel}/AGENTS.md. Apply managed-section update now?`,
       false,
     );
   }
 
   if (!shouldUpdate) {
-    log.warn(`${contextDirRel}/AGENTS.md has a Flow update available. Re-run flow-install with --update-context-agents to apply it.`);
+    log.warn(`${contextDirRel}/AGENTS.md has a Harnessy update available. Re-run flow-install with --update-context-agents to apply it.`);
     return { status: "update_available", version: CONTEXT_AGENTS_VERSION, templateHash, changed: false };
   }
 

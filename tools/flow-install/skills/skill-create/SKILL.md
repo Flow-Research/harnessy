@@ -50,8 +50,8 @@ Create a new skill in the monorepo with a valid `manifest.yaml` and a catalog en
 2. **Choose install scope (required)**
    - Ask the user whether the skill should be installed as:
      - `local-repo` (Recommended for repo-specific automation) -> `.agents/skills/<skill-name>/`
-     - `global` (shared Flow skill) -> `tools/flow-install/skills/<skill-name>/`
-   - If the user is unsure, recommend `local-repo` unless the skill is intended for cross-repo reuse through Flow installation.
+     - `global` (shared Harnessy skill) -> `tools/flow-install/skills/<skill-name>/`
+   - If the user is unsure, recommend `local-repo` unless the skill is intended for cross-repo reuse through Harnessy installation.
 3. **Check for duplicates (required)**
    - Search both `.agents/skills` and `tools/flow-install/skills` for matching skill names.
    - Search `.agents/OpenClaw` and `.agents/n8n` when applicable.
@@ -66,7 +66,7 @@ Create a new skill in the monorepo with a valid `manifest.yaml` and a catalog en
    - If the script should be terminal-callable, name the executable after the final command so installation can expose it through the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`).
    - The skill must describe when to call scripts and what input/output contracts they expect.
 6. **Write `manifest.yaml`** using `templates/manifest.yaml`.
-   - **Autoresearch is mandatory**: all Flow skills include `autoresearch: enabled: true` by default. Set `time_budget_seconds` based on blast_radius: high=1800, medium=1200, low=600.
+   - **Autoresearch is mandatory**: all Harnessy skills include `autoresearch: enabled: true` by default. Set `time_budget_seconds` based on blast_radius: high=1800, medium=1200, low=600.
 7. **Write `SKILL.md`** using `templates/SKILL.md` (fill in purpose, inputs, steps, output).
    - If the skill delegates to command docs, reference them as `${AGENTS_SKILLS_ROOT}/<skill-name>/commands/<file-name>.md`.
    - Do not use fragile references like `./commands/<file-name>.md`.

@@ -57,7 +57,7 @@ const installSkillExecutables = async (skillDir, { dryRun = false } = {}) => {
     if (entry.name.endsWith(".md")) continue;
     if (path.extname(entry.name) !== "") continue;
     if (RESERVED_SCRIPT_NAMES.has(entry.name)) {
-      log.warn(`Skipping command shim ${entry.name}; reserved by Flow lifecycle scripts`);
+      log.warn(`Skipping command shim ${entry.name}; reserved by Harnessy lifecycle scripts`);
       continue;
     }
 
@@ -409,8 +409,7 @@ export const registerClaudeSkills = async ({ dryRun = false } = {}) => {
   await writeJson(path.join(marketplaceDir, "marketplace.json"), {
     name: "harnessy",
     owner: {
-      name: "Flow Research",
-      email: "support@flowresearch.dev",
+      name: "Harnessy",
     },
     plugins: [
       {

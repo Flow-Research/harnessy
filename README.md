@@ -163,7 +163,7 @@ jarvis --help
 | `pnpm flow:sync` | Re-run the Harnessy installer from cached harness — pull latest skills, scripts, and templates |
 | `pnpm flow:cleanup` | Clean stale plugin artifacts from old registrations |
 | `pnpm harness:verify` | Verify repo, OpenCode, and Claude harness parity |
-| `pnpm harness:eval` | Run isolated fixture-based Flow installation acceptance checks |
+| `pnpm harness:eval` | Run isolated fixture-based Harnessy installation acceptance checks |
 | `pnpm harness:eval:remote` | Run remote-style Docker bootstrap validation using `install.sh` |
 | `uv tool install --force ./jarvis-cli` | Install the local Jarvis CLI build |
 | `node tools/flow-install/index.mjs --yes` | Install Harnessy into the current repo |
@@ -242,15 +242,15 @@ pnpm harness:eval:remote
 
 `pnpm harness:verify` checks:
 
-- Flow section present in `AGENTS.md`
-- full Flow protocol present in `.jarvis/context/AGENTS.md`
+- Harnessy section present in `AGENTS.md`
+- full Harnessy protocol present in `.jarvis/context/AGENTS.md`
 - core context and memory files under `.jarvis/context/`
 - generated lifecycle scripts exist
 - `package.json` wiring is present
 - `jarvis` is available in `PATH`
 - `~/.agents/skills/` exists
 - lockfile components are recorded
-- every shipped Flow core skill is installed globally and accessible to both OpenCode and Claude Code
+- every shipped Harnessy core skill is installed globally and accessible to both OpenCode and Claude Code
 - OpenCode `skills.paths` includes the required paths
 - Claude marketplace and enabled plugin state exist
 - project-local skills, if present, are visible to both agents
@@ -268,7 +268,7 @@ Every installed project gets:
 Important files:
 
 - `README.md` - knowledge base protocol
-- `AGENTS.md` - full Flow agent protocol for the installed repo
+- `AGENTS.md` - full Harnessy agent protocol for the installed repo
 - `technical-debt.md` - tracked debt register
 - `skills/_catalog.md` - local discovery layer
 - `scopes/_scopes.yaml` - memory scope registry
@@ -292,11 +292,11 @@ Memory file types:
 - `preference`
 - `event`
 
-## Installing Flow in a Team Project
+## Installing Harnessy in a Team Project
 
 Recommended team workflow:
 
-1. From the target repo root, install Flow in place:
+1. From the target repo root, install Harnessy in place:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --here
@@ -322,7 +322,7 @@ npm run skills:register
 
 depending on the repo
 
-If Flow ships a newer protocol block for `.jarvis/context/AGENTS.md`, reinstall will only notify you.
+If Harnessy ships a newer protocol block for `.jarvis/context/AGENTS.md`, reinstall will only notify you.
 It will not overwrite that file automatically. To apply the newer managed block explicitly:
 
 ```bash

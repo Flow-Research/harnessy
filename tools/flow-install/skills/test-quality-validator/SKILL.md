@@ -1,6 +1,6 @@
 ---
 name: test-quality-validator
-description: "Validate generated or hand-written tests for coverage completeness, correctness, and false-green risks using Flow regression artifacts and the delivery profile."
+description: "Validate generated or hand-written tests for coverage completeness, correctness, and false-green risks using Harnessy regression artifacts and the delivery profile."
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash, Write
 argument-hint: "[--epic <epic_name>] [--suite <X>] [--api-only] [--browser-only] [--profile .flow/delivery-profile.json]"

@@ -55,7 +55,7 @@ This will:
 |------|-------------|
 | `--bundle <name>` | Install specific bundle (e.g., "Web Wizard") |
 | `--all` | Install all bundled skills (~150 curated) |
-| `--full` | Install ALL community skills (~1250). Non-interactive. Used by `install.sh` during Flow setup. |
+| `--full` | Install ALL community skills (~1250). Non-interactive. Used by `install.sh` during Harnessy setup. |
 | `--check` | Check for updates without installing |
 | `--list` | List available bundles |
 
@@ -80,7 +80,7 @@ This will:
 # Install all bundled skills (~150 curated)
 /install-skills --all
 
-# Install ALL community skills (~1250, used during Flow install)
+# Install ALL community skills (~1250, used during Harnessy install)
 /install-skills --full
 ```
 

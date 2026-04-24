@@ -118,8 +118,8 @@ if [[ "$INSTALL_CLAUDE" == "1" ]]; then
   fi
 fi
 
-# ── Phase 3: Run Flow install ───────────────────────────────────────────────
-log "Phase 3: Running Flow install"
+# ── Phase 3: Run Harnessy install ───────────────────────────────────────────
+log "Phase 3: Running Harnessy install"
 
 INSTALL_ARGS=(--yes --target "$TARGET_DIR")
 if [[ "$SKIP_COMMUNITY" == "1" ]]; then
@@ -202,7 +202,7 @@ else
   log "  [INFO] Lockfile does not track autoflow (expected for --yes installs)"
 fi
 
-# Goal-agent deterministic verification always runs once Flow is installed.
+# Goal-agent deterministic verification always runs once Harnessy is installed.
 log "Phase 5a: Goal-agent verification"
 FLOW_HARNESS_SOURCE_ROOT="$SOURCE_DIR" GOAL_AGENT_E2E="${GOAL_AGENT_E2E:-0}" \
   bash "$SOURCE_DIR/tests/harness/run-goal-agent-checks.sh" "$TARGET_DIR" >/dev/null || {

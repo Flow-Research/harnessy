@@ -1,6 +1,6 @@
-# Contributing to Flow
+# Contributing to Harnessy
 
-Flow uses a Git-native contribution model for framework changes, shared skills, project-local skills, and shared knowledge or memory.
+Harnessy uses a Git-native contribution model for framework changes, shared skills, project-local skills, and shared knowledge or memory.
 
 Start here:
 
@@ -13,14 +13,14 @@ Start here:
 
 Use this decision tree first.
 
-### I changed Flow itself
+### I changed Harnessy itself
 
 Examples:
 
 - installer behavior
 - shared docs
 - shared lifecycle scripts
-- shared Flow skills in `tools/flow-install/skills/`
+- shared Harnessy skills in `tools/flow-install/skills/`
 
 Use the `flow-core` path in `.jarvis/context/docs/contribution-protocol.md`.
 
@@ -42,7 +42,7 @@ pnpm harness:verify
 
 Use the `project-local-skill` path in `.jarvis/context/docs/contribution-protocol.md`.
 
-### I think a local skill should ship with Flow
+### I think a local skill should ship with Harnessy
 
 Treat it as a `shared-skill-candidate` first. Do not skip the local-skill stage.
 
@@ -63,7 +63,7 @@ If it is personal, tentative, or machine-specific, keep it in:
 Default to the narrower scope first:
 
 - private before shared
-- local before Flow-wide
+- local before Harnessy-wide
 - candidate before published
 
 ## Core Validation Commands
@@ -79,10 +79,10 @@ pnpm harness:verify
 - Do not commit `.env` files or secrets.
 - Do not copy private or machine-specific context into tracked shared docs.
 - Do not publish personal notes verbatim from `.jarvis/context/private/<username>/`.
-- Do not promote repo-specific skills into shared Flow paths without review.
+- Do not promote repo-specific skills into shared Harnessy paths without review.
 
 ## Review Expectations
 
 - Project-local skills: project owner review
-- Shared Flow skills and protocol changes: Flow maintainer review
+- Shared Harnessy skills and protocol changes: Harnessy maintainer review
 - Shared knowledge or memory: relevant scope owner review

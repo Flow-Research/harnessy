@@ -109,7 +109,7 @@ export const installPipelineScripts = async (flowInstallDir, { dryRun = false } 
 // Scaffold .jarvis/hooks.yaml with defaults
 // ---------------------------------------------------------------------------
 
-const DEFAULT_HOOKS_YAML = `# Flow pipeline hook configuration
+const DEFAULT_HOOKS_YAML = `# Harnessy pipeline hook configuration
 # Customize notification channels, SLA thresholds, and protected file patterns.
 
 notifications:

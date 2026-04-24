@@ -21,7 +21,7 @@ for arg in "$@"; do
   esac
 done
 
-echo "=== Flow Verification Track ==="
+echo "=== Harnessy Verification Track ==="
 echo "Repo: $REPO_ROOT"
 echo "Windows policy: WSL-supported"
 echo "Local lane: $( [[ "$SKIP_LOCAL" == "1" ]] && echo skipped || echo enabled )"

@@ -1,6 +1,6 @@
 # Autoflow: The Autoresearch System for Autonomous Software Delivery
 
-> Complete system documentation for Flow's autonomous issue processing,
+> Complete system documentation for Harnessy's autonomous issue processing,
 > quality measurement, and skill self-improvement loop.
 
 ## What Is Autoflow?
@@ -453,7 +453,7 @@ When `max_concurrent > 1` in `program.md`:
 
 ## All Skills Are Autoresearch-Enabled
 
-Every Flow skill includes `autoresearch: enabled: true` in its `manifest.yaml`. This is the default for all new skills created with `/skill-create`. Autoflow discovers autoresearch-enabled skills and can orchestrate the improvement loop for any of them — issue-flow is just the first consumer.
+Every Harnessy skill includes `autoresearch: enabled: true` in its `manifest.yaml`. This is the default for all new skills created with `/skill-create`. Autoflow discovers autoresearch-enabled skills and can orchestrate the improvement loop for any of them — issue-flow is just the first consumer.
 
 ### Manifest Convention
 

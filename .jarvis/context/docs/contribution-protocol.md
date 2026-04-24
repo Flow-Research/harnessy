@@ -1,31 +1,31 @@
-# Flow Contribution Protocol
+# Harnessy Contribution Protocol
 
-This protocol defines how users of Flow-installed applications contribute back to:
+This protocol defines how users of Harnessy-installed applications contribute back to:
 
-- Flow core
+- Harnessy core
 - project-local skills
-- shared Flow skills
+- shared Harnessy skills
 - shared knowledge in `.jarvis/context/`
 - shared memory derived from private or project-local work
 
 This is a Git-native workflow. Contributions move through files, validation scripts, pull requests, and review. There is no separate product submission system in v1.
 
-For the maintainer-specific playbook for promoting a local skill from an installed repo into Flow shared skills, see `skill-promotion-maintainer-playbook.md`.
+For the maintainer-specific playbook for promoting a local skill from an installed repo into Harnessy shared skills, see `skill-promotion-maintainer-playbook.md`.
 
 ## Goals
 
 - Keep local work easy to create and validate.
-- Make promotion to shared Flow artifacts explicit and reviewable.
+- Make promotion to shared Harnessy artifacts explicit and reviewable.
 - Preserve strong boundaries between private, project-local, and shared knowledge.
-- Reuse existing Flow primitives instead of inventing parallel systems.
+- Reuse existing Harnessy primitives instead of inventing parallel systems.
 
 ## Contribution Classes
 
 | Class | Purpose | Canonical home | Review level |
 |---|---|---|---|
-| `flow-core` | Installer, framework, shared docs, shared automation | repo root, `tools/flow-install/`, shared docs | Flow maintainer |
+| `flow-core` | Installer, framework, shared docs, shared automation | repo root, `tools/flow-install/`, shared docs | Harnessy maintainer |
 | `project-local-skill` | Skill useful only inside one installed app or repo | `.agents/skills/` | Project owner |
-| `shared-skill-candidate` | Local skill proposed for reuse across Flow installs | Start in `.agents/skills/`, promote to `tools/flow-install/skills/` | Flow maintainer |
+| `shared-skill-candidate` | Local skill proposed for reuse across Harnessy installs | Start in `.agents/skills/`, promote to `tools/flow-install/skills/` | Harnessy maintainer |
 | `shared-knowledge` | Durable tracked context or documentation | `.jarvis/context/` tracked files | Scope owner |
 | `private-memory` | Personal notes, scratch, drafts, local preferences | `.jarvis/context/private/<username>/` | None by default |
 | `shared-memory-candidate` | Reusable memory promoted out of private/project-local work | Stage privately first, then promote into tracked shared context | Scope owner |
@@ -36,16 +36,16 @@ For the maintainer-specific playbook for promoting a local skill from an install
 |---|---|
 | `private-only` | Stays in gitignored personal space |
 | `project-reviewed` | Accepted for one installed repo or one project |
-| `flow-reviewed` | Accepted as shared Flow framework knowledge or functionality |
-| `published` | Distributed by Flow install and expected to work across agent surfaces |
+| `flow-reviewed` | Accepted as shared Harnessy framework knowledge or functionality |
+| `published` | Distributed by Harnessy install and expected to work across agent surfaces |
 
 ## Source-of-Truth Boundaries
 
-### 1. Flow core
+### 1. Harnessy core
 
 Use for reusable framework logic and docs.
 
-- `tools/flow-install/skills/` — shared Flow skills
+- `tools/flow-install/skills/` — shared Harnessy skills
 - `tools/flow-install/` — installer/runtime logic
 - `scripts/flow/` — generated lifecycle behavior source
 - `README.md` and shared protocol docs — public framework documentation
@@ -82,12 +82,12 @@ Before creating or editing anything, the contributor must answer:
 
 1. Is this private, project-local, or shared?
 2. Is this a skill, a framework change, knowledge, or memory?
-3. Does it need review at the project level or Flow level?
+3. Does it need review at the project level or Harnessy level?
 
 If the answer is unclear, default to the narrower scope first:
 
 - private before shared
-- local before Flow-wide
+- local before Harnessy-wide
 - candidate before published
 
 ## Execution Workflow
@@ -96,9 +96,9 @@ If the answer is unclear, default to the narrower scope first:
 
 Decide which path applies.
 
-### Path A: Flow core
+### Path A: Harnessy core
 
-Use when changing installer behavior, shared docs, shared scripts, or shared Flow skills.
+Use when changing installer behavior, shared docs, shared scripts, or shared Harnessy skills.
 
 ### Path B: Project-local skill
 
@@ -106,7 +106,7 @@ Use when building behavior that belongs only to one installed repo.
 
 ### Path C: Shared skill candidate
 
-Use when a local skill has proven reusable value and should be proposed for Flow-wide distribution.
+Use when a local skill has proven reusable value and should be proposed for Harnessy-wide distribution.
 
 ### Path D: Shared knowledge or shared memory candidate
 
@@ -118,7 +118,7 @@ Use when content is personal, machine-specific, tentative, sensitive, or not rea
 
 ## Phase 2: Stage in the narrowest valid scope
 
-### Flow core
+### Harnessy core
 
 Edit the shared source directly in this repo and prepare a normal PR.
 
@@ -209,7 +209,7 @@ Before promotion to shared tracked context, check:
 - explicit provenance
 - no unresolved contradiction with current tracked context
 
-## Flow core
+## Harnessy core
 
 Before merge, check:
 
@@ -223,9 +223,9 @@ Before merge, check:
 | Artifact | Reviewer |
 |---|---|
 | Project-local skill | Project owner or maintainer |
-| Shared skill candidate | Flow maintainer |
+| Shared skill candidate | Harnessy maintainer |
 | Shared project knowledge | Project scope owner |
-| Shared Flow knowledge/protocol | Flow maintainer |
+| Shared Harnessy knowledge/protocol | Harnessy maintainer |
 | Private memory | No reviewer unless promoted |
 
 Review questions:
@@ -240,7 +240,7 @@ Review questions:
 
 Promotion is always explicit.
 
-### Local skill -> shared Flow skill
+### Local skill -> shared Harnessy skill
 
 Promote only after review. When accepted:
 
@@ -270,7 +270,7 @@ After acceptance:
 
 All of the following should be true:
 
-- solves a problem likely to recur across Flow installs
+- solves a problem likely to recur across Harnessy installs
 - name and docs are generic rather than project-branded
 - required permissions and blast radius are justified
 - passes local validation and parity checks
@@ -336,7 +336,7 @@ Checks:
 
 Failure examples:
 
-- a project-specific skill promoted into shared Flow paths
+- a project-specific skill promoted into shared Harnessy paths
 - user scratch notes committed into `.jarvis/context/`
 
 ### 2. Boundary correctness
@@ -375,17 +375,17 @@ Question: was shared knowledge promoted to the correct scope and no broader?
 Checks:
 
 - project knowledge lands in project-level tracked context
-- Flow-wide protocol changes land in shared framework docs
+- Harnessy-wide protocol changes land in shared framework docs
 - private user material remains under the user scope mapping in `_scopes.yaml`
 
 Failure examples:
 
-- project convention written as Flow-global protocol
-- Flow-global decision hidden in one private notebook
+- project convention written as Harnessy-global protocol
+- Harnessy-global decision hidden in one private notebook
 
 ### 5. Parity correctness
 
-Question: does an accepted skill behave as a first-class Flow artifact across supported agent surfaces?
+Question: does an accepted skill behave as a first-class Harnessy artifact across supported agent surfaces?
 
 Checks:
 
@@ -400,7 +400,7 @@ Failure examples:
 
 ### 6. Promotion correctness
 
-Question: can a project-local contribution be promoted to shared Flow with minimal rework?
+Question: can a project-local contribution be promoted to shared Harnessy with minimal rework?
 
 Checks:
 
@@ -436,7 +436,7 @@ Question: did the right reviewer approve the right artifact?
 Checks:
 
 - local skills reviewed by project owners
-- shared Flow skills reviewed by Flow maintainers
+- shared Harnessy skills reviewed by Harnessy maintainers
 - org/project knowledge reviewed by the relevant scope owner
 
 Failure examples:
@@ -477,8 +477,8 @@ Failure examples:
 
 The protocol is considered correct when all of the following are true:
 
-1. A contributor can add a repo-local skill and validate it without touching Flow core.
-2. A maintainer can promote a good local skill into shared Flow skills using a documented path.
+1. A contributor can add a repo-local skill and validate it without touching Harnessy core.
+2. A maintainer can promote a good local skill into shared Harnessy skills using a documented path.
 3. A contributor can keep private memory private by default.
 4. A reviewer can promote reusable knowledge into tracked shared context with provenance and scope discipline.
 5. Shared/private boundaries remain intact.

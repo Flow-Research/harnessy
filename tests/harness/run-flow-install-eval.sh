@@ -132,9 +132,9 @@ run_base_eval() {
   run_goal_agent_checks "$repo"
   if [[ "${FLOW_EVAL_LLM_TESTS:-0}" == "1" ]]; then
     verify_opencode_skill_load "/brainstorm"
-    record_pass "OpenCode can load Flow core skill" "brainstorm"
+    record_pass "OpenCode can load Harnessy core skill" "brainstorm"
     verify_claude_skill_exec "/brainstorm" "What's on your mind?"
-    record_pass "Claude can execute Flow core slash skill" "brainstorm"
+    record_pass "Claude can execute Harnessy core slash skill" "brainstorm"
   else
     record_pass "OpenCode/Claude LLM tests skipped (FLOW_EVAL_LLM_TESTS not set)"
   fi

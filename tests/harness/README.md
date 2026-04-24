@@ -1,6 +1,6 @@
-# Flow Install Evaluation
+# Harnessy Install Evaluation
 
-This directory contains the executable evaluation harness for Flow installation.
+This directory contains the executable evaluation harness for Harnessy installation.
 
 ## Verification Track
 
@@ -36,12 +36,12 @@ This validates:
 - Jarvis CLI installation in an isolated user home
 - OpenCode CLI installation in an isolated user home
 - Claude CLI installation in an isolated user home
-- Flow install into a base fixture repo
+- Harnessy install into a base fixture repo
 - rerun behavior against the same fixture
 - local project skill registration and parity
 - custom install path support for AGENTS, context, skills, and scripts
-- OpenCode can execute a Flow core slash skill
-- Claude can execute a Flow core slash skill
+- OpenCode can execute a Harnessy core slash skill
+- Claude can execute a Harnessy core slash skill
 - OpenCode can execute a project-local installed skill
 - Claude can execute a project-local installed slash skill
 - goal-agent command is installed and available in isolated HOME
@@ -81,8 +81,8 @@ How it works:
 - runs `jarvis --help` and `pnpm harness:verify` inside the container
 - runs deterministic goal-agent verification inside the container
 - installs `opencode` and `claude` inside the container
-- verifies OpenCode can execute both a Flow core skill and a community skill
-- verifies Claude can execute both a Flow core slash skill and a community slash skill
+- verifies OpenCode can execute both a Harnessy core skill and a community skill
+- verifies Claude can execute both a Harnessy core slash skill and a community slash skill
 
 Optional real worker-driven goal-agent E2E in the clean-room container:
 

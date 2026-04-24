@@ -1,7 +1,7 @@
 {
   "name": "flow-install",
   "version": "1.0.0",
-  "description": "Idempotent installer for the Flow framework — skills, context vault, memory system, and agent infrastructure.",
+  "description": "Idempotent installer for the Harnessy framework — skills, context vault, memory system, and agent infrastructure.",
   "type": "module",
   "bin": {
     "flow-install": "./index.mjs"

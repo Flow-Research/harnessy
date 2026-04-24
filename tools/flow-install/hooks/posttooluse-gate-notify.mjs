@@ -35,7 +35,7 @@ async function main() {
   const message = `Issue gate: ${gate} — ${outcome}`;
 
   const config = loadConfig();
-  await notify('Flow Gate', message, config);
+  await notify('Harnessy Gate', message, config);
 
   process.stdout.write('{}');
 }

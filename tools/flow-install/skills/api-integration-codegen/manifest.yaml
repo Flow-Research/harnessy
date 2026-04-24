@@ -4,7 +4,7 @@ version: 0.2.2
 owner: julian
 status: experimental
 blast_radius: medium
-description: "Generate API integration test suites from Flow regression artifacts using profile-driven suite metadata, helper imports, and project adapters."
+description: "Generate API integration test suites from Harnessy regression artifacts using profile-driven suite metadata, helper imports, and project adapters."
 permissions: [read-source, read-regression-spec, write-test-suites, execute-scripts]
 data_categories: [none]
 egress: []

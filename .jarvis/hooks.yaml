@@ -1,4 +1,4 @@
-# Flow autonomous pipeline — hook configuration
+# Harnessy autonomous pipeline — hook configuration
 # Overrides defaults in tools/flow-install/hooks/lib/config.mjs
 
 notifications:
