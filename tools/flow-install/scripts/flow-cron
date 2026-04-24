@@ -321,6 +321,15 @@ def install_launchd(enabled: list[dict], project_dir: str) -> None:
         with open(plist_path, "wb") as f:
             plistlib.dump(plist, f)
 
+        # Clear any persistent "disabled" flag for this label. macOS auto-disables
+        # labels after repeated bootstrap/launch failures; once disabled, bootstrap
+        # returns a generic EIO ("Bootstrap failed: 5: Input/output error") with no
+        # diagnostic. `enable` is idempotent and a no-op on never-disabled labels.
+        subprocess.run(
+            ["launchctl", "enable", f"gui/{os.getuid()}/{label}"],
+            capture_output=True,
+        )
+
         # Load
         result = subprocess.run(
             ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)],

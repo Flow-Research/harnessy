@@ -29,6 +29,25 @@ state:
     description: "Daily brief with focus items and journal entry"
   - path: "~/.agents/life/feedback/"
     description: "Feedback annotations captured via /life feedback"
+schedule:
+  - name: daily-brief
+    cron: "30 5 * * *"
+    type: prompt
+    command: "/life daily"
+    description: "Daily focus brief at 05:30 (chief-of-staff synthesis)"
+    enabled: false
+  - name: weekly-plan
+    cron: "0 18 * * 0"
+    type: prompt
+    command: "/life weekly"
+    description: "Weekly plan, Sundays 18:00 (anchors next week's briefs)"
+    enabled: false
+  - name: monthly-review
+    cron: "0 9 1 * *"
+    type: prompt
+    command: "/life monthly"
+    description: "Monthly review on the 1st at 09:00 (goal-agent driven)"
+    enabled: false
 dependencies:
   - tool: claude
     description: "Claude Code CLI for monthly/weekly reviews"
