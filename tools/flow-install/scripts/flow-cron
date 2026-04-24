@@ -378,16 +378,27 @@ def status_launchd() -> None:
         return
 
     print(f"Active launchd jobs ({len(entries)}):\n")
-    print(f"  {'PID':<8} {'Exit':<8} Label")
-    print(f"  {'─'*6}  {'─'*6}  {'─'*40}")
+    print(f"  {'PID':<8} {'Runs':<6} {'Last':<10} Label")
+    print(f"  {'─'*6}  {'─'*4}  {'─'*8}  {'─'*40}")
     for line in entries:
         parts = line.split("\t")
-        if len(parts) >= 3:
-            pid = parts[0].strip() or "-"
-            exit_code = parts[1].strip() or "-"
-            label = parts[2].strip()
-            short_label = label.replace(f"{LAUNCHD_PREFIX}.", "")
-            print(f"  {pid:<8} {exit_code:<8} {short_label}")
+        if len(parts) < 3:
+            continue
+        pid = parts[0].strip() or "-"
+        label = parts[2].strip()
+        short_label = label.replace(f"{LAUNCHD_PREFIX}.", "")
+
+        health = _launchctl_health(label)
+        runs = health.get("runs", 0)
+        last_exit = health.get("last_exit")
+        if last_exit is None:
+            last_marker = "—" if runs == 0 else "?"
+        elif last_exit == 0:
+            last_marker = "ok"
+        else:
+            last_marker = f"EXIT {last_exit}"
+
+        print(f"  {pid:<8} {runs:<6} {last_marker:<10} {short_label}")
 
     # Show last execution results from structured log
     exec_log = CRON_STATE_DIR / "exec.log.ndjson"
@@ -441,6 +452,39 @@ def _parse_last_results(exec_log: Path) -> dict[str, dict]:
     except OSError:
         pass
     return last
+
+
+def _launchctl_health(label: str) -> dict:
+    """Query launchd for a label's run count and last exit code.
+
+    The 'Exit' column in `launchctl list` reads 0 for never-run jobs, which gives
+    false reassurance — the silent-failure case (e.g. broken cwd causing the
+    wrapper to never start) can leave that column at 0 while runs accumulate
+    with non-zero exits. `launchctl print` distinguishes the two via 'runs = N'
+    and 'last exit code = (never exited)|N'.
+    """
+    result = subprocess.run(
+        ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return {}
+    info: dict = {"runs": 0, "last_exit": None}
+    for line in result.stdout.splitlines():
+        s = line.strip()
+        if s.startswith("runs = "):
+            try:
+                info["runs"] = int(s.split("=", 1)[1].strip())
+            except ValueError:
+                pass
+        elif s.startswith("last exit code = "):
+            val = s.split("=", 1)[1].strip()
+            if val != "(never exited)":
+                try:
+                    info["last_exit"] = int(val)
+                except ValueError:
+                    pass
+    return info
 
 
 # ── Crontab (Linux fallback) ────────────────────────────────────────────
