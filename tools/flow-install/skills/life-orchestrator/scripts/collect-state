@@ -17,12 +17,32 @@ import sys
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = os.environ.get(
-    "FLOW_PROJECT_ROOT",
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ))))
-)
+def detect_project_root():
+    """Resolve the active Harnessy project root.
+
+    Installed global skill scripts live under `~/.agents/skills`, so deriving the
+    project root from `__file__` points at the global skill directory rather than
+    the repo the scheduler `cd`'d into. Prefer an explicit env var, then the
+    current working tree, and only fall back to the current directory.
+    """
+    env_root = os.environ.get("FLOW_PROJECT_ROOT")
+    if env_root:
+        return env_root
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5, cwd=os.getcwd(),
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    return os.getcwd()
+
+
+PROJECT_ROOT = detect_project_root()
 
 _USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "default"))
 PRIVATE_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "private", _USERNAME)

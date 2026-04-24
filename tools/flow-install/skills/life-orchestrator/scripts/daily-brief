@@ -22,12 +22,32 @@ COLLECT_STATE = os.path.join(SCRIPTS_DIR, "collect-state")
 NOTIFY = os.path.join(SCRIPTS_DIR, "notify")
 AGENTS_LIFE_DIR = os.path.expanduser("~/.agents/life")
 
-PROJECT_ROOT = os.environ.get(
-    "FLOW_PROJECT_ROOT",
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ))))
-)
+def detect_project_root():
+    """Resolve the active Harnessy project root.
+
+    When the skill is installed globally, `__file__` lives under
+    `~/.agents/skills/...`, not inside the active repo. Scheduled runs `cd` into
+    the target project before invoking this script, so prefer the environment or
+    the current git worktree.
+    """
+    env_root = os.environ.get("FLOW_PROJECT_ROOT")
+    if env_root:
+        return env_root
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5, cwd=os.getcwd(),
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    return os.getcwd()
+
+
+PROJECT_ROOT = detect_project_root()
 _USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "default"))
 _USER_PROJECT_PREFIX = f"_{_USERNAME}/"
 
