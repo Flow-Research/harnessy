@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-04-19T23:34:48.131Z",
+  "timestamp": "2026-04-24T06:22:33.672Z",
   "project": "harnessy",
   "monorepo": null,
   "apps": [],
@@ -1329,7 +1329,7 @@
   },
   "contextAgents": {
     "version": "1.1.0",
-    "templateHash": "9782b224e6c0509f56f20f26ad207d4a636552d2d5b55748ed9593e55bdfcd69",
+    "templateHash": "eac04478428c8973c608d4f9128a5c4bd8ee83ef0e12c0333b2be3da5f517215",
     "status": "current",
     "path": ".jarvis/context/AGENTS.md"
   },

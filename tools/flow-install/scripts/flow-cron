@@ -306,6 +306,23 @@ def install_launchd(enabled: list[dict], project_dir: str) -> None:
     LAUNCHD_DIR.mkdir(parents=True, exist_ok=True)
     CRON_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
+    desired_plists = {
+        launchd_plist_path(s["skill"], s["name"]) for s in enabled
+    }
+
+    # Prune stale jobs first so install remains a true reflection of enabled state.
+    for existing_plist in sorted(LAUNCHD_DIR.glob(f"{LAUNCHD_PREFIX}.*.plist")):
+        if existing_plist in desired_plists:
+            continue
+        subprocess.run(
+            ["launchctl", "bootout", f"gui/{os.getuid()}", str(existing_plist)],
+            capture_output=True,
+        )
+        try:
+            existing_plist.unlink()
+        except FileNotFoundError:
+            pass
+
     for s in enabled:
         label = launchd_label(s["skill"], s["name"])
         plist_path = launchd_plist_path(s["skill"], s["name"])

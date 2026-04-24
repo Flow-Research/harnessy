@@ -1,6 +1,6 @@
 name: life-orchestrator
 type: opencode
-version: 0.1.0
+version: 0.1.2
 owner: julian
 status: experimental
 blast_radius: medium
@@ -32,14 +32,14 @@ state:
 schedule:
   - name: daily-brief
     cron: "30 5 * * *"
-    type: prompt
-    command: "/life daily"
+    type: shell
+    command: 'python3 "${AGENTS_SKILLS_ROOT:-$HOME/.agents/skills}/life-orchestrator/scripts/daily-brief"'
     description: "Daily focus brief at 05:30 (chief-of-staff synthesis)"
     enabled: false
   - name: weekly-plan
     cron: "0 18 * * 0"
-    type: prompt
-    command: "/life weekly"
+    type: shell
+    command: 'bash "${AGENTS_SKILLS_ROOT:-$HOME/.agents/skills}/life-orchestrator/scripts/weekly-plan"'
     description: "Weekly plan, Sundays 18:00 (anchors next week's briefs)"
     enabled: false
   - name: monthly-review
