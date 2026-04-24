@@ -110,6 +110,8 @@ export const patchPackageJson = async (projectRoot, { dryRun = false, scriptsDir
     "flow:cleanup": `node ${scriptsDirRef}/cleanup-stale-plugins.mjs`,
     "flow:sync": "bash ${HOME}/.cache/harnessy/install.sh --in-place || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes",
     "flow:sync:force": "bash ${HOME}/.cache/harnessy/install.sh --in-place --force || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes --force",
+    "flow:sync:remote": "bash ${HOME}/.cache/harnessy/install.sh --in-place --refresh-source || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes",
+    "flow:sync:remote:force": "bash ${HOME}/.cache/harnessy/install.sh --in-place --refresh-source --force || node ${HOME}/.cache/harnessy/tools/flow-install/index.mjs --yes --force",
     "harness:verify": `node ${scriptsDirRef}/verify-harness.mjs`,
     "postinstall": `node ${scriptsDirRef}/sync-rules.mjs`,
   };
