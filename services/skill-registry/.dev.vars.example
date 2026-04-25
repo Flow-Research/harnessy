@@ -1,0 +1,4 @@
+# Copy to .dev.vars (gitignored) and fill in.
+# wrangler dev loads this file automatically.
+# For deployed environments use: wrangler secret put PUBLISH_TOKEN
+PUBLISH_TOKEN=replace-with-a-long-random-string

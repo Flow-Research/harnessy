@@ -28,6 +28,7 @@ import {
   log,
 } from "./utils.mjs";
 import { runCleanup, buildCleanupContext } from "./cleanup.mjs";
+import { LocalRegistry } from "./registry/registry-local.mjs";
 
 const GLOBAL_CLAUDE_KNOWN_MARKETPLACES = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
 const FLOW_CLAUDE_PLUGIN_ID = "harnessy";
@@ -186,47 +187,28 @@ const syncClaudeSkillLinks = async (skills, { dryRun = false } = {}) => {
 };
 
 // ---------------------------------------------------------------------------
-// Collect skills from the flow-install skills/ source directory
-// ---------------------------------------------------------------------------
-
-const collectSourceSkills = async (flowInstallRoot) => {
-  const skillsDir = path.join(flowInstallRoot, "skills");
-  if (!(await pathExists(skillsDir))) return [];
-
-  const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-  const skills = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = path.join(skillsDir, entry.name);
-    const skillMd = path.join(skillDir, "SKILL.md");
-    const manifestPath = path.join(skillDir, "manifest.yaml");
-
-    if (!(await pathExists(skillMd))) continue;
-
-    const manifestContent = await readFileSafe(manifestPath);
-    const manifest = manifestContent ? parseSimpleYaml(manifestContent) : {};
-
-    skills.push({
-      name: entry.name,
-      version: manifest.version || "0.0.0",
-      sourceDir: skillDir,
-      manifest,
-    });
-  }
-
-  return skills;
-};
-
-// ---------------------------------------------------------------------------
 // Install skills to ~/.agents/skills/ with version comparison
 // ---------------------------------------------------------------------------
 
-export const installSkills = async (flowInstallRoot, { dryRun = false, force = false } = {}) => {
-  const sourceSkills = await collectSourceSkills(flowInstallRoot);
-  if (sourceSkills.length === 0) {
-    log.warn("No skills found in flow-install skills/ directory.");
+export const installSkills = async (
+  flowInstallRoot,
+  { dryRun = false, force = false, registry } = {},
+) => {
+  const skillRegistry = registry || new LocalRegistry(flowInstallRoot);
+  const summaries = await skillRegistry.list();
+  if (summaries.length === 0) {
+    log.warn("No skills found in registry.");
     return { installed: 0, skipped: 0, upgraded: 0 };
+  }
+
+  const sourceSkills = [];
+  for (const summary of summaries) {
+    const fetched = await skillRegistry.fetch(summary.name, summary.version);
+    sourceSkills.push({
+      ...summary,
+      sourceDir: fetched.dir,
+      manifest: fetched.manifest || summary.manifest,
+    });
   }
 
   await ensureDir(GLOBAL_SKILLS_DIR);
