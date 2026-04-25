@@ -106,3 +106,43 @@ test("WorkerClient requires baseUrl and token at construction", () => {
   assert.throws(() => new WorkerClient({ token: "t" }), /baseUrl/);
   assert.throws(() => new WorkerClient({ baseUrl: "https://x" }), /token/);
 });
+
+test("WorkerClient.recordPublish POSTs the publish entry to /skills/:name/publish", async () => {
+  const fetchImpl = makeFetch(() => jsonResponse(200, { name: "foo", ok: true }));
+  const client = new WorkerClient({ baseUrl: "https://w.example", token: "t", fetchImpl });
+  const entry = {
+    version: "1.0.0",
+    sha: "a".repeat(40),
+    remote: "https://artifacts.example/foo.git",
+    treeHash: "b".repeat(64),
+    files: [{ path: "SKILL.md", sha256: "c".repeat(64) }],
+  };
+  const result = await client.recordPublish("foo", entry);
+  assert.deepEqual(result, { name: "foo", ok: true });
+  assert.equal(fetchImpl.calls[0].url, "https://w.example/skills/foo/publish");
+  assert.equal(fetchImpl.calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(fetchImpl.calls[0].init.body), entry);
+});
+
+test("WorkerClient.recordPublish surfaces Worker errors as WorkerError", async () => {
+  const fetchImpl = makeFetch(() => jsonResponse(400, { error: "Missing required field: sha" }));
+  const client = new WorkerClient({ baseUrl: "https://w.example", token: "t", fetchImpl });
+  await assert.rejects(
+    () => client.recordPublish("foo", {}),
+    (err) => err.status === 400 && /Missing required field/.test(err.message),
+  );
+});
+
+test("WorkerClient.fetchLockfile GETs /lockfile without auth headers", async () => {
+  const fetchImpl = makeFetch(() => jsonResponse(200, {
+    version: 1, namespace: "flow", skills: { foo: { version: "1.0.0" } },
+  }));
+  const client = new WorkerClient({ baseUrl: "https://w.example", token: "t", fetchImpl });
+  const lock = await client.fetchLockfile();
+  assert.equal(lock.version, 1);
+  assert.equal(lock.skills.foo.version, "1.0.0");
+  assert.equal(fetchImpl.calls[0].url, "https://w.example/lockfile");
+  assert.equal(fetchImpl.calls[0].init.method, "GET");
+  // No bearer header on a public read.
+  assert.ok(!fetchImpl.calls[0].init.headers?.authorization);
+});

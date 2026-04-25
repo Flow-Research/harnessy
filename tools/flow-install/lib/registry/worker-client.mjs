@@ -59,4 +59,16 @@ export class WorkerClient {
     validateName(name);
     return this._post(`/skills/${name}/tokens`, { access, ttlSeconds });
   }
+
+  async recordPublish(name, entry) {
+    validateName(name);
+    return this._post(`/skills/${name}/publish`, entry);
+  }
+
+  // Public, unauthenticated. Used by the consumer bootstrap flow.
+  async fetchLockfile() {
+    const res = await this.fetch(`${this.baseUrl}/lockfile`, { method: "GET" });
+    if (!res.ok) throw await parseError(res);
+    return res.json();
+  }
 }

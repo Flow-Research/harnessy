@@ -5,10 +5,34 @@ import worker from "../src/index.mjs";
 
 const TOKEN = "test-publish-token";
 
+const makeKV = (initial = {}) => {
+  const store = new Map(Object.entries(initial));
+  return {
+    store,
+    async get(key, opts) {
+      const value = store.get(key);
+      if (value === undefined) return null;
+      if (opts === "json" || opts?.type === "json") return JSON.parse(value);
+      return value;
+    },
+    async put(key, value) {
+      store.set(key, typeof value === "string" ? value : JSON.stringify(value));
+    },
+    async list({ prefix } = {}) {
+      const keys = Array.from(store.keys())
+        .filter((k) => !prefix || k.startsWith(prefix))
+        .sort()
+        .map((name) => ({ name }));
+      return { keys, list_complete: true };
+    },
+  };
+};
+
 const makeEnv = (overrides = {}) => {
   const calls = { create: [], createToken: [] };
   const env = {
     PUBLISH_TOKEN: TOKEN,
+    LOCKFILE_KV: makeKV(overrides.kvSeed || {}),
     ARTIFACTS: {
       create: async (name) => {
         calls.create.push(name);
@@ -27,6 +51,7 @@ const makeEnv = (overrides = {}) => {
     },
     ...overrides,
   };
+  delete env.kvSeed;
   env.__calls = calls;
   return env;
 };
@@ -173,6 +198,98 @@ test("returns 404 for unknown route", async () => {
 test("returns 404 for wrong method on a known path", async () => {
   const env = makeEnv();
   const { status } = await callJson(env, req("/skills/foo", { method: "GET" }));
+  assert.equal(status, 404);
+});
+
+// ── Phase 6A: lockfile endpoints ────────────────────────────────────────────
+
+const validPublishEntry = {
+  version: "1.2.3",
+  sha: "a".repeat(40),
+  remote: "https://artifacts.example/foo.git",
+  treeHash: "f".repeat(64),
+  files: [{ path: "SKILL.md", sha256: "b".repeat(64) }],
+};
+
+test("POST /skills/:name/publish requires bearer auth", async () => {
+  const env = makeEnv();
+  const { status } = await callJson(
+    env,
+    req("/skills/foo/publish", {
+      method: "POST", auth: null, body: JSON.stringify(validPublishEntry),
+    }),
+  );
+  assert.equal(status, 401);
+});
+
+test("POST /skills/:name/publish stores the entry in KV under key skill:<name>", async () => {
+  const env = makeEnv();
+  const { status, body } = await callJson(
+    env,
+    req("/skills/foo/publish", { method: "POST", body: JSON.stringify(validPublishEntry) }),
+  );
+  assert.equal(status, 200);
+  assert.equal(body.name, "foo");
+  const stored = JSON.parse(env.LOCKFILE_KV.store.get("skill:foo"));
+  assert.equal(stored.version, "1.2.3");
+  assert.equal(stored.sha, "a".repeat(40));
+  assert.equal(stored.treeHash, "f".repeat(64));
+  assert.equal(stored.registry, "artifacts");
+  assert.match(stored.publishedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("POST /skills/:name/publish rejects body missing required fields", async () => {
+  const env = makeEnv();
+  for (const missing of ["version", "sha", "remote", "treeHash", "files"]) {
+    const partial = { ...validPublishEntry };
+    delete partial[missing];
+    const { status, body } = await callJson(
+      env,
+      req("/skills/foo/publish", { method: "POST", body: JSON.stringify(partial) }),
+    );
+    assert.equal(status, 400, `expected 400 when ${missing} is missing`);
+    assert.match(body.error, new RegExp(missing));
+  }
+});
+
+test("GET /lockfile is public (no bearer required) and returns canonical lockfile JSON", async () => {
+  const seed = {
+    "skill:foo": JSON.stringify({
+      version: "1.0.0", sha: "x".repeat(40), remote: "r", treeHash: "y".repeat(64),
+      files: [], registry: "artifacts", publishedAt: "2026-04-25T00:00:00.000Z",
+    }),
+  };
+  const env = makeEnv({ kvSeed: seed });
+  const { status, body } = await callJson(env, req("/lockfile", { method: "GET", auth: null }));
+  assert.equal(status, 200);
+  assert.equal(body.version, 1);
+  assert.equal(body.namespace, "flow");
+  assert.equal(body.skills.foo.version, "1.0.0");
+});
+
+test("GET /lockfile returns an empty lockfile shape when KV is empty", async () => {
+  const env = makeEnv();
+  const { status, body } = await callJson(env, req("/lockfile", { method: "GET", auth: null }));
+  assert.equal(status, 200);
+  assert.deepEqual(body.skills, {});
+});
+
+test("GET /skills/:name is public and returns the single entry", async () => {
+  const seed = {
+    "skill:bar": JSON.stringify({
+      version: "2.0.0", sha: "z".repeat(40), remote: "r", treeHash: "w".repeat(64),
+      files: [], registry: "artifacts", publishedAt: "t",
+    }),
+  };
+  const env = makeEnv({ kvSeed: seed });
+  const { status, body } = await callJson(env, req("/skills/bar", { method: "GET", auth: null }));
+  assert.equal(status, 200);
+  assert.equal(body.version, "2.0.0");
+});
+
+test("GET /skills/:name returns 404 for unknown skill", async () => {
+  const env = makeEnv();
+  const { status } = await callJson(env, req("/skills/nope", { method: "GET", auth: null }));
   assert.equal(status, 404);
 });
 

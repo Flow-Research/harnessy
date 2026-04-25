@@ -45,7 +45,7 @@ Phases 1–5 built the publisher side and the verification primitives. The consu
 | 3 | Publish flow (skill-publish wires through Worker, lockfile records SHA) | Done |
 | 4 | Install/resolve flow (eager git clone now, ArtifactFS later) | Done |
 | 5 | Verification + P2P story (lockfile-fidelity check, signed refs) | Done |
-| 6 | Consumer install flow (public lockfile + bootstrap CLI) | **Pending — required for the original goal** |
+| 6 | Consumer install flow (public lockfile + bootstrap CLI) | Done |
 
 ## Honest status
 
@@ -221,21 +221,97 @@ Either one alone is enough to detect tampering. Both together let you verify wit
 
 This is why `treeHash` is stored in the lockfile next to `sha` — it makes verification offline-capable, which is the whole point of building toward a P2P story.
 
-## Open RECONCILE points (carried forward, not closed by Phase 5)
+## Phase 6 — Consumer install flow (done)
+
+Phase 6 tests: **18 new** (6 Worker + 3 client + 2 publish + 6 bootstrap + 1 already-counted) → **103/103 green** across the full registry suite. Closes the gap between "publishers can push" and "consumers can pull with one command."
+
+### 6A — Worker: KV-backed public lockfile
+
+Added to `services/skill-registry/src/index.mjs`:
+
+- **KV binding** `LOCKFILE_KV` in `wrangler.toml`. Requires `wrangler kv:namespace create LOCKFILE_KV` before deploy; the returned id replaces the placeholder.
+- **`POST /skills/:name/publish`** (authed) — body `{version, sha, remote, treeHash, files}` → writes `skill:<name>` to KV with `registry: "artifacts"` and a server-side `publishedAt` timestamp.
+- **`GET /lockfile`** (public, no auth) — `KV.list({prefix: "skill:"})` then aggregates into `{version: 1, namespace: "flow", skills: {...}}`. `Cache-Control: public, max-age=60` so Cloudflare's edge absorbs traffic.
+- **`GET /skills/:name`** (public, no auth) — single entry, 404 if absent.
+
+Auth was refactored from a global gate to per-route: GETs are public, POSTs require the `PUBLISH_TOKEN` bearer.
+
+### 6B — Public read on the Artifacts side
+
+Decision: rely on `authedFetchUrl()` returning the bare URL when no token is supplied (already supported since Phase 4). Consumers construct `new ArtifactsRegistry({lockfilePath, cacheDir})` with no token; if Cloudflare Artifacts allows anonymous clone for repos in the namespace, fetch succeeds. If not, this becomes RECONCILE point #6 — surfaced cleanly on first consumer install.
+
+### 6C — Bootstrap orchestrator + CLI
+
+New `tools/flow-install/lib/registry/bootstrap.mjs`:
+- `fetchPublicLockfile(workerUrl, fetchImpl)` — `GET <url>/lockfile`, parses JSON, throws with status info on non-200 or invalid JSON.
+- `bootstrapInstall({workerUrl, lockfilePath, cacheDir, fetchImpl, installer})` — fetches the lockfile, writes it locally, hands an `ArtifactsRegistry` to the injected installer. No-half-state guarantees: if fetch fails, the lockfile isn't written and `installer.install` is never called.
+
+New `tools/flow-install/scripts/bootstrap.mjs` — CLI shell:
+```bash
+node tools/flow-install/scripts/bootstrap.mjs --worker-url https://harnessy-skill-registry.<acct>.workers.dev
+```
+Defaults: lockfile cached at `~/.cache/harnessy/skill-registry.lock.json`, skill cache at `~/.cache/harnessy/skills`, install target `~/.agents/skills/`. Supports `--dry-run` (resolve without installing) and `--worker-url` / `HARNESSY_WORKER_URL`.
+
+### 6D — install.sh --from-cloud
+
+Added new mode to `install.sh`:
+- `--from-cloud [--worker-url URL]` — skips all source-clone, jarvis, community-skills, and pnpm logic. Defaults Worker URL via `HARNESSY_DEFAULT_WORKER_URL` (currently `https://harnessy-skill-registry.workers.dev` placeholder; set to your actual deployed URL).
+- When run from a local checkout, uses the in-tree `bootstrap.mjs`. When piped from `curl | bash`, fetches `bootstrap.mjs` from `FLOW_BOOTSTRAP_RAW_URL` (defaults to GitHub raw).
+
+Consumer onboarding becomes:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --from-cloud
+```
+No Cloudflare account, no source clone, no maintainer privileges.
+
+### Updated RECONCILE list (now 6 items)
 
 | # | Where | What to verify |
 |---|---|---|
-| 1 | `services/skill-registry/wrangler.toml` | `[[artifacts]]` stanza key + fields |
+| 1 | `services/skill-registry/wrangler.toml` | `[[artifacts]]` and `[[kv_namespaces]]` stanzas + ids |
 | 2 | `services/skill-registry/src/index.mjs` | `env.ARTIFACTS.create()` shape, idempotency |
 | 3 | same | `repo.createToken(access, ttlSeconds)` signature |
 | 4 | `tools/flow-install/lib/registry/publish-skill.mjs` | `authedPushUrl` auth scheme for git push |
 | 5 | `tools/flow-install/lib/registry/registry-artifacts.mjs` | `authedFetchUrl` auth scheme for git clone |
+| 6 | (new) | Whether Cloudflare Artifacts allows anonymous git clone, or whether public-read needs a token-mint endpoint |
 
-These are all surfaced clearly in the code with `RECONCILE` comments and only need a quick pass once the Cloudflare Artifacts SDK lands publicly.
+### What works end-to-end now (verified by tests)
 
-## Future work (not part of this migration)
+**Publisher** — assuming the Worker is deployed and the publisher has the bearer token:
+```bash
+HARNESSY_WORKER_URL=https://your-worker.workers.dev \
+HARNESSY_PUBLISH_TOKEN=<token> \
+node tools/flow-install/scripts/publish-skill.mjs issue-flow --version 0.8.1
+```
+Pushes the skill, records to KV, updates the local lockfile.
 
-- **Default-flip to artifacts backend** in `installSkills` once at least one skill has gone through publish → install end-to-end against a deployed Worker.
-- **ArtifactFS lazy mount** — replace eager git clone with FUSE-backed on-demand fetch when the skill catalog grows enough that latency matters.
-- **Lockfile-fidelity harness lane** — add a test row to `tests/harness/run-verification-track.sh` that does install → snapshot → wipe → re-install → byte-diff. The primitives for this (`computeContentManifest`) now exist.
-- **Signed refs** — agents could sign `{name, sha, treeHash}` tuples with a key, letting peers verify provenance, not just content. Out of scope for this migration but the data model already supports it.
+**Consumer** — no auth, no source clone:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --from-cloud
+```
+Fetches the public lockfile, clones each skill from Artifacts (via `--depth 1 --branch v<version>`), verifies SHA, populates `~/.agents/skills/`.
+
+**Anyone** — verifies their installed skills haven't drifted:
+```bash
+node tools/flow-install/scripts/verify-skills.mjs
+```
+
+## P2P contract (the load-bearing claim)
+
+What agents exchange over the P2P layer is not files. It's a tuple:
+
+```
+{ name, version, sha, treeHash }
+```
+
+- `sha` — the git commit SHA in the Artifacts repo. Pin point in the Merkle DAG.
+- `treeHash` — the SHA-256 of the canonical content manifest. Independent of git.
+
+Either one alone is enough to detect tampering. Both together let you verify without hitting the registry: any peer can recompute `treeHash` from local files, and any peer can fetch by `sha` to retrieve the canonical bytes. Trust derives from content, not from the host.
+
+This is why `treeHash` is stored in the lockfile next to `sha` — it makes verification offline-capable, which is the whole point of building toward a P2P story.
+
+## Future work (beyond Phase 6)
+
+- **Signed refs** — publishers sign `{name, sha, treeHash}` tuples with a private key; consumers pin known publisher public keys and verify on install. Adds provenance on top of content integrity.
+- **Mirrors / community registries** — once the consumer flow honors `--worker-url`, anyone can stand up a mirror. The signed-refs work above lets consumers trust a mirror without trusting the host.

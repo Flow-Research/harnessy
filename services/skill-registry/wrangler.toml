@@ -13,3 +13,11 @@ namespace = "flow-skills"
 
 # PUBLISH_TOKEN goes in .dev.vars locally and is set via
 # `wrangler secret put PUBLISH_TOKEN` for deployed environments.
+
+# KV namespace stores the canonical lockfile entries that consumers fetch via
+# GET /lockfile and GET /skills/:name. Create with:
+#   wrangler kv:namespace create LOCKFILE_KV
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "LOCKFILE_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

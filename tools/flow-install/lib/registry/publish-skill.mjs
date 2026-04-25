@@ -49,6 +49,11 @@ export const publishSkill = async ({
   const { sha } = await git.publish({ skillDir, name, version, pushUrl });
   const { files, treeHash } = await computeContentManifest(skillDir);
 
+  // Record the published entry on the Worker (KV-backed lockfile that
+  // consumers fetch). Done before the local lockfile write so a Worker failure
+  // leaves no half-state.
+  await workerClient.recordPublish(name, { version, sha, remote, treeHash, files });
+
   const existing = await readRegistryLock(lockfilePath);
   const base = existing.version ? existing : structuredClone(EMPTY_LOCK);
   const entry = {

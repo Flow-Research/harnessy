@@ -17,7 +17,7 @@ const setup = async () => {
 };
 
 const okWorker = () => ({
-  calls: { createSkill: [] },
+  calls: { createSkill: [], recordPublish: [] },
   createSkill(name) {
     this.calls.createSkill.push(name);
     return Promise.resolve({
@@ -26,6 +26,10 @@ const okWorker = () => ({
       writeToken: "wt",
       ttl: 3600,
     });
+  },
+  recordPublish(name, entry) {
+    this.calls.recordPublish.push({ name, entry });
+    return Promise.resolve({ name, ok: true });
   },
 });
 
@@ -137,6 +141,46 @@ test("publishSkill leaves the lockfile untouched if git.publish fails", async ()
   );
 
   await assert.rejects(() => fs.access(lockfilePath), /ENOENT/, "lockfile must not be created");
+});
+
+test("publishSkill calls workerClient.recordPublish with the published entry after git push", async () => {
+  const { skillsRoot, lockfilePath } = await setup();
+  const worker = okWorker();
+  const git = okGit("e".repeat(40));
+
+  await publishSkill({
+    name: "issue-flow", version: "0.8.1",
+    skillsRoot, lockfilePath, workerClient: worker, git,
+    now: () => new Date("2026-04-25T11:00:00.000Z"),
+  });
+
+  assert.equal(worker.calls.recordPublish.length, 1);
+  const recorded = worker.calls.recordPublish[0];
+  assert.equal(recorded.name, "issue-flow");
+  assert.equal(recorded.entry.version, "0.8.1");
+  assert.equal(recorded.entry.sha, "e".repeat(40));
+  assert.equal(recorded.entry.remote, "https://artifacts.example/issue-flow.git");
+  assert.match(recorded.entry.treeHash, /^[0-9a-f]{64}$/);
+  assert.ok(Array.isArray(recorded.entry.files));
+});
+
+test("publishSkill leaves the lockfile untouched if recordPublish fails", async () => {
+  const { skillsRoot, lockfilePath } = await setup();
+  const worker = {
+    calls: { createSkill: [], recordPublish: [] },
+    createSkill: (name) => Promise.resolve({ name, remote: "r", writeToken: "wt", ttl: 1 }),
+    recordPublish: () => Promise.reject(new Error("kv put failed")),
+  };
+  const git = okGit();
+
+  await assert.rejects(
+    () => publishSkill({
+      name: "issue-flow", version: "1.0.0",
+      skillsRoot, lockfilePath, workerClient: worker, git,
+    }),
+    /kv put failed/,
+  );
+  await assert.rejects(() => fs.access(lockfilePath), /ENOENT/);
 });
 
 test("publishSkill records treeHash + files manifest in the lockfile entry", async () => {
