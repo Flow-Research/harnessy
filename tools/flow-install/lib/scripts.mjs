@@ -361,8 +361,6 @@ const registerClaude = async () => {
 
 const registerOpenCode = async () => {
   const config = (await readJsonSafe(GLOBAL_OPENCODE_CONFIG)) || { $schema: "https://opencode.ai/config.json" };
-  const installPaths = await resolveInstallPaths();
-  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
   if (!config.skills) config.skills = {};
   if (!Array.isArray(config.skills.paths)) config.skills.paths = [];
   const normalizePath = async (candidate) => {
@@ -377,10 +375,8 @@ const registerOpenCode = async () => {
     const normalized = await normalizePath(existingPath);
     if (!normalizedPaths.includes(normalized)) normalizedPaths.push(normalized);
   }
-  for (const p of [GLOBAL_SKILLS_DIR, projectSkillsRoot]) {
-    const normalized = await normalizePath(p);
-    if (!normalizedPaths.includes(normalized)) normalizedPaths.push(normalized);
-  }
+  const normalizedGlobal = await normalizePath(GLOBAL_SKILLS_DIR);
+  if (!normalizedPaths.includes(normalizedGlobal)) normalizedPaths.push(normalizedGlobal);
   config.skills.paths = normalizedPaths;
   await writeJson(GLOBAL_OPENCODE_CONFIG, config);
   return normalizedPaths.length;
@@ -881,11 +877,7 @@ const run = async () => {
   else if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode has global skills path", normalizedGlobal);
   else fail("OpenCode has global skills path", normalizedGlobal);
   if (!(await pathExists(projectSkillsRoot))) pass("Project-local skills path optional", projectSkillsRoot);
-  else {
-    const normalizedProjectSkillsRoot = await normalizePath(projectSkillsRoot);
-    if (opencodePaths.includes(normalizedProjectSkillsRoot)) pass("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
-    else opencodeCheck("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
-  }
+  else pass("Project-local skills discovered by current workspace", projectSkillsRoot);
 
   const localEntries = await fs.readdir(projectSkillsRoot, { withFileTypes: true }).catch(() => []);
   const localSkills = localEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -975,7 +967,7 @@ const run = async () => {
     else fail("Global copy exists for local skill", skill);
     if (await pathExists(path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill))) pass("Claude skill symlink for local skill", skill);
     else fail("Claude skill symlink for local skill", skill);
-    if (opencodePaths.includes(await normalizePath(projectSkillsRoot))) pass("OpenCode can resolve local skill", skill);
+    if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode can resolve local skill via global copy", skill);
     else opencodeCheck("OpenCode can resolve local skill", skill);
   }
 

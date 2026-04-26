@@ -29,6 +29,8 @@ t list [--json]
 This command is intended to be installed into the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`) by Harnessy so it is runnable directly from the terminal when that directory is on `PATH`.
 Harnessy also installs a short alias command, `t`, from the same skill.
 
+For the `opencode` runner, the launcher injects `--log-level WARN` by default to avoid pathological INFO log growth unless you explicitly pass your own `--log-level` flag after `--`.
+
 ## Arguments
 
 | Name | Required | Description |
@@ -133,6 +135,7 @@ tmux-agent-launcher list --json
 t --runner claude reviewer
 t --runner claude reviewer -- --prompt "review the PR" --allowedTools "Read,Bash"
 t --runner opencode worker -- --model sonnet
+t --runner opencode worker -- --log-level ERROR --model sonnet
 t list
 ```
 

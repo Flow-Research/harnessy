@@ -168,12 +168,25 @@ esac
 
 RUNNER_BASE_COMMAND="$RUNNER_COMMAND"
 
-# Append runner args (everything after --) with proper shell escaping
-if [[ ${#RUNNER_ARGS[@]} -gt 0 ]]; then
-  for arg in "${RUNNER_ARGS[@]}"; do
-    RUNNER_COMMAND+=" $(printf '%q' "$arg")"
+if [[ "$RUNNER" == "opencode" ]]; then
+  HAS_LOG_LEVEL=0
+  for arg in "${RUNNER_ARGS[@]-}"; do
+    [[ -n "$arg" ]] || continue
+    if [[ "$arg" == "--log-level" || "$arg" == --log-level=* ]]; then
+      HAS_LOG_LEVEL=1
+      break
+    fi
   done
+  if [[ "$HAS_LOG_LEVEL" == "0" ]]; then
+    RUNNER_COMMAND+=" --log-level WARN"
+  fi
 fi
+
+# Append runner args (everything after --) with proper shell escaping
+for arg in "${RUNNER_ARGS[@]-}"; do
+  [[ -n "$arg" ]] || continue
+  RUNNER_COMMAND+=" $(printf '%q' "$arg")"
+done
 
 require_command python3
 

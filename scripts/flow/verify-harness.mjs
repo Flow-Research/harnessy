@@ -108,11 +108,7 @@ const run = async () => {
   else if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode has global skills path", normalizedGlobal);
   else fail("OpenCode has global skills path", normalizedGlobal);
   if (!(await pathExists(projectSkillsRoot))) pass("Project-local skills path optional", projectSkillsRoot);
-  else {
-    const normalizedProjectSkillsRoot = await normalizePath(projectSkillsRoot);
-    if (opencodePaths.includes(normalizedProjectSkillsRoot)) pass("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
-    else opencodeCheck("OpenCode has project-local skills path", normalizedProjectSkillsRoot);
-  }
+  else pass("Project-local skills discovered by current workspace", projectSkillsRoot);
 
   const localEntries = await fs.readdir(projectSkillsRoot, { withFileTypes: true }).catch(() => []);
   const localSkills = localEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -202,7 +198,7 @@ const run = async () => {
     else fail("Global copy exists for local skill", skill);
     if (await pathExists(path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill))) pass("Claude skill symlink for local skill", skill);
     else fail("Claude skill symlink for local skill", skill);
-    if (opencodePaths.includes(await normalizePath(projectSkillsRoot))) pass("OpenCode can resolve local skill", skill);
+    if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode can resolve local skill via global copy", skill);
     else opencodeCheck("OpenCode can resolve local skill", skill);
   }
 
