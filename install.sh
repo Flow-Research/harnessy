@@ -7,6 +7,14 @@ FLOW_CACHE_DIR="${FLOW_CACHE_DIR:-$HOME/.cache/harnessy}"
 FLOW_NONINTERACTIVE="${FLOW_NONINTERACTIVE:-0}"
 FLOW_SKIP_SUBPROJECTS="${FLOW_SKIP_SUBPROJECTS:-0}"
 
+# Phase 6D: cloud bootstrap mode. When --from-cloud is set, install.sh skips
+# all source-clone logic and runs the bootstrap CLI against a published
+# Cloudflare Workers registry instead.
+FLOW_FROM_CLOUD="${FLOW_FROM_CLOUD:-0}"
+HARNESSY_WORKER_URL="${HARNESSY_WORKER_URL:-}"
+HARNESSY_DEFAULT_WORKER_URL="${HARNESSY_DEFAULT_WORKER_URL:-https://harnessy-skill-registry.workers.dev}"
+FLOW_BOOTSTRAP_RAW_URL="${FLOW_BOOTSTRAP_RAW_URL:-https://raw.githubusercontent.com/Flow-Research/harnessy/main/tools/flow-install/scripts/bootstrap.mjs}"
+
 SCRIPT_SOURCE="${BASH_SOURCE[0]-$0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" && pwd)"
 LOCAL_SOURCE=0
@@ -53,11 +61,15 @@ Harnessy installer
 
 Usage:
   ./install.sh [--here] [--target PATH] [--yes] [--reconfigure] [--refresh-source] [--no-community] [--community]
+  ./install.sh --from-cloud [--worker-url URL]
 
 Modes:
   default           Bootstrap a full Harnessy workspace locally
   --here            Install Harnessy into the current repository in-place
   --target PATH     Install Harnessy into the specified repository in-place
+  --from-cloud      Install skills only, fetched directly from the published
+                    cloud registry. No source repo clone, no Cloudflare login,
+                    no maintainer privileges. Skills land in ~/.agents/skills/.
 
 Flags:
   --yes             Non-interactive mode
@@ -66,6 +78,8 @@ Flags:
   --reconfigure     Ask for install destinations again even if saved in lockfile
   --no-community    Skip community skill installation
   --community       Force community skill installation
+  --worker-url URL  Override the default Worker URL for --from-cloud
+                    (env: HARNESSY_WORKER_URL)
   --help            Show this help
 EOF
 }
@@ -84,6 +98,17 @@ parse_args() {
         fi
         INSTALL_MODE="in-place"
         TARGET_ROOT="$2"
+        shift
+        ;;
+      --from-cloud)
+        FLOW_FROM_CLOUD=1
+        ;;
+      --worker-url)
+        if [[ $# -lt 2 ]]; then
+          log "[error] --worker-url requires a URL"
+          exit 1
+        fi
+        HARNESSY_WORKER_URL="$2"
         shift
         ;;
       --yes)
@@ -123,6 +148,46 @@ parse_args() {
   if [[ "$INSTALL_COMMUNITY" == "auto" ]]; then
     INSTALL_COMMUNITY="1"
   fi
+}
+
+run_from_cloud() {
+  if ! need_command node; then
+    log "[error] node is required for --from-cloud installs. Install Node 18+ and rerun."
+    exit 1
+  fi
+
+  local worker_url="${HARNESSY_WORKER_URL:-$HARNESSY_DEFAULT_WORKER_URL}"
+  if [[ -z "$worker_url" ]]; then
+    log "[error] No Worker URL configured. Set --worker-url or HARNESSY_WORKER_URL."
+    exit 1
+  fi
+
+  log "[info] Cloud bootstrap mode"
+  log "  worker: $worker_url"
+
+  local bootstrap_path
+  if [[ "$LOCAL_SOURCE" -eq 1 ]]; then
+    bootstrap_path="$SCRIPT_DIR/tools/flow-install/scripts/bootstrap.mjs"
+    log "  using local bootstrap script: $bootstrap_path"
+  else
+    if ! need_command curl; then
+      log "[error] curl is required to fetch the bootstrap script in cloud mode."
+      exit 1
+    fi
+    mkdir -p "$FLOW_CACHE_DIR"
+    bootstrap_path="$FLOW_CACHE_DIR/bootstrap.mjs"
+    log "  fetching bootstrap script: $FLOW_BOOTSTRAP_RAW_URL"
+    curl -fsSL "$FLOW_BOOTSTRAP_RAW_URL" -o "$bootstrap_path"
+  fi
+
+  HARNESSY_WORKER_URL="$worker_url" node "$bootstrap_path" --worker-url "$worker_url"
+
+  log ""
+  log "Cloud install complete."
+  log "  Skills: $HOME/.agents/skills"
+  log "  Lockfile: $FLOW_CACHE_DIR/skill-registry.lock.json"
+  log ""
+  log "To verify integrity later: node <path-to-bootstrap.mjs> --dry-run --worker-url \"$worker_url\""
 }
 
 install_uv() {
@@ -311,6 +376,12 @@ print_summary() {
 
 main() {
   parse_args "$@"
+
+  if [[ "$FLOW_FROM_CLOUD" == "1" ]]; then
+    run_from_cloud
+    return
+  fi
+
   install_uv
   ensure_node_and_pnpm
   resolve_flow_source
