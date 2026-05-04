@@ -491,20 +491,6 @@ export const registerOpenCodeSkills = async (projectRoot, { dryRun = false, skil
     }
   }
 
-  // Ensure project-local skills dir is registered (if it exists)
-  const projectSkillsDir = path.resolve(projectRoot, skillsDirRel);
-  if (await pathExists(projectSkillsDir)) {
-    const normalizedProjectSkillsDir = await normalizePath(projectSkillsDir);
-    if (!paths.includes(normalizedProjectSkillsDir)) {
-      if (dryRun) {
-        log.dryRun(`Would add ${normalizedProjectSkillsDir} to OpenCode skills.paths`);
-      } else {
-        paths.push(normalizedProjectSkillsDir);
-        changed = true;
-      }
-    }
-  }
-
   if (changed) {
     config.skills.paths = paths;
     await writeJson(GLOBAL_OPENCODE_CONFIG, config);

@@ -255,7 +255,7 @@ pnpm harness:eval:remote
 - `~/.agents/skills/` exists
 - lockfile components are recorded
 - every shipped Harnessy core skill is installed globally and accessible to both OpenCode and Claude Code
-- OpenCode `skills.paths` includes the required paths
+- OpenCode `skills.paths` includes the required global skills path
 - Claude marketplace and enabled plugin state exist
 - project-local skills, if present, are visible to both agents
 - community skills are checked from `harnessy.lock.json` using warn-or-strict behavior based on `communitySkills.strict`

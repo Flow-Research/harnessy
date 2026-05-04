@@ -214,8 +214,6 @@ const registerClaude = async () => {
 
 const registerOpenCode = async () => {
   const config = (await readJsonSafe(GLOBAL_OPENCODE_CONFIG)) || { $schema: "https://opencode.ai/config.json" };
-  const installPaths = await resolveInstallPaths();
-  const projectSkillsRoot = resolveProjectPath(installPaths.skillsDir);
   if (!config.skills) config.skills = {};
   if (!Array.isArray(config.skills.paths)) config.skills.paths = [];
   const normalizePath = async (candidate) => {
@@ -230,10 +228,8 @@ const registerOpenCode = async () => {
     const normalized = await normalizePath(existingPath);
     if (!normalizedPaths.includes(normalized)) normalizedPaths.push(normalized);
   }
-  for (const p of [GLOBAL_SKILLS_DIR, projectSkillsRoot]) {
-    const normalized = await normalizePath(p);
-    if (!normalizedPaths.includes(normalized)) normalizedPaths.push(normalized);
-  }
+  const normalizedGlobal = await normalizePath(GLOBAL_SKILLS_DIR);
+  if (!normalizedPaths.includes(normalizedGlobal)) normalizedPaths.push(normalizedGlobal);
   config.skills.paths = normalizedPaths;
   await writeJson(GLOBAL_OPENCODE_CONFIG, config);
   return normalizedPaths.length;
