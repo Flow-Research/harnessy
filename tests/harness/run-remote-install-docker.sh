@@ -58,7 +58,7 @@ DOCKER_ARGS=(
 
 docker "${DOCKER_ARGS[@]}" "$IMAGE_TAG" bash -lc '
   set -euo pipefail
-  mkdir -p "$HOME/.config/opencode" "$HOME/.claude" "$HOME/.local/bin"
+  mkdir -p "$HOME/.config/opencode" "$HOME/.claude" "$HOME/.codex/skills" "$HOME/.local/bin"
   cat > "$HOME/.config/opencode/opencode.json" <<"EOF"
 {
   "$schema": "https://opencode.ai/config.json",
@@ -131,6 +131,10 @@ if "Hypothesis" not in text and "A/B" not in text and "test" not in text.lower()
     raise SystemExit(1)
 PY
   echo "PASS claude executed community slash skill"
+  test -f "$HOME/.codex/skills/harnessy/brainstorm/SKILL.md"
+  echo "PASS codex directory registration for Harnessy core skill"
+  test -f "$HOME/.codex/skills/harnessy/ab-test-setup/SKILL.md"
+  echo "PASS codex directory registration for community skill"
   if [[ "${FLOW_REMOTE_EVAL_FULL_COMMUNITY:-0}" == "1" ]]; then
     cd "$HOME/harnessy"
     node tools/flow-install/skills/community-skills-install/scripts/main.js --full

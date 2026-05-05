@@ -11,7 +11,12 @@ import path from "node:path";
 const dryRun = process.argv.includes("--dry-run");
 const HOME = os.homedir();
 const PLUGIN_ID = "harnessy";
-const GLOBAL_SKILLS_DIR = path.join(HOME, ".agents", "skills");
+const resolveHome = (p) => p.startsWith("~/") ? path.join(HOME, p.slice(2)) : p;
+const resolveGlobalSkillsDir = () => {
+  const configured = (process.env.AGENTS_SKILLS_ROOT || "").trim();
+  return configured ? path.resolve(resolveHome(configured)) : path.join(HOME, ".agents", "skills");
+};
+const GLOBAL_SKILLS_DIR = resolveGlobalSkillsDir();
 const GLOBAL_CLAUDE_MARKETPLACE = path.join(HOME, ".agents", "claude-marketplace");
 const GLOBAL_CLAUDE_INSTALLED_PLUGINS = path.join(HOME, ".claude", "plugins", "installed_plugins.json");
 const GLOBAL_CLAUDE_PLUGIN_CACHE = path.join(HOME, ".claude", "plugins", "cache", "harnessy");

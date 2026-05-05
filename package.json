@@ -7,6 +7,8 @@
     "skills:validate": "node scripts/flow/validate-skills.mjs",
     "skills:register": "node scripts/flow/register-skills.mjs",
     "skills:register:claude": "node scripts/flow/register-claude-skills.mjs",
+    "skills:register:opencode": "node scripts/flow/register-opencode-skills.mjs",
+    "skills:register:codex": "node scripts/flow/register-codex-skills.mjs",
     "harness:verify": "node scripts/flow/verify-harness.mjs",
     "harness:eval": "bash tests/harness/run-flow-install-eval.sh",
     "harness:eval:remote": "bash tests/harness/run-remote-install-docker.sh",

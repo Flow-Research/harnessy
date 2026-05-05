@@ -1,13 +1,13 @@
 ---
-description: Launch Claude or OpenCode in a named tmux session
-argument-hint: "--runner <claude|opencode> <session-name> [options] [-- <runner-args>...]"
+description: Launch Claude, OpenCode, or Codex in a named tmux session
+argument-hint: "--runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]"
 ---
 
 # Command Contract: tmux-agent-launcher
 
 ## Purpose
 
-Start `claude` or `opencode` in a new tmux session, or attach to an existing named session, so users or agents can keep long-running interactive CLIs isolated by session name.
+Start `claude`, `opencode`, or `codex` in a new tmux session, or attach to an existing named session, so users or agents can keep long-running interactive CLIs isolated by session name.
 
 ## Ownership
 
@@ -18,10 +18,10 @@ Start `claude` or `opencode` in a new tmux session, or attach to an existing nam
 ## Invocation
 
 ```bash
-tmux-agent-launcher --runner <claude|opencode> <session-name> [options] [-- <runner-args>...]
+tmux-agent-launcher --runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]
 tmux-agent-launcher attach <session-name> [--dry-run] [--json]
 tmux-agent-launcher list [--json]
-t --runner <claude|opencode> <session-name> [options] [-- <runner-args>...]
+t --runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]
 t attach <session-name> [--dry-run] [--json]
 t list [--json]
 ```
@@ -41,7 +41,7 @@ For the `opencode` runner, the launcher injects `--log-level WARN` by default to
 
 | Flag | Required | Description |
 |---|---|---|
-| `--runner <name>` | yes | Runner to launch: `claude` or `opencode` |
+| `--runner <name>` | yes | Runner to launch: `claude`, `opencode`, or `codex` |
 | `--cwd <path>` | no | Working directory for the tmux session; defaults to the current directory |
 | `--attach` | no | Attach immediately after creating the session |
 | `--dry-run` | no | Print the resolved launch plan without creating a tmux session |
@@ -61,6 +61,7 @@ For the `opencode` runner, the launcher injects `--log-level WARN` by default to
 |---|---|---|
 | `TMUX_AGENT_LAUNCHER_CLAUDE_CMD` | no | Override the command used for the `claude` runner |
 | `TMUX_AGENT_LAUNCHER_OPENCODE_CMD` | no | Override the command used for the `opencode` runner |
+| `TMUX_AGENT_LAUNCHER_CODEX_CMD` | no | Override the command used for the `codex` runner |
 
 ## Output
 
@@ -127,6 +128,7 @@ List example:
 ```bash
 tmux-agent-launcher --runner claude reviewer
 tmux-agent-launcher --runner opencode planner --cwd /tmp/project --attach
+tmux-agent-launcher --runner codex pairer -- --full-auto
 tmux-agent-launcher --runner claude qa-agent --dry-run --json
 tmux-agent-launcher attach reviewer
 tmux-agent-launcher attach reviewer --dry-run --json
@@ -135,6 +137,7 @@ tmux-agent-launcher list --json
 t --runner claude reviewer
 t --runner claude reviewer -- --prompt "review the PR" --allowedTools "Read,Bash"
 t --runner opencode worker -- --model sonnet
+t --runner codex worker -- --model gpt-5.4
 t --runner opencode worker -- --log-level ERROR --model sonnet
 t list
 ```

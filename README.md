@@ -8,7 +8,7 @@ It gives any repository a working AI operating layer with:
 - shared Harnessy skills installed globally
 - project-specific skills vendored in `.agents/skills/`
 - lifecycle scripts for skill registration, validation, and local setup
-- verification tooling for maintaining compatibility with coding agents like OpenCode and Claude Code
+- verification tooling for maintaining compatibility with coding agents like OpenCode, Claude Code, and Codex
 - a scoped memory system in `.jarvis/context/scopes/`
 - personal context and private space under `.jarvis/context/`
 - a shared context vault and knowledge base protocol
@@ -46,7 +46,9 @@ After installation, a project gets this baseline structure:
 ```
 
 Harnessy core skills are sourced from `tools/flow-install/skills/` and installed into `~/.agents/skills/`.
-Project-specific skills stay in each repo's `.agents/skills/` directory and are copied into `~/.agents/skills/` by the generated scripts, which also refresh Claude Code and OpenCode registration.
+Project-specific skills stay in each repo's `.agents/skills/` directory and are copied into `~/.agents/skills/` by the generated scripts, which also refresh supported agent registrations.
+
+If you need a curated active skill set, set `AGENTS_SKILLS_ROOT` to an alternate directory before running the registration scripts. Harnessy will use that directory instead of the default `~/.agents/skills/`.
 
 ## Installation
 
@@ -159,14 +161,16 @@ jarvis --help
 | Command | Purpose |
 |---|---|
 | `pnpm skills:validate` | Validate shared skill source and catalog consistency |
-| `pnpm skills:register` | Copy project-local skills into `~/.agents/skills/` and refresh OpenCode + Claude registration |
+| `pnpm skills:register` | Copy project-local skills into `~/.agents/skills/` and refresh supported agent registrations |
 | `pnpm skills:register:claude` | Rebuild Claude marketplace metadata from `~/.agents/skills/` |
+| `pnpm skills:register:opencode` | Rebuild OpenCode `skills.paths` from `~/.agents/skills/` |
+| `pnpm skills:register:codex` | Rebuild Codex skill links from `~/.agents/skills/` |
 | `pnpm flow:sync` | Re-run the Harnessy installer from the cached local Harnessy checkout |
 | `pnpm flow:sync:remote` | Pull the latest Harnessy changes into the cache, then reinstall in-place |
 | `pnpm flow:sync:force` | Force a stronger in-place reinstall from the cached local Harnessy checkout |
 | `pnpm flow:sync:remote:force` | Pull latest Harnessy changes into the cache, then force a stronger in-place reinstall |
 | `pnpm flow:cleanup` | Clean stale plugin artifacts from old registrations |
-| `pnpm harness:verify` | Verify repo, OpenCode, and Claude harness parity |
+| `pnpm harness:verify` | Verify repo and supported agent harness parity |
 | `pnpm harness:eval` | Run isolated fixture-based Harnessy installation acceptance checks |
 | `pnpm harness:eval:remote` | Run remote-style Docker bootstrap validation using `install.sh` |
 | `uv tool install --force ./jarvis-cli` | Install the local Jarvis CLI build |
@@ -221,6 +225,8 @@ These power:
 - `skills:register`
 - `skills:validate`
 - `skills:register:claude`
+- `skills:register:opencode`
+- `skills:register:codex`
 - `harness:verify`
 - `postinstall`
 
@@ -254,10 +260,11 @@ pnpm harness:eval:remote
 - `jarvis` is available in `PATH`
 - `~/.agents/skills/` exists
 - lockfile components are recorded
-- every shipped Harnessy core skill is installed globally and accessible to both OpenCode and Claude Code
+- every shipped Harnessy core skill is installed globally and accessible to supported agent runtimes
 - OpenCode `skills.paths` includes the required global skills path
 - Claude marketplace and enabled plugin state exist
-- project-local skills, if present, are visible to both agents
+- Codex skill links exist under `~/.codex/skills/harnessy/`
+- project-local skills, if present, are visible to supported agent runtimes
 - community skills are checked from `harnessy.lock.json` using warn-or-strict behavior based on `communitySkills.strict`
 - `community-skills-install --full` is validated from persisted inventory metadata in `~/.agents/community-install.json` and, when available, `harnessy.lock.json`
 

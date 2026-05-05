@@ -1042,6 +1042,125 @@ class AnyTypeAdapter:
         # Re-fetch and return updated object
         return self.get_object(space_id, object_id)
 
+    # =========================================================================
+    # Sync Operations (folder/file → Anytype Pages and Collections)
+    # =========================================================================
+    #
+    # These methods power `jarvis sync`. They use the SDK's high-level
+    # `Space.create_object` / `update_object` plus the lower-level
+    # `apiEndpoints.addObjectsToList` to attach a created object as a child
+    # of a target Collection. The Anytype API treats Collections as "lists"
+    # at the endpoint layer (POST /spaces/{spaceId}/lists/{listId}/objects).
+
+    def create_collection_in(
+        self,
+        space_id: str,
+        parent_collection_id: str | None,
+        name: str,
+    ) -> str:
+        """Create a Collection-typed Object, optionally as a child of another Collection.
+
+        Args:
+            space_id: Space to create the Collection in.
+            parent_collection_id: If given, the new Collection is attached as
+                a child of this parent via the lists endpoint. None = top-level.
+            name: Display name of the new Collection.
+
+        Returns:
+            The new Collection's object_id.
+
+        Raises:
+            ConnectionError: If not connected or the API call fails.
+        """
+        from anytype import Object as AnytypeObject
+
+        self._ensure_connected()
+        try:
+            space = self._client._client.get_space(space_id)
+            type_collection = space.get_type_byname("Collection")
+            obj = AnytypeObject(name=name, type=type_collection)
+            created = space.create_object(obj)
+            if parent_collection_id:
+                space._apiEndpoints.addObjectsToList(
+                    space_id, parent_collection_id, {"objects": [created.id]}
+                )
+            return str(created.id)
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def create_page_in(
+        self,
+        space_id: str,
+        parent_collection_id: str | None,
+        name: str,
+        body_markdown: str,
+    ) -> str:
+        """Create a Page with markdown body, optionally inside a Collection.
+
+        Args:
+            space_id: Space to create the Page in.
+            parent_collection_id: If given, attach the Page to that Collection.
+                None = top-level (Page lives in the Space root).
+            name: Page title.
+            body_markdown: Page body in Anytype-compatible markdown.
+
+        Returns:
+            The new Page's object_id.
+
+        Raises:
+            ConnectionError: If not connected or the API call fails.
+        """
+        from anytype import Object as AnytypeObject
+
+        self._ensure_connected()
+        try:
+            space = self._client._client.get_space(space_id)
+            type_page = space.get_type_byname("Page")
+            obj = AnytypeObject(name=name, type=type_page)
+            obj.body = body_markdown
+            created = space.create_object(obj)
+            if parent_collection_id:
+                space._apiEndpoints.addObjectsToList(
+                    space_id, parent_collection_id, {"objects": [created.id]}
+                )
+            return str(created.id)
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def update_page_content(
+        self,
+        space_id: str,
+        object_id: str,
+        body_markdown: str,
+    ) -> None:
+        """Replace an existing Page's body with new markdown content.
+
+        Args:
+            space_id: Space containing the Page.
+            object_id: Page to update.
+            body_markdown: New body content.
+
+        Raises:
+            NotFoundError: If the Page doesn't exist.
+            ConnectionError: If not connected or the API call fails.
+        """
+        self._ensure_connected()
+        try:
+            space = self._client._client.get_space(space_id)
+            obj = space.get_object(object_id)
+            obj.body = body_markdown
+            space.update_object(obj)
+        except Exception as e:
+            msg = str(e).lower()
+            if any(p in msg for p in ["not found", "does not exist"]):
+                raise NotFoundError(
+                    f"Object '{object_id}' not found",
+                    backend="anytype",
+                    resource_type="object",
+                    resource_id=object_id,
+                )
+            raise ConnectionError(str(e), backend="anytype")
+
     def _apply_property_update(
         self, prop: dict[str, Any], fmt: str, new_value: object
     ) -> dict[str, Any]:
