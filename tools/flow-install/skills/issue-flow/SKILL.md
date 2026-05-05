@@ -19,7 +19,7 @@ Drive one GitHub issue through the full Harnessy delivery lifecycle using the re
 ## Steps
 1. Follow the command specification in `${AGENTS_SKILLS_ROOT}/issue-flow/commands/issue-flow.md` exactly.
 2. Use existing child skills rather than replacing them.
-3. Run each new issue cycle in the canonical sibling worktree root `../<project-name>-worktrees/<issue_id>_<friendly_name>` derived at runtime via `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py`.
+3. Run each new issue cycle in the canonical project-container worktree root `projects/<project-name>/worktrees/<issue_id>_<friendly_name>` when viewed from the container, or `../worktrees/<issue_id>_<friendly_name>` when invoked from `projects/<project-name>/dev/`, derived at runtime via `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py`.
 4. Persist and reconcile progress through `${SPEC_ROOT}/<epic>/.issue-flow-state.json` using portable git metadata only; never store machine-specific absolute worktree paths in tracked state.
 5. Do not advance phases when a required quality gate or human gate is unresolved.
 

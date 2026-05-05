@@ -11,3 +11,4 @@ const home = os.homedir();
 await fs.mkdir(path.join(home, ".agents", "skills"), { recursive: true }).catch(() => {});
 await fs.mkdir(path.join(home, ".agents", "claude-marketplace", ".claude-plugin"), { recursive: true }).catch(() => {});
 await fs.mkdir(path.join(home, ".claude", "skills"), { recursive: true }).catch(() => {});
+await fs.mkdir(path.join(home, ".codex", "skills", "harnessy"), { recursive: true }).catch(() => {});

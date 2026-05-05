@@ -224,17 +224,29 @@ def compact_state(state):
 
 
 def call_claude(prompt):
-    """Call claude -p with the prompt via stdin. Returns the brief text or None."""
+    """Call claude -p with the prompt via stdin. Returns the brief text or None.
+
+    Uses --strict-mcp-config with an empty MCP file to skip project/plugin MCP
+    startup latency, and --fallback-model so sonnet overload retries on haiku
+    instead of timing out the whole brief. Auth stays on OAuth/keychain
+    (--bare is intentionally NOT used because it would disable keychain auth).
+    """
+    # Stay under flow-cron-exec wrapper's 600s per-attempt cap (60s headroom for cleanup).
+    timeout_s = 540
+    empty_mcp = os.path.expanduser("~/.agents/cron/empty-mcp.json")
     try:
         result = subprocess.run(
             [
                 "claude", "-p",
                 "--output-format", "text",
                 "--model", "sonnet",
+                "--fallback-model", "haiku",
                 "--max-budget-usd", "0.50",
+                "--strict-mcp-config",
+                "--mcp-config", empty_mcp,
             ],
             input=prompt,
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, timeout=timeout_s,
             cwd=PROJECT_ROOT,
         )
         if result.returncode != 0:
@@ -245,7 +257,7 @@ def call_claude(prompt):
         print("Error: 'claude' command not found — is Claude Code installed?", file=sys.stderr)
         return None
     except subprocess.TimeoutExpired:
-        print("Error: claude call timed out after 300s", file=sys.stderr)
+        print(f"Error: claude call timed out after {timeout_s}s", file=sys.stderr)
         return None
 
 

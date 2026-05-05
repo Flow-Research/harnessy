@@ -573,8 +573,8 @@ Tracked in `.jarvis/context/autoflow/pool.json`:
     { "id": "wave_1", "mode": "parallel", "issues": [45, 51], "status": "pending" }
   ],
   "active": [
-    { "issue_number": 42, "status": "running", "worktree": "../project-worktrees/42_feature", "started_at": "..." },
-    { "issue_number": 57, "status": "waiting_human", "worktree": "../project-worktrees/57_fix", "gate": "prd_approval" }
+    { "issue_number": 42, "status": "running", "worktree": "../worktrees/42_feature", "started_at": "..." },
+    { "issue_number": 57, "status": "waiting_human", "worktree": "../worktrees/57_fix", "gate": "prd_approval" }
   ],
   "holdbacks": [
     { "issue_number": 48, "reason": "blocked by #42" }

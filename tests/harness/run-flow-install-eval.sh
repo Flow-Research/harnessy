@@ -20,7 +20,7 @@ record_fail() {
 }
 
 prepare_home() {
-  mkdir -p "$BIN_DIR" "$HOME/.config/opencode" "$HOME/.claude"
+  mkdir -p "$BIN_DIR" "$HOME/.config/opencode" "$HOME/.claude" "$HOME/.codex/skills"
   cat > "$HOME/.config/opencode/opencode.json" <<'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
@@ -130,13 +130,15 @@ run_base_eval() {
   pnpm --dir "$repo" harness:verify >/dev/null
   record_pass "Base fixture harness verify passed"
   run_goal_agent_checks "$repo"
+  test -f "$HOME/.codex/skills/harnessy/brainstorm/SKILL.md"
+  record_pass "Codex skill registry populated" "$HOME/.codex/skills/harnessy/brainstorm/SKILL.md"
   if [[ "${FLOW_EVAL_LLM_TESTS:-0}" == "1" ]]; then
     verify_opencode_skill_load "/brainstorm"
     record_pass "OpenCode can load Harnessy core skill" "brainstorm"
     verify_claude_skill_exec "/brainstorm" "What's on your mind?"
     record_pass "Claude can execute Harnessy core slash skill" "brainstorm"
   else
-    record_pass "OpenCode/Claude LLM tests skipped (FLOW_EVAL_LLM_TESTS not set)"
+    record_pass "OpenCode/Claude execution tests skipped (FLOW_EVAL_LLM_TESTS not set; Codex registration still verified)"
   fi
   install_flow "$repo"
   pnpm --dir "$repo" harness:verify >/dev/null
@@ -161,13 +163,15 @@ run_local_skill_eval() {
   record_pass "Project-local skill copied globally" "$HOME/.agents/skills/fixture-skill/SKILL.md"
   pnpm --dir "$repo" harness:verify >/dev/null
   record_pass "Local-skill fixture harness verify passed"
+  test -f "$HOME/.codex/skills/harnessy/fixture-skill/SKILL.md"
+  record_pass "Codex can see project-local skill" "$HOME/.codex/skills/harnessy/fixture-skill/SKILL.md"
   if [[ "${FLOW_EVAL_LLM_TESTS:-0}" == "1" ]]; then
     verify_opencode_skill_load "/fixture-skill"
     record_pass "OpenCode can load project-local skill" "fixture-skill"
     verify_claude_skill_exec "/fixture-skill" "This skill exists only for harness smoke testing."
     record_pass "Claude can execute project-local slash skill" "fixture-skill"
   else
-    record_pass "OpenCode/Claude LLM tests skipped (FLOW_EVAL_LLM_TESTS not set)"
+    record_pass "OpenCode/Claude execution tests skipped (FLOW_EVAL_LLM_TESTS not set; Codex registration still verified)"
   fi
 }
 

@@ -36,28 +36,37 @@ Treat every epic path in this workflow as `${SPEC_ROOT}/<epic>/...`.
 
 ## Canonical Worktree Strategy
 
-Issue-flow uses a standardized sibling worktree root outside the project folder:
+Issue-flow uses the standardized Harnessy project-container layout:
 
 ```text
-../<project-folder-name>-worktrees/<issue_id>_<friendly_name>
+projects/
+  <project-name>/
+    dev/
+    worktrees/
+      <issue_id>_<friendly_name>/
 ```
 
 Examples:
 
-- repo root: `/code/my-project`
-- worktree root: `/code/my-project-worktrees`
-- issue worktree: `/code/my-project-worktrees/113_add-user-validation`
-- if invoked from `/code/my-project-worktrees/112_fix-auth-redirect`, the canonical worktree root still remains `/code/my-project-worktrees`
+- project container: `/code/projects/my-project`
+- canonical checkout: `/code/projects/my-project/dev`
+- worktree root: `/code/projects/my-project/worktrees`
+- issue worktree: `/code/projects/my-project/worktrees/113_add-user-validation`
+- if invoked from `/code/projects/my-project/worktrees/112_fix-auth-redirect`, the canonical worktree root still remains `/code/projects/my-project/worktrees`
 
 Derive this path at runtime using `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py`.
 
-The canonical worktree root is always derived from the canonical repository root, never from the current worktree checkout directory. If `issue-flow` is invoked from an existing worktree, it must still target the sibling root based on the parent repository name rather than appending `-worktrees` to the current issue folder name.
+For Harnessy-managed projects, the canonical parent checkout should normally sit
+on `dev`, and issue worktrees should normally branch from `dev` unless a
+project-local override explicitly sets a different base branch.
+
+The canonical worktree root is always derived from the canonical `dev/` checkout, never from the current worktree checkout directory. If `issue-flow` is invoked from an existing worktree, it must still target the sibling `worktrees/` root under the same project container.
 
 Rules:
 
 - Never store machine-specific absolute worktree paths in `.issue-flow-state.json`.
 - Store only portable git metadata (`branch`, `worktree_dirname`, strategy).
-- New issue-flow runs must create or reuse the canonical sibling worktree immediately.
+- New issue-flow runs must create or reuse the canonical project-container worktree immediately.
 - Legacy runs without git metadata remain supported; migrate them lazily when the issue next enters active execution.
 
 ## Worktree Scope Enforcement
@@ -129,7 +138,7 @@ The state file must track at minimum:
 1. Load the GitHub issue.
 2. Resolve or create the epic folder under `${SPEC_ROOT}`.
 3. Derive the canonical issue branch name as `<issue_id>_<friendly_name>`. Use the epic slug unless a repo-specific branch convention overrides it.
-4. Create or reuse the canonical sibling worktree for that branch using `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py create ...`.
+4. Create or reuse the canonical project-container worktree for that branch using `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py create ...`.
 5. Create or update `${SPEC_ROOT}/<epic>/.issue-flow-state.json` from inside that worktree.
 6. Seed issue metadata, epic metadata, portable git metadata, current phase, mode, and initial next action.
 
@@ -139,7 +148,7 @@ The state file must track at minimum:
    - explicit issue argument if provided
    - existing `.issue-flow-state.json` that matches the active issue
    - most recently modified `.issue-flow-state.json`
-2. Resolve the canonical sibling worktree root and search there first for matching `.issue-flow-state.json` files.
+2. Resolve the canonical `worktrees/` root and search there first for matching `.issue-flow-state.json` files.
 3. Read the state file.
 4. Reconcile state against GitHub, local artifacts, and git worktree.
 5. Update non-controversial fields in `.issue-flow-state.json`.
@@ -166,7 +175,7 @@ On `issue`, `continue`, and `status`, perform a project-state investigation:
 
 Canonical worktree reconciliation rules:
 
-- Derive the canonical worktree root from the current repository using `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py info`.
+- Derive the canonical worktree root from the canonical `dev/` checkout using `${AGENTS_SKILLS_ROOT}/issue-flow/scripts/issue_flow_git.py info`.
 - If `git.branch` exists in state, derive the canonical worktree path from `git.worktree_dirname` or `git.branch`.
 - If a matching branch is attached in `git worktree list --porcelain`, treat that attachment as authoritative runtime location.
 - If the canonical worktree directory is missing but the branch exists, recreate the worktree at the canonical location.
@@ -372,7 +381,7 @@ At Phase 17 closeout, after all gates pass and before final GitHub sync:
 - After the user approves the synthesized clarification, append the approved update to the existing GitHub issue. Never overwrite existing issue content.
 - Refuse execution only if the issue cannot be made testable after bounded clarification attempts or required approval is withheld.
 - Locate or create the epic path under `${SPEC_ROOT}`.
-- Create or reuse the canonical sibling worktree for the issue branch immediately and continue the issue-flow cycle from there.
+- Create or reuse the canonical `worktrees/` checkout for the issue branch immediately and continue the issue-flow cycle from there.
 - Reconcile local state and GitHub state before proceeding.
 - Initialize or update `.issue-flow-state.json` with issue metadata, epic metadata, portable git metadata, mode, phase, gate defaults, and artifact pointers.
 - Append a `history` event whenever the issue classification or epic association changes.
@@ -447,7 +456,7 @@ At Phase 17 closeout, after all gates pass and before final GitHub sync:
 - Confirm the smallest valid implementation slice.
 - Record any intentional deferrals as technical debt.
 - Stop for human approval before coding starts.
-- If this issue is a legacy run without `git.*` metadata, derive the branch/worktree metadata now and migrate execution into the canonical sibling worktree before Phase 7 starts.
+- If this issue is a legacy run without `git.*` metadata, derive the branch/worktree metadata now and migrate execution into the canonical `worktrees/` checkout before Phase 7 starts.
 - After `execution_scope_approval` passes, ask the user: **"Would you like a design mockup before full implementation? This generates a working UI prototype with dummy data from your specs for visual review."**
   - **If the user declines**: merge `{"mockup": {"offered": true, "declined": true}}` into state. Set `artifact_commits.design_mockup.skipped` to `true`. Proceed to Phase 9.
   - **If the user accepts**:
@@ -511,7 +520,7 @@ At Phase 17 closeout, after all gates pass and before final GitHub sync:
   - If open, update the PR body with full implementation evidence, test results, QA summary, and code review results from prior phases. Replace the spec-only body with a comprehensive delivery summary while preserving the spec checklist and `Closes #<issue_number>`.
   - If closed or merged, create a new PR using the same base branch resolution and format as the Artifact Commit-and-Link procedure.
 - If no PR exists yet:
-  - Resolve the base branch: read `git.base_branch` from state; if unset or missing on remote, check for `dev` then fall back to `main`.
+  - Resolve the base branch: read `git.base_branch` from state; if unset or missing on remote, prefer `dev` and only fall back to `main` for legacy repos that do not yet have `dev`.
   - Create the PR: `gh pr create --base <PR_BASE> --head <branch> --title "feat(#<issue_number>): <issue_title>" --body <body>` with full delivery evidence.
 - After the PR exists, monitor and fix CI failures deterministically.
 - Update the state file with `github.pr_url`, `github.ci_url`, CI status, and any related blockers.
@@ -620,7 +629,7 @@ A reusable procedure for committing an approved artifact to the issue branch and
      ```bash
      git ls-remote --heads origin dev | grep -q dev
      ```
-     If yes, set `PR_BASE=dev`. Otherwise, set `PR_BASE=main`.
+      If yes, set `PR_BASE=dev`. Otherwise, set `PR_BASE=main` as a legacy fallback only.
 
    g. **Create or update PR**:
    - If `github.pr_url` is already set in state, extract the PR number and verify it is still open:

@@ -56,7 +56,7 @@ Run a qualitative review against these scenarios:
 
 - `status` from an issue-flow worktree shows issue number, phase, and target override
 - `status` from main repo checkout shows `issue_flow: not_detected`
-- `pull` from issue-flow worktree defaults to base branch (e.g., `main`), not integration branch
+- `pull` from issue-flow worktree defaults to base branch (e.g., `dev`), not integration branch
 - `pull` with explicit `--branch dev` overrides issue-flow detection
 - `pull` with state file conflict presents interactive choice (keep mine / accept theirs / abort)
 - `pull` with state file + source file conflict aborts entire rebase
