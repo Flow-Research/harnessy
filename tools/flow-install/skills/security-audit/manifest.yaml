@@ -1,0 +1,37 @@
+name: security-audit
+version: 1.0.0
+description: "Autonomous security auditor that identifies vulnerabilities (OWASP, CVEs) and misconfigurations."
+author: Harnessy Framework
+keywords:
+  - security
+  - audit
+  - vulnerability
+  - owasp
+  - cve
+  - compliance
+
+autoresearch:
+  enabled: true
+  time_budget_seconds: 1200
+  blast_radius: medium
+
+allowed_tools:
+  - read_files
+  - bash_execution
+  - web_search
+  - apply_patches
+
+constraints:
+  - "No wildcard execution - only known security binaries (npm audit, trivy, snyk, etc.)"
+  - "No uploading source code to external engines - only search for specific CVEs or library names"
+  - "Every finding must include 'Path to Exploit' and 'Recommended Fix'"
+  - "Prioritize high and critical severity issues"
+  - "Document all assumptions and known limitations"
+
+dependencies: []
+
+tags:
+  - security
+  - code-analysis
+  - compliance
+  - vulnerability-management
