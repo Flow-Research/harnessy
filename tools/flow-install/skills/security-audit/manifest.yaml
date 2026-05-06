@@ -1,0 +1,33 @@
+name: security-audit
+type: opencode
+version: 1.0.0
+owner: harnessy-team
+status: active
+blast_radius: medium
+description: "Autonomous security auditor that identifies vulnerabilities (OWASP, CVEs) and misconfigurations."
+keywords:
+  - security
+  - audit
+  - vulnerability
+  - owasp
+  - cve
+  - compliance
+permissions: [read]
+data_categories: []
+egress: []
+invoke: "/security-audit"
+location: tools/flow-install/skills/security-audit
+
+autoresearch:
+  enabled: true
+  time_budget_seconds: 1200
+  blast_radius: medium
+  constraints:
+    - "No wildcard execution - only known security binaries"
+    - "No uploading source code to external engines"
+    - "Every finding must include 'Path to Exploit' and 'Recommended Fix'"
+
+traces:
+  enabled: true
+
+dependencies: []
