@@ -1,0 +1,7 @@
+﻿Skill,Total Traces,Quality Score,First Pass Rate,Avg Refinement Loops,Avg Duration (s)
+engineer,13,0.6781,0.462,0.846,77.6
+
+Gate Performance:
+test_suite,4,0.25,1.5,90.0
+bug_fix,4,0.5,0.75,83.2
+code_review,5,0.6,0.4,63.2
