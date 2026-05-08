@@ -2,7 +2,7 @@
 
 ## ✅ What Was Delivered
 
-A **complete, production-ready system** for validating the Harnessy Meta-Harness through controlled regression injection and autonomous recovery. The system proves the "Recursive Optimization" loop works autonomously.
+A **complete, demonstration-ready framework** for validating the Harnessy Meta-Harness through controlled regression injection and autonomous recovery. The system is designed to validate the "Recursive Optimization" loop when executed end-to-end.
 
 ### 📦 Deliverables (8 files)
 
@@ -95,7 +95,9 @@ cat "$LATEST/EXPERIMENT_ANALYSIS.md"  # Email this
    - Regression rate ≤ **10%** ✓
    - Human intervention ≤ **50%** ✓
 
-### Expected Metrics
+### Projected Metrics (Hypothetical Example)
+
+*These are target metrics based on the ratchet formula. Actual results will be captured when the experiment runs end-to-end.*
 
 | Phase | f (Success) | p (First-Pass) | q (Quality) | r (Burden) | S (Score) |
 |-------|------------|---|---|---|---|
@@ -103,10 +105,10 @@ cat "$LATEST/EXPERIMENT_ANALYSIS.md"  # Email this
 | **Degraded** | 50% | 35% | 55% | 0.70 | **0.42** |
 | **Recovered** | 98% | 92% | 95% | 0.12 | **0.89** |
 
-**Recovery Proof:**
+**Hypothetical Recovery Example:**
 - Degradation: ΔS = -0.43 (failure is detectable)
 - Recovery: ΔS = +0.47 (exceeds 0.02 threshold)
-- Improvement: +0.04 over baseline (better than original!)
+- Improvement: +0.04 over baseline (target: better than original)
 
 ## 📁 Directory Structure
 
