@@ -11,14 +11,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathExists, readFileSafe, log } from "./utils.mjs";
-
 // ---------------------------------------------------------------------------
 // Harnessy framework section markers
 // ---------------------------------------------------------------------------
 
 const FLOW_START = "<!-- flow:start -->";
 const FLOW_END = "<!-- flow:end -->";
-
 // ---------------------------------------------------------------------------
 // Generate the Harnessy framework section
 // ---------------------------------------------------------------------------
