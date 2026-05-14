@@ -9,6 +9,8 @@ This document is the canonical workspace-level source for engineering workflow g
 - Follow the active project focus in `status.md`.
 - Use the simplest implementation that validates the current roadmap milestone.
 - Prefer project-local conventions when working inside `projects/Flow/`, `jarvis-cli/`, or other nested projects.
+- For Harnessy-managed repos under `projects/`, follow `worktree-protocol.md` for the canonical project-container layout: `dev/` for integration and `worktrees/` for branch-isolated work.
+- Treat `dev` as the default integration branch for active project work unless a deeper project-local override explicitly says otherwise.
 - Keep technical debt in the debt registers, not only in comments or chat.
 
 ## Session Rhythm
@@ -16,6 +18,7 @@ This document is the canonical workspace-level source for engineering workflow g
 ### Before a focused session
 
 - Pull the latest relevant changes.
+- Confirm whether the work belongs in the canonical `dev/` checkout or an existing `worktrees/` branch workspace.
 - Read `projects.md`, `status.md`, and `roadmap.md`.
 - Check sub-project instructions before editing nested code.
 

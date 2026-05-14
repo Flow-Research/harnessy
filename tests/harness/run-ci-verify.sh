@@ -220,6 +220,21 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+# Check Codex registration root
+CODEX_SKILLS_COUNT=$(find ~/.codex/skills/harnessy/ -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+if [[ "$CODEX_SKILLS_COUNT" -gt 30 ]]; then
+  pass "Codex skills registered: $CODEX_SKILLS_COUNT"
+else
+  fail "Expected 30+ Codex skills, found $CODEX_SKILLS_COUNT"
+  FAILURES=$((FAILURES + 1))
+fi
+
+if command -v codex &>/dev/null; then
+  pass "Codex CLI in PATH: $(codex --version 2>/dev/null || echo '?')"
+else
+  warn "Codex CLI not in PATH (directory-based skill registration still verified)"
+fi
+
 # ── Phase 6: Optional tool verification ─────────────────────────────────────
 # When --with-opencode or --with-claude was explicitly requested, these are
 # HARD FAILS — the user asked for it, so it must work.
@@ -276,6 +291,7 @@ echo "  Source:        $SOURCE_DIR"
 echo "  Target:        $TARGET_DIR"
 echo "  OpenCode:      $(if [[ "$INSTALL_OPENCODE" == "1" ]]; then echo "installed"; else echo "skipped"; fi)"
 echo "  Claude:        $(if [[ "$INSTALL_CLAUDE" == "1" ]]; then echo "installed"; else echo "skipped"; fi)"
+echo "  Codex:         $(if command -v codex &>/dev/null; then echo "detected"; else echo "not detected"; fi)"
 echo "  Community:     $(if [[ "$SKIP_COMMUNITY" == "1" ]]; then echo "skipped"; else echo "installed"; fi)"
 echo ""
 

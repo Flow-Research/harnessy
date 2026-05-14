@@ -216,7 +216,7 @@ Minimum correctness checks:
 - catalog and manifest consistency
 - required metadata present
 - no duplicate skill name collisions
-- correct installation visibility across OpenCode and Claude
+- correct installation visibility across supported agent runtimes
 
 ## Knowledge and memory
 
@@ -433,7 +433,7 @@ Checks:
 
 - `pnpm skills:register` completes successfully
 - `pnpm harness:verify` stays green
-- the skill resolves correctly in OpenCode and Claude environments
+- the skill resolves correctly in supported agent environments
 
 Failure examples:
 
@@ -524,7 +524,7 @@ The protocol is considered correct when all of the following are true:
 3. A contributor can keep private memory private by default.
 4. A reviewer can promote reusable knowledge into tracked shared context with provenance and scope discipline.
 5. Shared/private boundaries remain intact.
-6. Shared skill changes preserve OpenCode and Claude parity.
+6. Shared skill changes preserve supported agent parity.
 7. A first-time contributor can complete one common path in under 10 minutes.
 
 ## Recommended Initial Rollout

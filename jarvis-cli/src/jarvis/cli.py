@@ -253,6 +253,11 @@ from jarvis.wiki.cli import wiki_cli  # noqa: E402
 cli.add_command(wiki_cli, name="wiki")
 cli.add_command(wiki_cli, name="w")
 
+# Sync command group — local folder/file → Anytype Space sync, with presets.
+from jarvis.sync.cli import sync_group  # noqa: E402
+
+cli.add_command(sync_group, name="sync")
+
 # ============================================================================
 # Init and Context Commands
 # ============================================================================

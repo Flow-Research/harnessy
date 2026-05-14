@@ -4,13 +4,13 @@
  * flow-install — Idempotent installer for the Harnessy framework
  *
  * Installs skills, context vault, memory system, lifecycle scripts,
- * and AGENTS.md section into any project. Registers skills with both
- * Claude Code and OpenCode for cross-agent consistency.
+ * and AGENTS.md section into any project. Registers skills with supported
+ * agent runtimes for cross-agent consistency.
  *
  * Usage:
  *   npx flow-install              # Full install (or upgrade)
  *   npx flow-install --yes        # Non-interactive (CI-safe)
- *   npx flow-install --skills     # Skills + Claude registration
+ *   npx flow-install --skills     # Skills + agent registration
  *   npx flow-install --memory     # Memory system
  *   npx flow-install --agents-md  # Host AGENTS.md merge
  *   npx flow-install --update-context-agents  # Update .jarvis/context/AGENTS.md managed block
@@ -25,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { log, readJsonSafe, writeJson, pathExists, ensureDir, promptConfirm } from "./lib/utils.mjs";
 import { detectProject } from "./lib/detect.mjs";
-import { installSkills, registerClaudeSkills, registerOpenCodeSkills } from "./lib/skills.mjs";
+import { installSkills, registerAgentSkills } from "./lib/skills.mjs";
 import { installProjectScripts, installScripts, patchPackageJson } from "./lib/scripts.mjs";
 import { scaffoldContext } from "./lib/context.mjs";
 import { CONTEXT_AGENTS_VERSION, syncContextAgents } from "./lib/context-agents.mjs";
@@ -130,14 +130,10 @@ const main = async () => {
     }
   }
 
-  // ── Step 3: Register skills with Claude Code + OpenCode ─────────────────
+  // ── Step 3: Register skills with supported agents ───────────────────────
   if (runAll || onlySkills) {
     log.step(3, TOTAL_STEPS, "Registering skills with agents");
-    await registerClaudeSkills({ dryRun });
-    await registerOpenCodeSkills(projectRoot, {
-      dryRun,
-      skillsDirRel: installPaths.skillsDir,
-    });
+    await registerAgentSkills({ dryRun });
   }
 
   // ── Step 4: Install lifecycle scripts to ~/.scripts/ ────────────────────
@@ -328,6 +324,7 @@ const main = async () => {
         skills: true,
         claude: true,
         opencode: true,
+        codex: true,
         scripts: true,
         context: true,
         memory: true,

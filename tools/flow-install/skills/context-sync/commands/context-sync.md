@@ -175,7 +175,7 @@ If `COMMON_DIR != GIT_DIR`, set `IS_WORKTREE=true`.
 
    Search all subdirectories of the spec root for `.issue-flow-state.json` files. For each found file, read the JSON and check if `git.branch` matches the current branch name.
 
-3. If no state file matched but the current branch matches the pattern `<digits>_<slug>` (e.g., `113_program-team-selection`), set as a soft signal. This adjusts the target branch default to `main` but does not activate full issue-flow awareness (no issue number, no commit enrichment).
+3. If no state file matched but the current branch matches the pattern `<digits>_<slug>` (e.g., `113_program-team-selection`), set as a soft signal. This adjusts the target branch default to `dev` but does not activate full issue-flow awareness (no issue number, no commit enrichment).
 
 4. Store the result as `ISSUE_FLOW_CONTEXT`:
 
@@ -183,7 +183,7 @@ If `COMMON_DIR != GIT_DIR`, set `IS_WORKTREE=true`.
 active: <true if state file found and matched, false otherwise>
 issue_number: <from state.issue.number, or null>
 issue_url: <from state.issue.url, or null>
-base_branch: <from state.git.base_branch, or "main" for soft signal>
+base_branch: <from state.git.base_branch, or "dev" for soft signal>
 phase_id: <from state.phase.id, or null>
 phase_name: <from state.phase.name, or null>
 state_file_path: <relative path to matched state file, or null>
@@ -197,7 +197,7 @@ Read only these fields from the state file: `issue.number`, `issue.url`, `git.br
 When `ISSUE_FLOW_CONTEXT.active` is true (or soft signal matched) and the user did NOT pass an explicit `--branch`:
 - Override `TARGET_BRANCH` to `ISSUE_FLOW_CONTEXT.base_branch`
 - Log: `"Issue-flow detected (#<number>, Phase <id>). Target branch: <base_branch>"`
-- For soft signal: `"Issue-flow branch pattern detected. Target branch: main"`
+- For soft signal: `"Issue-flow branch pattern detected. Target branch: dev"`
 
 This override applies to both `pull` and `push` flows. It ensures the issue branch rebases from and targets its actual base branch, not the integration branch — minimizing conflicts from unrelated work.
 
@@ -789,4 +789,3 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
 
 After completion, ask: **"Any feedback on this context-sync run? (skip to finish)"**
 If provided, capture via trace_capture.py with gate "run_retrospective" and gate-type "retrospective".
-

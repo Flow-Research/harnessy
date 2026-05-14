@@ -26,16 +26,23 @@ def current_checkout_root(start: Optional[Path] = None) -> Path:
 
 def canonical_repo_root(start: Optional[Path] = None) -> Path:
     cwd = start or Path.cwd()
+    checkout_root = current_checkout_root(cwd)
+    if checkout_root.name == "dev":
+        return checkout_root.resolve()
+    if checkout_root.parent.name == "worktrees":
+        return (checkout_root.parent.parent / "dev").resolve()
     common_dir = Path(run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=cwd))
+    if common_dir.name == ".repo":
+        return (common_dir.parent / "dev").resolve()
     return common_dir.parent.resolve()
 
 
 def project_name(repo_root: Path) -> str:
-    return repo_root.name
+    return repo_root.parent.name if repo_root.name == "dev" else repo_root.name
 
 
 def canonical_worktree_root(repo_root: Path) -> Path:
-    return (repo_root.parent / f"{repo_root.name}-worktrees").resolve()
+    return (repo_root.parent / "worktrees").resolve()
 
 
 def sanitize_branch_name(raw: str) -> str:
@@ -190,9 +197,9 @@ def info_payload(repo_root: Path) -> Dict[str, Any]:
         "current_checkout_root": str(checkout_root),
         "inside_linked_worktree": checkout_root != repo_root,
         "project": project_name(repo_root),
-        "worktree_strategy": "sibling-project-worktrees-v1",
+        "worktree_strategy": "project-container-worktrees-v1",
         "worktree_root": str(canonical_worktree_root(repo_root)),
-        "worktree_root_relative_hint": f"../{repo_root.name}-worktrees",
+        "worktree_root_relative_hint": "../worktrees",
     }
 
 
@@ -240,7 +247,7 @@ def parse_args() -> argparse.Namespace:
     create_parser = subparsers.add_parser("create")
     create_parser.add_argument("--repo-root")
     create_parser.add_argument("--branch", required=True)
-    create_parser.add_argument("--base-branch", default="main")
+    create_parser.add_argument("--base-branch", default="dev")
 
     list_parser = subparsers.add_parser("list")
     list_parser.add_argument("--repo-root")

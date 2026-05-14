@@ -432,7 +432,7 @@ When `max_concurrent > 1` in `program.md`:
 - Multiple issues process simultaneously in separate git worktrees
 - When an issue hits an active human gate, it moves to `waiting_human` and the next issue starts
 - Improvement cycles are always serial — no concurrent skill edits
-- Each issue gets its own worktree at `../<project>-worktrees/<issue_id>_<name>`
+- Each issue gets its own worktree at `projects/<project>/worktrees/<issue_id>_<name>` from the container view, or `../worktrees/<issue_id>_<name>` when invoked from `projects/<project>/dev/`
 
 ---
 

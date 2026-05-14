@@ -6,14 +6,14 @@ SCRIPT_NAME=$(basename "$0")
 usage() {
   cat <<'EOF'
 Usage:
-  tmux-agent-launcher --runner <claude|opencode> <session-name> [options] [-- <runner-args>...]
+  tmux-agent-launcher --runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]
   tmux-agent-launcher attach <session-name> [--dry-run] [--json]
   tmux-agent-launcher list [--json]
 
-Launch Claude or OpenCode in a named tmux session, attach to an existing session, or list sessions.
+Launch Claude, OpenCode, or Codex in a named tmux session, attach to an existing session, or list sessions.
 
 Options:
-  --runner <name>   Runner to launch: claude or opencode
+  --runner <name>   Runner to launch: claude, opencode, or codex
   --cwd <path>      Working directory for the tmux session (default: current directory)
   --attach          Attach to the session after creating it
   --dry-run         Print the launch plan without creating a tmux session
@@ -160,6 +160,9 @@ case "$RUNNER" in
     ;;
   opencode)
     RUNNER_COMMAND=${TMUX_AGENT_LAUNCHER_OPENCODE_CMD:-opencode}
+    ;;
+  codex)
+    RUNNER_COMMAND=${TMUX_AGENT_LAUNCHER_CODEX_CMD:-codex}
     ;;
   *)
     fail 2 "Unsupported runner: $RUNNER"

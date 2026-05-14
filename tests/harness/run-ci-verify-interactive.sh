@@ -13,6 +13,7 @@ set -euo pipefail
 # After verification completes (pass or fail), you'll be dropped into a bash shell
 # inside the container. Explore freely:
 #   ls ~/.agents/skills/
+#   ls ~/.codex/skills/harnessy/
 #   cat harnessy.lock.json
 #   node scripts/flow/verify-harness.mjs
 #   bash /source/harnessy/tests/harness/run-goal-agent-checks.sh /workspace
@@ -80,6 +81,7 @@ docker run \
         echo ''
         echo 'Dropping into interactive shell. Explore freely:'
          echo '  ls ~/.agents/skills/'
+         echo '  ls ~/.codex/skills/harnessy/'
          echo '  cat harnessy.lock.json'
          echo '  node scripts/flow/verify-harness.mjs'
          echo '  bash /source/harnessy/tests/harness/run-goal-agent-checks.sh /workspace'

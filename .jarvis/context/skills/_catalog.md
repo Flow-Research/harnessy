@@ -396,7 +396,7 @@ install_scope: global
 status: experimental
 owner: julian
 blast_radius: medium
-description: "Launch Claude or OpenCode in a named tmux session from the command line or a skill wrapper."
+description: "Launch Claude, OpenCode, or Codex in a named tmux session from the command line or a skill wrapper."
 location: tools/flow-install/skills/tmux-agent-launcher
 invoke: "/tmux-agent-launcher"
 permissions: [execute]

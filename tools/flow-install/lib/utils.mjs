@@ -159,13 +159,20 @@ export const compareSemver = (a, b) => {
 // ---------------------------------------------------------------------------
 
 export const homeDir = os.homedir();
+export const DEFAULT_GLOBAL_SKILLS_DIR = path.join(homeDir, ".agents", "skills");
 
 export const resolveHome = (p) => {
   if (p.startsWith("~/")) return path.join(homeDir, p.slice(2));
   return p;
 };
 
-export const GLOBAL_SKILLS_DIR = path.join(homeDir, ".agents", "skills");
+export const resolveGlobalSkillsDir = () => {
+  const configured = process.env.AGENTS_SKILLS_ROOT?.trim();
+  if (!configured) return DEFAULT_GLOBAL_SKILLS_DIR;
+  return path.resolve(resolveHome(configured));
+};
+
+export const GLOBAL_SKILLS_DIR = resolveGlobalSkillsDir();
 export const GLOBAL_SCRIPTS_DIR = path.join(homeDir, ".scripts");
 export const GLOBAL_COMMANDS_DIR = process.env.XDG_BIN_HOME?.trim() || path.join(homeDir, ".local", "bin");
 export const GLOBAL_CLAUDE_MARKETPLACE = path.join(homeDir, ".agents", "claude-marketplace");

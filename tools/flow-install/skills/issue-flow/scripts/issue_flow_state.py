@@ -67,8 +67,8 @@ def default_state(spec_root: str, epic_name: str, epic_path: str) -> Dict[str, A
         "mode": "discovery-recovery",
         "git": {
             "branch": None,
-            "base_branch": "main",
-            "worktree_strategy": "sibling-project-worktrees-v1",
+            "base_branch": "dev",
+            "worktree_strategy": "project-container-worktrees-v1",
             "worktree_dirname": None,
         },
         "github": {
@@ -219,8 +219,8 @@ def command_init(args: argparse.Namespace) -> int:
     if not state["git"].get("branch"):
         state["git"]["branch"] = epic_name = state.get("epic", {}).get("name")
         state["git"]["worktree_dirname"] = epic_name
-    state["git"].setdefault("base_branch", "main")
-    state["git"].setdefault("worktree_strategy", "sibling-project-worktrees-v1")
+    state["git"].setdefault("base_branch", "dev")
+    state["git"].setdefault("worktree_strategy", "project-container-worktrees-v1")
 
     save_state(path, state)
     print(json.dumps(state, indent=2))

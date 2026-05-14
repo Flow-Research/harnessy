@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * flow-install — skill installation to ~/.agents/skills/ + Claude registration
+ * flow-install — skill installation to ~/.agents/skills/ + agent registration
  */
 
 import fs from "node:fs/promises";
@@ -12,31 +12,30 @@ import {
   pathExists,
   readFileSafe,
   readJsonSafe,
-  writeJson,
   copyDir,
   ensureDir,
   parseSimpleYaml,
-  parseFrontmatter,
   compareSemver,
   GLOBAL_SKILLS_DIR,
   GLOBAL_COMMANDS_DIR,
-  GLOBAL_CLAUDE_MARKETPLACE,
-  GLOBAL_CLAUDE_SETTINGS,
-  GLOBAL_CLAUDE_SKILLS_DIR,
   homeDir,
-  GLOBAL_OPENCODE_CONFIG,
   log,
 } from "./utils.mjs";
-import { runCleanup, buildCleanupContext } from "./cleanup.mjs";
-
-const GLOBAL_CLAUDE_KNOWN_MARKETPLACES = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
-const FLOW_CLAUDE_PLUGIN_ID = "harnessy";
+import {
+  registerAllAgentSkills as registerAllAgents,
+  registerClaudeSkills as registerClaudeAgentSkills,
+  registerOpenCodeSkills as registerOpenCodeAgentSkills,
+  registerCodexSkills as registerCodexAgentSkills,
+  listActiveSkills,
+} from "./agents.mjs";
 const execFileAsync = promisify(execFile);
 
 const RESERVED_SCRIPT_NAMES = new Set([
   "register-skills.mjs",
   "validate-skills.mjs",
   "register-claude-skills.mjs",
+  "register-opencode-skills.mjs",
+  "register-codex-skills.mjs",
   "verify-harness.mjs",
   "sync-rules.mjs",
   "skills-root.mjs",
@@ -157,32 +156,6 @@ const ensurePythonPackages = async (skill, { dryRun = false } = {}) => {
   }
 
   return installedCount;
-};
-
-const syncClaudeSkillLinks = async (skills, { dryRun = false } = {}) => {
-  if (dryRun) {
-    log.dryRun(`Would sync ${skills.length} Claude slash skill(s) into ~/.claude/skills`);
-    return;
-  }
-
-  await ensureDir(GLOBAL_CLAUDE_SKILLS_DIR);
-
-  for (const skill of skills) {
-    const targetPath = path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill.name);
-    try {
-      const existing = await fs.lstat(targetPath);
-      if (existing.isSymbolicLink()) {
-        const existingTarget = await fs.readlink(targetPath);
-        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
-        if (resolvedExisting === skill.skillDir) continue;
-      }
-      await fs.rm(targetPath, { recursive: true, force: true });
-    } catch {}
-
-    await fs.symlink(skill.skillDir, targetPath, "dir").catch(async () => {
-      await copyDir(skill.skillDir, targetPath);
-    });
-  }
 };
 
 // ---------------------------------------------------------------------------
@@ -332,190 +305,28 @@ export const installSkills = async (flowInstallRoot, { dryRun = false, force = f
   return { installed, skipped, upgraded, commandShims, total: sourceSkills.length };
 };
 
-// ---------------------------------------------------------------------------
-// Claude Code skill registration
-// ---------------------------------------------------------------------------
-
 export const registerClaudeSkills = async ({ dryRun = false } = {}) => {
-  // Scan all skills in ~/.agents/skills/ (both shared and any already there)
   if (!(await pathExists(GLOBAL_SKILLS_DIR))) {
     log.warn("No skills directory at ~/.agents/skills/. Skipping Claude registration.");
-    return;
+    return 0;
   }
-
-  const entries = await fs.readdir(GLOBAL_SKILLS_DIR, { withFileTypes: true });
-  const skills = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = path.join(GLOBAL_SKILLS_DIR, entry.name);
-    const skillMdPath = path.join(skillDir, "SKILL.md");
-    const content = await readFileSafe(skillMdPath);
-    if (!content) continue;
-
-    const fm = parseFrontmatter(content);
-    const name = entry.name;
-    const description = fm?.data?.description || "";
-
-    if (!description) continue; // Skip skills without description frontmatter
-
-    skills.push({ name, description, skillDir, body: fm?.body || content });
-  }
-
-  if (skills.length === 0) {
-    log.warn("No skills with description frontmatter found.");
-    return;
-  }
-
-  if (dryRun) {
-    log.dryRun(`Would register ${skills.length} skills with Claude Code`);
-    return;
-  }
-
-  // Sync ~/.claude/skills/ symlinks — primary discovery mechanism for Claude Code
-  await syncClaudeSkillLinks(skills, { dryRun });
-
-  // Generate one real Claude plugin that bundles all skills
-  const marketplaceDir = path.join(GLOBAL_CLAUDE_MARKETPLACE, ".claude-plugin");
-  const bundledPluginRoot = path.join(GLOBAL_CLAUDE_MARKETPLACE, FLOW_CLAUDE_PLUGIN_ID);
-  const bundledPluginManifestDir = path.join(bundledPluginRoot, ".claude-plugin");
-  const bundledPluginSkillsDir = path.join(bundledPluginRoot, "skills");
-  await ensureDir(marketplaceDir);
-  await ensureDir(bundledPluginManifestDir);
-  await ensureDir(bundledPluginSkillsDir);
-
-  for (const skill of skills) {
-    const targetPath = path.join(bundledPluginSkillsDir, skill.name);
-    try {
-      const existing = await fs.lstat(targetPath);
-      if (existing.isSymbolicLink()) {
-        const existingTarget = await fs.readlink(targetPath);
-        const resolvedExisting = path.resolve(path.dirname(targetPath), existingTarget);
-        if (resolvedExisting === skill.skillDir) continue;
-      }
-      await fs.rm(targetPath, { recursive: true, force: true });
-    } catch {}
-    await fs.symlink(skill.skillDir, targetPath, "dir").catch(async () => {
-      await copyDir(skill.skillDir, targetPath);
-    });
-  }
-
-  await writeJson(path.join(bundledPluginManifestDir, "plugin.json"), {
-    name: FLOW_CLAUDE_PLUGIN_ID,
-    version: "1.0.0",
-    description: "Harnessy skills bundle",
-  });
-
-  await writeJson(path.join(marketplaceDir, "marketplace.json"), {
-    name: "harnessy",
-    owner: {
-      name: "Harnessy",
-    },
-    plugins: [
-      {
-        name: FLOW_CLAUDE_PLUGIN_ID,
-        description: "Harnessy skills bundle",
-        version: "1.0.0",
-        category: "productivity",
-        source: `./${FLOW_CLAUDE_PLUGIN_ID}`,
-      },
-    ],
-  });
-
-  // Update ~/.claude/settings.json
-  await updateClaudeSettings(skills);
-  await updateClaudeKnownMarketplaces();
-
-  // Clean up stale artifacts from old per-skill registration approach
-  const cleanupCtx = buildCleanupContext(skills, { dryRun, log });
-  await runCleanup(cleanupCtx);
-
-  log.ok(`Registered ${skills.length} skills with Claude Code`);
+  const skills = await listActiveSkills(GLOBAL_SKILLS_DIR);
+  return registerClaudeAgentSkills(skills, { dryRun });
 };
 
-const updateClaudeSettings = async (skills) => {
-  const settingsPath = GLOBAL_CLAUDE_SETTINGS;
-  const existing = await readJsonSafe(settingsPath) || {};
+export const registerOpenCodeSkills = async (_projectRoot, { dryRun = false } = {}) => (
+  registerOpenCodeAgentSkills(GLOBAL_SKILLS_DIR, { dryRun })
+);
 
-  // Remove all harnessy marketplace/plugin references
-  // Symlinks in ~/.claude/skills/ are the primary discovery mechanism
-  if (existing.extraKnownMarketplaces) {
-    delete existing.extraKnownMarketplaces.harnessy;
-    delete existing.extraKnownMarketplaces.duru_claude_plugins;
+export const registerCodexSkills = async ({ dryRun = false } = {}) => {
+  if (!(await pathExists(GLOBAL_SKILLS_DIR))) {
+    log.warn("No skills directory at ~/.agents/skills/. Skipping Codex registration.");
+    return 0;
   }
-
-  if (!existing.enabledPlugins) existing.enabledPlugins = {};
-  // Clean up all harnessy plugin references (bundled and individual)
-  delete existing.enabledPlugins[`${FLOW_CLAUDE_PLUGIN_ID}@harnessy`];
-  delete existing.enabledPlugins["flow-skills@harnessy"];
-  for (const skill of skills) {
-    delete existing.enabledPlugins[`${skill.name}@harnessy`];
-  }
-
-  await ensureDir(path.dirname(settingsPath));
-  await writeJson(settingsPath, existing);
+  const skills = await listActiveSkills(GLOBAL_SKILLS_DIR);
+  return registerCodexAgentSkills(skills, { dryRun });
 };
 
-const updateClaudeKnownMarketplaces = async () => {
-  const known = await readJsonSafe(GLOBAL_CLAUDE_KNOWN_MARKETPLACES) || {};
-  known.harnessy = {
-    source: { source: "directory", path: GLOBAL_CLAUDE_MARKETPLACE },
-    installLocation: GLOBAL_CLAUDE_MARKETPLACE,
-    lastUpdated: new Date().toISOString(),
-  };
-  await ensureDir(path.dirname(GLOBAL_CLAUDE_KNOWN_MARKETPLACES));
-  await writeJson(GLOBAL_CLAUDE_KNOWN_MARKETPLACES, known);
-};
-
-// ---------------------------------------------------------------------------
-// OpenCode skill registration
-// ---------------------------------------------------------------------------
-
-export const registerOpenCodeSkills = async (projectRoot, { dryRun = false, skillsDirRel = ".agents/skills" } = {}) => {
-  const config = await readJsonSafe(GLOBAL_OPENCODE_CONFIG);
-  if (!config) {
-    log.skip("No OpenCode config found at ~/.config/opencode/opencode.json");
-    return;
-  }
-
-  if (!config.skills) config.skills = {};
-  if (!Array.isArray(config.skills.paths)) config.skills.paths = [];
-
-  const normalizePath = async (candidate) => {
-    try {
-      return await fs.realpath(candidate);
-    } catch {
-      return path.resolve(candidate);
-    }
-  };
-
-  const normalizedExisting = [];
-  for (const existingPath of config.skills.paths) {
-    const normalized = await normalizePath(existingPath);
-    if (!normalizedExisting.includes(normalized)) normalizedExisting.push(normalized);
-  }
-
-  const paths = normalizedExisting;
-  let changed = false;
-
-  // Ensure global skills dir is registered
-  const normalizedGlobal = await normalizePath(GLOBAL_SKILLS_DIR);
-  if (!paths.includes(normalizedGlobal)) {
-    if (dryRun) {
-      log.dryRun(`Would add ${normalizedGlobal} to OpenCode skills.paths`);
-    } else {
-      paths.push(normalizedGlobal);
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    config.skills.paths = paths;
-    await writeJson(GLOBAL_OPENCODE_CONFIG, config);
-    log.ok(`OpenCode skills.paths updated (${paths.length} paths)`);
-  } else if (!dryRun) {
-    config.skills.paths = paths;
-    await writeJson(GLOBAL_OPENCODE_CONFIG, config);
-    log.skip("OpenCode skills.paths already current");
-  }
-};
+export const registerAgentSkills = async ({ dryRun = false } = {}) => (
+  registerAllAgents(GLOBAL_SKILLS_DIR, { dryRun })
+);

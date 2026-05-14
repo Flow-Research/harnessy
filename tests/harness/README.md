@@ -36,9 +36,11 @@ This validates:
 - Jarvis CLI installation in an isolated user home
 - OpenCode CLI installation in an isolated user home
 - Claude CLI installation in an isolated user home
+- Codex skill registration in an isolated user home
 - Harnessy install into a base fixture repo
 - rerun behavior against the same fixture
 - local project skill registration and parity
+- local project Codex registration parity
 - custom install path support for AGENTS, context, skills, and scripts
 - OpenCode can execute a Harnessy core slash skill
 - Claude can execute a Harnessy core slash skill
@@ -81,6 +83,7 @@ How it works:
 - runs `jarvis --help` and `pnpm harness:verify` inside the container
 - runs deterministic goal-agent verification inside the container
 - installs `opencode` and `claude` inside the container
+- verifies Codex directory registration for both Harnessy core and community skills
 - verifies OpenCode can execute both a Harnessy core skill and a community skill
 - verifies Claude can execute both a Harnessy core slash skill and a community slash skill
 
@@ -103,6 +106,7 @@ That additionally installs the full community skill set in the container before 
 - The remote docker evaluator does not require pushing this repo to GitHub.
 - OpenCode loadability is verified by actual slash execution.
 - Claude slash execution is verified through `claude -p "/skill-name"` after registration.
+- Codex is currently verified through directory-based skill registration under `~/.codex/skills/harnessy/`, while OpenCode and Claude have execution-level checks in the harness lanes.
 - Goal-agent deterministic checks are always part of the harness lanes.
 - Goal-agent real worker-driven E2E is opt-in because it requires authenticated Claude execution.
 - True hosted remote-install validation against GitHub should still be run before release.

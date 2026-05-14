@@ -25,7 +25,7 @@ This repo is Harnessy-managed. Use this file as the canonical Harnessy agent pro
 - Global skills live in `~/.agents/skills/`
 - Project-local skills live in `.agents/skills/` when present
 - Run `pnpm skills:register` after adding or updating project-local skills
-- Run `pnpm harness:verify` to confirm Harnessy, community, OpenCode, and Claude parity
+- Run `pnpm harness:verify` to confirm Harnessy, community, and supported agent parity
 
 ### Context Vault
 
