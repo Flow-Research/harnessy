@@ -208,7 +208,7 @@ def add_protocol_to_skill(skill_dir, skill_name, section_text):
     if not target.exists():
         return False
 
-    content = target.read_text(encoding='utf-8')
+    content = target.read_text()
     if "Decision Trace Protocol" in content or "Feedback Capture" in content:
         return False  # already instrumented
 
@@ -219,7 +219,7 @@ def add_protocol_to_skill(skill_dir, skill_name, section_text):
         content = content.rstrip() + "\n" + section_text + "\n"
 
     if not DRY_RUN:
-        target.write_text(content, encoding='utf-8')
+        target.write_text(content)
     return True
 
 
