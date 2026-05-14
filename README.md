@@ -13,6 +13,7 @@ It gives any repository a working AI operating layer with:
 - personal context and private space under `.jarvis/context/`
 - a shared context vault and knowledge base protocol
 - a minimal root `AGENTS.md` pointer plus full protocol in `.jarvis/context/AGENTS.md`
+- Meta-Harness capabilities, including skill auto-improvement
 
 Contribution workflow:
 
