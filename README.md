@@ -215,6 +215,8 @@ node tools/flow-install/index.mjs --yes --target "/path/to/project"
 | `flow-qa` | Deterministic QA runtime for spec parsing, test scanning, drift detection, and coverage from a repo-local profile |
 | `flow-deps` | Plan, check, and explicitly install runtime dependencies declared in skill manifests |
 
+Harnessy's shared QA contract is documented in `.jarvis/context/docs/standards/qa-process.md`.
+
 ## Command Examples
 
 ```bash
