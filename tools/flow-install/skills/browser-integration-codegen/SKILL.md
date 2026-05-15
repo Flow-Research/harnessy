@@ -22,11 +22,12 @@ Generate Playwright-style browser integration suites from structured browser reg
 ## Steps
 
 1. Follow `${AGENTS_SKILLS_ROOT}/browser-integration-codegen/commands/browser-integration-codegen.md` exactly.
-2. Run `flow-qa ids --profile <qa-profile>` first and use the QA profile as the source of truth for browser regression inputs.
+2. Run `qa ids --profile <qa-profile>` first and use the QA profile as the source of truth for browser regression inputs.
 3. Parse only canonical browser scenarios from the QA profile's configured regression sources.
-4. Read the relevant source components and optional DOM inspection artifacts to verify selectors.
+4. Read the relevant source components and optional DOM inspection artifacts to verify selectors. When selectors, redirects, auth state, or responsive behavior are uncertain, run or request a Playwright walkthrough through `/browser-qa` before writing assertions.
 5. Generate suite files using delivery-profile adapter data only for imports, fixtures, and project-specific test helpers.
-6. Leave explicit TODOs instead of guessing selectors, DB assertions, or auth setup.
+6. Preserve `DB Assert:` expectations from the regression spec in the generated test plan. If persistence cannot be asserted in the target environment, leave an explicit TODO or skip reason.
+7. Leave explicit TODOs instead of guessing selectors, DB assertions, or auth setup.
 
 ## Output
 
