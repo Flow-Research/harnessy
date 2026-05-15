@@ -18,6 +18,16 @@ assert_dir() {
   [[ -d "$dir" ]] || fail "missing directory $dir"
 }
 
+ensure_python_module() {
+  local module_name="$1"
+  local package_name="$2"
+  if python3 -c "import ${module_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 -m pip install --user --disable-pip-version-check "$package_name" >/dev/null 2>&1 || \
+    fail "failed to install Python dependency ${package_name}"
+}
+
 json_field() {
   local file="$1"
   local expr="$2"
@@ -37,6 +47,8 @@ main() {
 
   command -v goal-agent >/dev/null 2>&1 || fail "goal-agent command is not available on PATH"
   pass "goal-agent command available"
+
+  ensure_python_module yaml PyYAML
 
   local templates_dir="$HOME/.agents/skills/goal-agent/templates"
   if [[ ! -d "$templates_dir" && -d "$SOURCE_ROOT/tools/flow-install/skills/goal-agent/templates" ]]; then
