@@ -1,6 +1,6 @@
 ---
 name: browser-integration-codegen
-description: "Generate browser integration suites from Harnessy regression artifacts using profile-driven routes, fixtures, and helper imports."
+description: "Generate browser integration suites from Harnessy regression artifacts using a QA profile plus optional delivery-profile adapters for fixtures, routes, and helper imports."
 disable-model-invocation: false
 allowed-tools: Read, Write, Grep, Glob, Bash, ApplyPatch
 argument-hint: "[--suite <NN>] [--profile .flow/delivery-profile.json] [--delta] [--inspect-first]"
@@ -14,21 +14,21 @@ Generate Playwright-style browser integration suites from structured browser reg
 
 ## Required contract
 
-- browser regression artifact path from `.flow/delivery-profile.json`
-- browser suite names, fixture mappings, and support imports from `.flow/delivery-profile.json`
-- optional DOM inspection path from `.flow/delivery-profile.json`
+- canonical regression source from the active QA profile, typically `.harnessy/qa-profile.json`
+- optional adapter metadata from `.flow/delivery-profile.json` for fixture mappings, route helpers, import shims, and DOM inspection paths
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/browser-integration-codegen/`.
 
 ## Steps
 
 1. Follow `${AGENTS_SKILLS_ROOT}/browser-integration-codegen/commands/browser-integration-codegen.md` exactly.
-2. Parse the browser regression spec into structured scenarios.
-3. Read the relevant source components and optional DOM inspection artifacts to verify selectors.
-4. Generate suite files using profile-driven fixtures, suite names, and helper imports.
-5. Leave explicit TODOs instead of guessing selectors or DB assertions.
+2. Run `flow-qa ids --profile <qa-profile>` first and use the QA profile as the source of truth for browser regression inputs.
+3. Parse only canonical browser scenarios from the QA profile's configured regression sources.
+4. Read the relevant source components and optional DOM inspection artifacts to verify selectors.
+5. Generate suite files using delivery-profile adapter data only for imports, fixtures, and project-specific test helpers.
+6. Leave explicit TODOs instead of guessing selectors, DB assertions, or auth setup.
 
 ## Output
 
-- generated `.spec.ts` suite content or files in the profile-configured browser suites directory
+- generated `.spec.ts` suite content or files in the QA-profile-configured browser suites directory
 - summary of selector certainty, unresolved TODOs, and suite/scenario counts

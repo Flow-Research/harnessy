@@ -18,14 +18,15 @@ For development work, also read:
 
 5. `docs/standards/development-guidance.md` — engineering workflow guidance
 6. `docs/standards/worktree-protocol.md` — canonical `projects/<project>/dev` plus `projects/<project>/worktrees/` layout and branch model
-7. `docs/contribution-protocol.md` — contribution and maintenance workflow
+7. `docs/standards/qa-process.md` — shared QA contract for specs, tests, drift, and codegen
+8. `docs/contribution-protocol.md` — contribution and maintenance workflow
 
 For specialized maintenance tasks, read as needed:
 
-8. `docs/personal-context-protocol.md`
-9. `docs/reusable-script-standard.md`
-10. `docs/skill-promotion-maintainer-playbook.md`
-11. `docs/autoflow-autoresearch-system.md`
+9. `docs/personal-context-protocol.md`
+10. `docs/reusable-script-standard.md`
+11. `docs/skill-promotion-maintainer-playbook.md`
+12. `docs/autoflow-autoresearch-system.md`
 
 ## Canonical Root Files
 
@@ -42,6 +43,7 @@ For specialized maintenance tasks, read as needed:
 |------|------|
 | `docs/standards/development-guidance.md` | Workspace engineering workflow guidance |
 | `docs/standards/worktree-protocol.md` | Canonical gitignored project-container layout and `dev` branch standard |
+| `docs/standards/qa-process.md` | Shared QA contract for profiles, specs, tests, drift, and validator expectations |
 | `docs/standards/technical-debt-tracking-standard.md` | Debt tracking structure reference |
 | `docs/contribution-protocol.md` | Contribution workflow for skills, context, and tooling |
 | `docs/reusable-script-standard.md` | Reusable-script authoring standard |

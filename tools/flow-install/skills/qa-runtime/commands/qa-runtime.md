@@ -7,6 +7,8 @@ argument-hint: "[ids|tests|drift|coverage] [--profile <path>] [--json] [--output
 
 Use the installed `flow-qa` command as the canonical execution surface.
 
+See `.jarvis/context/docs/standards/qa-process.md` for the shared Harnessy QA contract that this runtime enforces.
+
 ## Profile Contract
 
 The runtime reads a repo-local JSON profile. Default lookup order:

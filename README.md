@@ -106,6 +106,11 @@ If you need a curated active skill set, set `AGENTS_SKILLS_ROOT` to an alternate
 
 Harnessy treats skill dependencies as explicit user-managed installs. Use `flow-deps` to inspect and install them after reviewing the plan.
 
+Harnessy core skills are sourced from `tools/flow-install/skills/` and installed into `~/.agents/skills/`.
+Project-specific skills stay in each repo's `.agents/skills/` directory and are copied into `~/.agents/skills/` by the generated scripts, which also refresh supported agent registrations.
+
+If you need a curated active skill set, set `AGENTS_SKILLS_ROOT` to an alternate directory before running the registration scripts. Harnessy will use that directory instead of the default `~/.agents/skills/`.
+
 ## Installation
 
 ### Option 1: Bootstrap a full Harnessy workspace
@@ -214,6 +219,8 @@ node tools/flow-install/index.mjs --yes --target "/path/to/project"
 | `jarvis` | User-facing CLI for planning, journaling, context operations, reading lists, Android tooling, and more |
 | `flow-qa` | Deterministic QA runtime for spec parsing, test scanning, drift detection, and coverage from a repo-local profile |
 | `flow-deps` | Plan, check, and explicitly install runtime dependencies declared in skill manifests |
+
+Harnessy's shared QA contract is documented in `.jarvis/context/docs/standards/qa-process.md`.
 
 ## Command Examples
 
