@@ -204,12 +204,13 @@ fi
 
 # Goal-agent deterministic verification always runs once Harnessy is installed.
 log "Phase 5a: Goal-agent verification"
-FLOW_HARNESS_SOURCE_ROOT="$SOURCE_DIR" GOAL_AGENT_E2E="${GOAL_AGENT_E2E:-0}" \
-  bash "$SOURCE_DIR/tests/harness/run-goal-agent-checks.sh" "$TARGET_DIR" >/dev/null || {
+if FLOW_HARNESS_SOURCE_ROOT="$SOURCE_DIR" GOAL_AGENT_E2E="${GOAL_AGENT_E2E:-0}" \
+  bash "$SOURCE_DIR/tests/harness/run-goal-agent-checks.sh" "$TARGET_DIR" >/dev/null; then
+  pass "goal-agent verification passed"
+else
     fail "goal-agent verification failed"
     FAILURES=$((FAILURES + 1))
-  }
-pass "goal-agent verification passed"
+fi
 
 # Check traces: in manifests
 TRACED_SKILLS=$(grep -rl "^traces:" ~/.agents/skills/*/manifest.yaml 2>/dev/null | wc -l)
@@ -220,8 +221,8 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
-# Check Codex registration root
-CODEX_SKILLS_COUNT=$(find ~/.codex/skills/harnessy/ -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+# Check Codex registration root. These entries are symlinks, not directories.
+CODEX_SKILLS_COUNT=$(find ~/.codex/skills/harnessy/ -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
 if [[ "$CODEX_SKILLS_COUNT" -gt 30 ]]; then
   pass "Codex skills registered: $CODEX_SKILLS_COUNT"
 else

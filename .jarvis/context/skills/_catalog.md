@@ -668,6 +668,48 @@ depends_on: [spec-to-regression, api-integration-codegen, browser-integration-co
 created: 2026-03-23
 updated: 2026-03-23
 ---
+---
+name: qa-runtime
+type: opencode
+version: 0.1.0
+install_scope: global
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Deterministic QA runtime for profile-driven spec parsing, test scanning, drift detection, and coverage generation."
+location: tools/flow-install/skills/qa-runtime
+invoke: "/qa-runtime"
+permissions: [read, write, execute]
+data_categories: [none]
+egress: []
+phase: P2
+tags: [qa, testing, runtime]
+depends_on: [qa]
+created: 2026-05-14
+updated: 2026-05-14
+---
+
+---
+name: dependency-manager
+type: opencode
+version: 0.1.0
+install_scope: global
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Plan, verify, and explicitly install skill and script runtime dependencies from Harnessy manifests."
+location: tools/flow-install/skills/dependency-manager
+invoke: "/dependency-manager"
+permissions: [read, execute]
+data_categories: [none]
+egress: []
+phase: P2
+tags: [dependencies, tooling, runtime]
+depends_on: []
+created: 2026-05-14
+updated: 2026-05-14
+---
+
 name: dev-container
 type: opencode
 version: 0.1.0
@@ -685,6 +727,27 @@ tags: [docker, devcontainer, validation, scaffolding]
 depends_on: [docker-expert]
 created: 2026-03-23
 updated: 2026-03-23
+---
+
+---
+name: security-audit
+type: opencode
+version: 1.0.0
+install_scope: global
+status: active
+owner: harnessy-team
+blast_radius: medium
+description: "Autonomous security auditor that identifies vulnerabilities, misconfigurations, and OWASP-style risks."
+location: tools/flow-install/skills/security-audit
+invoke: "/security-audit"
+permissions: [read]
+data_categories: [none]
+egress: []
+phase: P2
+tags: [security, audit, owasp]
+depends_on: []
+created: 2026-05-14
+updated: 2026-05-14
 ---
 
 ---

@@ -105,7 +105,7 @@ class AnyTypeClient:
                 return []
 
         # Search for all tasks in the space (high limit to get all)
-        results = space.search(query="", type=task_type, limit=1000)
+        results = space.search(query="", type=task_type, limit=1000) or []
 
         tasks: list[Task] = []
         for obj in results:
@@ -352,7 +352,7 @@ class AnyTypeClient:
 
         for prop in properties:
             if prop.get("key") == "links":
-                return prop.get("objects", [])
+                return prop.get("objects") or []
         return []
 
     def _find_child_by_name(self, space_id: str, parent_id: str, child_name: str) -> str | None:
@@ -403,7 +403,7 @@ class AnyTypeClient:
             raise RuntimeError("Collection type not found in this space.")
 
         # Search for collection with matching name
-        results = space.search(query=name, type=collection_type, limit=50)
+        results = space.search(query=name, type=collection_type, limit=50) or []
         for obj in results:
             if getattr(obj, "name", "") == name:
                 return obj.id
