@@ -18,7 +18,7 @@ argument-hint: "[--suite <X>] [--qa-profile .harnessy/qa-profile.json] [--profil
 2. Run a deterministic preflight:
 
 ```bash
-flow-qa ids --profile <qa-profile> --json
+qa ids --profile <qa-profile> --json
 ```
 
 3. Load the optional delivery profile.

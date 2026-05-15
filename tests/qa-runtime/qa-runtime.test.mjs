@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { computeCoverage, computeDrift, parseAllSpecs, scanAllTests } from "../../tools/flow-install/skills/qa-runtime/scripts/qa-runtime-lib.mjs";
+import { computeCoverage, computeDrift, parseAllSpecs, runCli, scanAllTests } from "../../tools/flow-install/skills/qa-runtime/scripts/qa-runtime-lib.mjs";
 
 const createFixture = () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-runtime-"));
@@ -81,4 +81,17 @@ test("qa-runtime coverage summarizes app/layer and prefix counts", () => {
   assert.equal(coverage.prefixes.length, 1);
   assert.equal(coverage.prefixes[0].prefix, "AUTH");
   assert.equal(coverage.prefixes[0].withTests, 1);
+});
+
+test("qa-runtime help renders configured command name", async () => {
+  let output = "";
+  const code = await runCli(["--help"], {
+    commandName: "qa",
+    cwd: createFixture(),
+    stdout: { write: (chunk) => { output += chunk; } },
+    stderr: { write: () => {} },
+  });
+  assert.equal(code, 0);
+  assert.match(output, /qa ids \[--profile <path>\]/);
+  assert.doesNotMatch(output, /flow-qa ids/);
 });

@@ -26,6 +26,19 @@
     }
   ],
   "output": {
-    "coverage": "qa/qa-coverage.md"
+    "coverage": "qa/qa-coverage.md",
+    "featureCatalog": "qa/features.generated.yaml",
+    "featureOverrides": "qa/features.overrides.yaml",
+    "featureChangelog": "qa/features.changelog.md",
+    "runResultsDir": "qa/run-results",
+    "securityFindingsDir": "qa/security/findings",
+    "walkthroughDir": ".qa-sweep"
+  },
+  "resultSinks": [],
+  "commands": {
+    "plan": "",
+    "execute": "",
+    "syncSpecs": "",
+    "syncResults": ""
   }
 }

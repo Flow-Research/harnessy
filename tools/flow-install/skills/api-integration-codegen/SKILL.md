@@ -22,7 +22,7 @@ Generate API integration test suites from the project's API regression spec with
 ## Steps
 
 1. Follow `${AGENTS_SKILLS_ROOT}/api-integration-codegen/commands/api-integration-codegen.md` exactly.
-2. Run `flow-qa ids --profile <qa-profile>` first and use the QA profile as the source of truth for API regression inputs.
+2. Run `qa ids --profile <qa-profile>` first and use the QA profile as the source of truth for API regression inputs.
 3. Parse only canonical API scenarios from the QA profile's configured regression sources.
 4. Generate the suite file using delivery-profile adapter data only for suite metadata, helper imports, fixture imports, and optional DB helper rules.
 5. Refine the generated suite when business logic requires stronger assertions than the scaffolder can infer automatically.

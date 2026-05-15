@@ -34,7 +34,7 @@ const KNOWN_FIELDS = new Set([
   "Exploitation",
 ]);
 
-const usage = `Usage:\n  flow-qa ids [--profile <path>] [--json]\n  flow-qa tests [--profile <path>] [--json]\n  flow-qa drift [--profile <path>] [--json]\n  flow-qa coverage [--profile <path>] [--json] [--output <path>]\n`;
+const usage = (commandName = "qa") => `Usage:\n  ${commandName} ids [--profile <path>] [--json]\n  ${commandName} tests [--profile <path>] [--json]\n  ${commandName} drift [--profile <path>] [--json]\n  ${commandName} coverage [--profile <path>] [--json] [--output <path>]\n`;
 
 const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, "utf8"));
 
@@ -323,12 +323,12 @@ const renderMarkdownCoverage = (coverage) => {
 
 const writeJson = (stream, value) => stream.write(`${JSON.stringify(value, null, 2)}\n`);
 
-const renderDrift = (stream, drift) => {
+const renderDrift = (stream, drift, commandName = "qa") => {
   if (drift.ok) {
-    stream.write("flow-qa drift: no issues found\n");
+    stream.write(`${commandName} drift: no issues found\n`);
     return;
   }
-  stream.write(`flow-qa drift: ${drift.issues.length} issue(s) found\n`);
+  stream.write(`${commandName} drift: ${drift.issues.length} issue(s) found\n`);
   for (const issue of drift.issues) stream.write(`- [${issue.rule}] ${issue.file}:${issue.line} ${issue.message}\n`);
 };
 
@@ -336,28 +336,29 @@ export const runCli = async (argv, io = {}) => {
   const stdout = io.stdout || process.stdout;
   const stderr = io.stderr || process.stderr;
   const cwd = io.cwd || process.cwd();
+  const commandName = io.commandName || "qa";
   const { subcommand, flags } = parseArgs(argv);
   if (!subcommand || flags.help || flags.h) {
-    stdout.write(usage);
+    stdout.write(usage(commandName));
     return 0;
   }
   try {
     if (subcommand === "ids") {
       const result = parseAllSpecs({ cwd, profilePath: flags.profile });
       if (flags.json) writeJson(stdout, result);
-      else stdout.write(`flow-qa ids: ${result.records.length} record(s), ${result.errors.length} parse error(s)\n`);
+      else stdout.write(`${commandName} ids: ${result.records.length} record(s), ${result.errors.length} parse error(s)\n`);
       return result.errors.length > 0 ? 1 : 0;
     }
     if (subcommand === "tests") {
       const result = scanAllTests({ cwd, profilePath: flags.profile });
       if (flags.json) writeJson(stdout, result);
-      else stdout.write(`flow-qa tests: scanned ${result.filesScanned} file(s), extracted ${result.records.length} test ID(s)\n`);
+      else stdout.write(`${commandName} tests: scanned ${result.filesScanned} file(s), extracted ${result.records.length} test ID(s)\n`);
       return 0;
     }
     if (subcommand === "drift") {
       const drift = computeDrift({ cwd, profilePath: flags.profile });
       if (flags.json) writeJson(stdout, drift);
-      else renderDrift(stdout, drift);
+      else renderDrift(stdout, drift, commandName);
       return drift.ok ? 0 : 1;
     }
     if (subcommand === "coverage") {
@@ -372,13 +373,13 @@ export const runCli = async (argv, io = {}) => {
       if (outputPath) {
         fs.mkdirSync(path.dirname(outputPath), { recursive: true });
         fs.writeFileSync(outputPath, markdown, "utf8");
-        stdout.write(`flow-qa coverage: wrote ${path.relative(cwd, outputPath)}\n`);
+        stdout.write(`${commandName} coverage: wrote ${path.relative(cwd, outputPath)}\n`);
       } else {
         stdout.write(markdown);
       }
       return 0;
     }
-    stderr.write(`Unknown subcommand: ${subcommand}\n\n${usage}`);
+    stderr.write(`Unknown subcommand: ${subcommand}\n\n${usage(commandName)}`);
     return 2;
   } catch (error) {
     stderr.write(`${error.message}\n`);

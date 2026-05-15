@@ -15,7 +15,8 @@ Manages LLM-compiled personal knowledge base domains.
 
 ## Purpose
 
-The wiki system maintains structured knowledge domains (e.g. research areas, projects, or operating notes).
+The wiki system maintains structured knowledge domains (for example, research
+areas, projects, or operating notes).
 Raw sources (articles, PDFs, notes) are compiled into wiki articles via LLM.
 This skill allows the agent to manage the wiki without the user typing CLI commands.
 

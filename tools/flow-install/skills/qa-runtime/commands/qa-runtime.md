@@ -5,7 +5,8 @@ argument-hint: "[ids|tests|drift|coverage] [--profile <path>] [--json] [--output
 
 # QA Runtime Command
 
-Use the installed `flow-qa` command as the canonical execution surface.
+Use the installed `qa` command as the canonical execution surface.
+`flow-qa` remains installed as a backward-compatible alias for older projects.
 
 See `.jarvis/context/docs/standards/qa-process.md` for the shared Harnessy QA contract that this runtime enforces.
 
@@ -35,24 +36,41 @@ The profile must declare:
     }
   ],
   "output": {
-    "coverage": "qa/qa-coverage.md"
+    "coverage": "qa/qa-coverage.md",
+    "featureCatalog": "qa/features.generated.yaml",
+    "featureOverrides": "qa/features.overrides.yaml",
+    "featureChangelog": "qa/features.changelog.md",
+    "runResultsDir": "qa/run-results",
+    "securityFindingsDir": "qa/security/findings",
+    "walkthroughDir": ".qa-sweep"
+  },
+  "resultSinks": [],
+  "commands": {
+    "plan": "",
+    "execute": "",
+    "syncSpecs": "",
+    "syncResults": ""
   }
 }
 ```
 
 Use `${AGENTS_SKILLS_ROOT}/qa-runtime/templates/qa-profile.json` as the starter template.
 
+Only `specs`, `apps`, and `output.coverage` are required by the deterministic
+runtime today. The other fields are shared conventions used by orchestration
+skills such as `/qa-sweep`, `/qa-feature-catalog`, and `/qa-security-sweep`.
+
 ## Commands
 
-### `flow-qa ids`
+### `qa ids`
 
 Parse all spec sources from the profile and emit canonical scenario records.
 
-### `flow-qa tests`
+### `qa tests`
 
 Scan the configured test roots, extract scenario IDs from test names, and report header annotations.
 
-### `flow-qa drift`
+### `qa drift`
 
 Validate spec/test consistency:
 
@@ -61,7 +79,7 @@ Validate spec/test consistency:
 - tests referencing nonexistent specs
 - files missing `@qa-spec` / `@qa-suite` headers
 
-### `flow-qa coverage`
+### `qa coverage`
 
 Generate a summary report from the spec and test inventories. Write to the profile's `output.coverage` path unless `--output` overrides it.
 
@@ -69,3 +87,5 @@ Generate a summary report from the spec and test inventories. Write to the profi
 
 - Keep repo-specific seed, auth, and result-sink logic outside this runtime.
 - This command is intentionally deterministic and profile-driven.
+- Use repo-local commands declared in `commands` for execution and result-sink
+  sync. `qa` remains responsible for parse, scan, drift, and coverage.
