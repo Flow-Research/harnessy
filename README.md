@@ -16,7 +16,8 @@ Harnessy gives a repository:
 - global command shims in the user-local bin directory such as `jarvis`, `flow-qa`, and `flow-deps`
 - registration parity across OpenCode, Claude Code, and Codex
 - installation verification harnesses for local and remote-style bootstrap flows
-- Meta-Harness capabilities, including skill auto-improvement
+- Meta-Harness capabilities for feedback capture, skill improvement, promotion, validation, publishing, and bounded autoresearch loops
+- knowledge-management integrations and workflows for AnyType, Obsidian/wiki compilation, and Notion-backed Jarvis usage
 
 ## Key Features
 
@@ -29,6 +30,8 @@ Harnessy gives a repository:
 - Pipeline hooks and helper script installation
 - Explicit dependency management for skill runtimes via `flow-deps`
 - Deterministic QA runtime via `flow-qa`
+- Meta-Harness skill auto-improvement workflows across `skill-feedback`, `skill-improve`, `skill-promote`, `skill-validate`, and `skill-publish`
+- Knowledge-management workflows for AnyType object operations, Jarvis Wiki/Obsidian compilation, and multi-backend Jarvis integrations including Notion
 
 ## Repository Layout
 
@@ -78,6 +81,11 @@ Global/shared assets are installed for the local user:
 - user-local command shims: `$XDG_BIN_HOME` or `~/.local/bin`
 - lifecycle helper scripts: `~/.scripts/`
 
+Harnessy core skills are sourced from `tools/flow-install/skills/` and installed into `~/.agents/skills/`.
+Project-specific skills stay in each repo's `.agents/skills/` directory and are copied into `~/.agents/skills/` by the generated scripts, which also refresh supported agent registrations.
+
+If you need a curated active skill set, set `AGENTS_SKILLS_ROOT` to an alternate directory before running the registration scripts. Harnessy will use that directory instead of the default `~/.agents/skills/`.
+
 ## Requirements
 
 ### For installing Harnessy
@@ -96,12 +104,7 @@ Global/shared assets are installed for the local user:
 
 - skill runtime dependencies declared in manifests
 
-Harnessy now treats skill dependencies as explicit user-managed installs. Use `flow-deps` to inspect and install them after reviewing the plan.
-
-Harnessy core skills are sourced from `tools/flow-install/skills/` and installed into `~/.agents/skills/`.
-Project-specific skills stay in each repo's `.agents/skills/` directory and are copied into `~/.agents/skills/` by the generated scripts, which also refresh supported agent registrations.
-
-If you need a curated active skill set, set `AGENTS_SKILLS_ROOT` to an alternate directory before running the registration scripts. Harnessy will use that directory instead of the default `~/.agents/skills/`.
+Harnessy treats skill dependencies as explicit user-managed installs. Use `flow-deps` to inspect and install them after reviewing the plan.
 
 ## Installation
 
@@ -254,7 +257,16 @@ flow-qa drift --profile .harnessy/qa-profile.json
 - cron registration from skill manifests
 - lockfile writing
 
-### 2. Shared skills
+### 2. Jarvis CLI
+
+`jarvis-cli/` is the user-facing agent CLI.
+
+Install paths:
+
+- local workspace: `uv tool install --force ./jarvis-cli`
+- GitHub: `uv tool install --force "git+https://github.com/Flow-Research/harnessy.git#subdirectory=jarvis-cli"`
+
+### 3. Shared skills
 
 Shared reusable skills live in:
 
@@ -270,7 +282,7 @@ They are copied into the active global skills root, usually:
 
 If you need a curated active skill set, set `AGENTS_SKILLS_ROOT` before registration or install.
 
-### 3. Project-local skills
+### 4. Project-local skills
 
 Project-specific skills live in:
 
@@ -280,7 +292,7 @@ Project-specific skills live in:
 
 They are not part of shared Harnessy core. The generated `skills:register` script copies them into the active global skills root and refreshes supported agent registrations.
 
-### 4. Context vault
+### 5. Context vault
 
 Every installed project gets:
 
@@ -297,7 +309,7 @@ Important files:
 - `scopes/_scopes.yaml` - memory scope registry
 - `private/<username>/` - gitignored personal space
 
-### 5. Memory system
+### 6. Memory system
 
 The memory system is file-based and scoped.
 
@@ -314,7 +326,29 @@ Memory record types:
 - `preference`
 - `event`
 
-### 6. Dependency model
+### 7. Generated lifecycle scripts
+
+`flow-install` installs helper scripts into the project in a configurable folder.
+
+Default:
+
+```text
+scripts/flow/
+```
+
+These power:
+
+- `skills:register`
+- `skills:validate`
+- `skills:register:claude`
+- `skills:register:opencode`
+- `skills:register:codex`
+- `harness:verify`
+- `postinstall`
+
+Global convenience scripts are still installed into `$HOME/.scripts/`, but committed project wiring uses repo-local script paths so CI stays portable.
+
+### 8. Dependency model
 
 Skill manifests can declare runtime dependencies such as:
 
@@ -368,91 +402,7 @@ uv tool install --force ./jarvis-cli
 jarvis --help
 ```
 
-<<<<<<< HEAD
 ### Useful iteration loops
-=======
-### Core commands
-
-| Command | Purpose |
-|---|---|
-| `pnpm skills:validate` | Validate shared skill source and catalog consistency |
-| `pnpm skills:register` | Copy project-local skills into `~/.agents/skills/` and refresh supported agent registrations |
-| `pnpm skills:register:claude` | Rebuild Claude marketplace metadata from `~/.agents/skills/` |
-| `pnpm skills:register:opencode` | Rebuild OpenCode `skills.paths` from `~/.agents/skills/` |
-| `pnpm skills:register:codex` | Rebuild Codex skill links from `~/.agents/skills/` |
-| `pnpm flow:sync` | Re-run the Harnessy installer from the cached local Harnessy checkout |
-| `pnpm flow:sync:remote` | Pull the latest Harnessy changes into the cache, then reinstall in-place |
-| `pnpm flow:sync:force` | Force a stronger in-place reinstall from the cached local Harnessy checkout |
-| `pnpm flow:sync:remote:force` | Pull latest Harnessy changes into the cache, then force a stronger in-place reinstall |
-| `pnpm flow:cleanup` | Clean stale plugin artifacts from old registrations |
-| `pnpm harness:verify` | Verify repo and supported agent harness parity |
-| `pnpm harness:eval` | Run isolated fixture-based Harnessy installation acceptance checks |
-| `pnpm harness:eval:remote` | Run remote-style Docker bootstrap validation using `install.sh` |
-| `uv tool install --force ./jarvis-cli` | Install the local Jarvis CLI build |
-| `node tools/flow-install/index.mjs --yes` | Install Harnessy into the current repo |
-| `node tools/flow-install/index.mjs --dry-run` | Preview install changes |
-
-## Architecture
-
-### 1. Jarvis CLI
-
-`jarvis-cli/` is the user-facing agent CLI.
-
-Install paths:
-
-- local workspace: `uv tool install --force ./jarvis-cli`
-- GitHub: `uv tool install --force "git+https://github.com/Flow-Research/harnessy.git#subdirectory=jarvis-cli"`
-
-Jarvis currently provides task planning, journaling, reading-list workflows, context operations, and Android APK tooling.
-
-### 2. Shared skills
-
-Shared core skills live in:
-
-```text
-tools/flow-install/skills/
-```
-
-These are the source of truth for reusable skills shipped by the framework.
-
-### 3. Project-local skills
-
-Repo-specific skills live in:
-
-```text
-.agents/skills/
-```
-
-These are not part of the shared framework. They are owned by the target project and registered globally with the generated `skills:register` script.
-
-### 4. Generated lifecycle scripts
-
-`flow-install` installs helper scripts into the project in a configurable folder.
-
-Default:
-
-```text
-scripts/flow/
-```
-
-These power:
-
-- `skills:register`
-- `skills:validate`
-- `skills:register:claude`
-- `skills:register:opencode`
-- `skills:register:codex`
-- `harness:verify`
-- `postinstall`
-
-Global convenience scripts are still installed into `$HOME/.scripts/`, but committed project wiring uses repo-local script paths so CI stays portable.
-
-## Harness Verification
-
-The install is only considered complete when both agent surfaces resolve the same harness.
-
-Run:
->>>>>>> 755328e (feat: Codex runtime, jarvis-cli Anytype sync, worktree protocol (#34))
 
 ```bash
 # Reinstall or refresh shared skills into your active skills root
@@ -469,68 +419,7 @@ uv tool install --force ./jarvis-cli
 
 Recommended team workflow for an existing repository:
 
-<<<<<<< HEAD
 1. Install Harnessy in place:
-=======
-`pnpm harness:verify` checks:
-
-- Harnessy section present in `AGENTS.md`
-- full Harnessy protocol present in `.jarvis/context/AGENTS.md`
-- core context and memory files under `.jarvis/context/`
-- generated lifecycle scripts exist
-- `package.json` wiring is present
-- `jarvis` is available in `PATH`
-- `~/.agents/skills/` exists
-- lockfile components are recorded
-- every shipped Harnessy core skill is installed globally and accessible to supported agent runtimes
-- OpenCode `skills.paths` includes the required global skills path
-- Claude marketplace and enabled plugin state exist
-- Codex skill links exist under `~/.codex/skills/harnessy/`
-- project-local skills, if present, are visible to supported agent runtimes
-- community skills are checked from `harnessy.lock.json` using warn-or-strict behavior based on `communitySkills.strict`
-- `community-skills-install --full` is validated from persisted inventory metadata in `~/.agents/community-install.json` and, when available, `harnessy.lock.json`
-
-### 5. Context vault
-
-Every installed project gets:
-
-```text
-.jarvis/context/
-```
-
-Important files:
-
-- `README.md` - knowledge base protocol
-- `AGENTS.md` - full Harnessy agent protocol for the installed repo
-- `technical-debt.md` - tracked debt register
-- `skills/_catalog.md` - local discovery layer
-- `scopes/_scopes.yaml` - memory scope registry
-- `private/<username>/` - gitignored personal space
-- `local.md.example` - machine-specific template
-
-### 6. Memory system
-
-The memory system is file-based and scoped.
-
-Current core hierarchy:
-
-- `org:<git-org>`
-- `project:<repo-name>`
-- `user:<username>` via `.jarvis/context/private/<username>/`
-
-Memory file types:
-
-- `fact`
-- `decision`
-- `preference`
-- `event`
-
-## Installing Harnessy in a Team Project
-
-Recommended team workflow:
-
-1. From the target repo root, install Harnessy in place:
->>>>>>> 755328e (feat: Codex runtime, jarvis-cli Anytype sync, worktree protocol (#34))
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --here
@@ -575,10 +464,6 @@ node tools/flow-install/index.mjs --skills --yes
 
 Harnessy uses `$XDG_BIN_HOME` when set, otherwise `~/.local/bin`.
 
-### `pnpm skills:register` appears to do nothing
-
-That usually means the current repo has no project-local skills in `.agents/skills/`. Shared skills are already installed globally by `flow-install`.
-
 ### Missing skill runtime dependencies
 
 Inspect the dependency plan first:
@@ -592,6 +477,10 @@ Then explicitly install what you approve:
 ```bash
 flow-deps install --skills-root "$HOME/.agents/skills"
 ```
+
+### `pnpm skills:register` appears to do nothing
+
+That usually means the current repo has no project-local skills in `.agents/skills/`. Shared skills are already installed globally by `flow-install`.
 
 ### Re-run installation into a repo
 
