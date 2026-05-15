@@ -41,6 +41,24 @@ pass() { echo "  [PASS] $*"; }
 fail() { echo "  [FAIL] $*" >&2; }
 warn() { echo "  [WARN] $*"; }
 
+json_expr() {
+  local file="$1"
+  local expr="$2"
+  python3 - "$file" "$expr" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+value = data
+for part in sys.argv[2].split('.'):
+    if not part:
+        continue
+    value = value[part]
+if isinstance(value, list):
+    print("\n".join(str(item) for item in value))
+else:
+    print(value)
+PY
+}
+
 FAILURES=0
 
 # ── Phase 1: Validate source mount ──────────────────────────────────────────
@@ -169,11 +187,21 @@ else
 fi
 
 # Check skills directory
-SKILLS_COUNT=$(find ~/.agents/skills/ -maxdepth 1 -type d 2>/dev/null | wc -l)
-if [[ "$SKILLS_COUNT" -gt 30 ]]; then
-  pass "Skills installed: $((SKILLS_COUNT - 1)) directories in ~/.agents/skills/"
+CORE_SKILLS_FILE=$(mktemp /tmp/core-skills-XXXXXX)
+json_expr harnessy.lock.json flowCoreSkills > "$CORE_SKILLS_FILE"
+EXPECTED_CORE_SKILLS=$(wc -l < "$CORE_SKILLS_FILE" | tr -d ' ')
+MISSING_CORE_SKILLS=0
+while IFS= read -r skill; do
+  [[ -z "$skill" ]] && continue
+  if [[ ! -d "$HOME/.agents/skills/$skill" ]]; then
+    warn "Missing installed core skill: $skill"
+    MISSING_CORE_SKILLS=$((MISSING_CORE_SKILLS + 1))
+  fi
+done < "$CORE_SKILLS_FILE"
+if [[ "$MISSING_CORE_SKILLS" -eq 0 ]]; then
+  pass "All $EXPECTED_CORE_SKILLS lockfile-declared core skills installed"
 else
-  fail "Expected 30+ skills, found $((SKILLS_COUNT - 1))"
+  fail "$MISSING_CORE_SKILLS lockfile-declared core skills missing"
   FAILURES=$((FAILURES + 1))
 fi
 
@@ -213,20 +241,21 @@ else
 fi
 
 # Check traces: in manifests
-TRACED_SKILLS=$(grep -rl "^traces:" ~/.agents/skills/*/manifest.yaml 2>/dev/null | wc -l)
-if [[ "$TRACED_SKILLS" -gt 30 ]]; then
-  pass "Skills with traces: $TRACED_SKILLS"
+SOURCE_TRACED_SKILLS=$(grep -rl "^traces:" "$SOURCE_DIR"/tools/flow-install/skills/*/manifest.yaml 2>/dev/null | wc -l | tr -d ' ')
+INSTALLED_TRACED_SKILLS=$(grep -rl "^traces:" "$HOME"/.agents/skills/*/manifest.yaml 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$INSTALLED_TRACED_SKILLS" -ge "$SOURCE_TRACED_SKILLS" ]]; then
+  pass "Installed traced skills match or exceed source count ($INSTALLED_TRACED_SKILLS/$SOURCE_TRACED_SKILLS)"
 else
-  fail "Expected 30+ skills with traces, found $TRACED_SKILLS"
+  fail "Installed traced skills below source count ($INSTALLED_TRACED_SKILLS/$SOURCE_TRACED_SKILLS)"
   FAILURES=$((FAILURES + 1))
 fi
 
 # Check Codex registration root. These entries are symlinks, not directories.
 CODEX_SKILLS_COUNT=$(find ~/.codex/skills/harnessy/ -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
-if [[ "$CODEX_SKILLS_COUNT" -gt 30 ]]; then
+if [[ "$CODEX_SKILLS_COUNT" -ge "$EXPECTED_CORE_SKILLS" ]]; then
   pass "Codex skills registered: $CODEX_SKILLS_COUNT"
 else
-  fail "Expected 30+ Codex skills, found $CODEX_SKILLS_COUNT"
+  fail "Expected at least $EXPECTED_CORE_SKILLS Codex skills, found $CODEX_SKILLS_COUNT"
   FAILURES=$((FAILURES + 1))
 fi
 

@@ -72,9 +72,9 @@
     "expected": [],
     "expectedCount": 0,
     "strict": false,
-    "repoDir": "/Users/julian/antigravity-skills",
-    "sourceDir": "/Users/julian/antigravity-skills/skills",
-    "installDir": "/Users/julian/.agents/skills",
+    "repoDir": null,
+    "sourceDir": null,
+    "installDir": null,
     "updatedAt": "2026-04-27T22:26:48.021Z"
   },
   "contextAgents": {
