@@ -3,7 +3,7 @@
 import { runCli } from "./qa-runtime-lib.mjs";
 
 const exitCode = await runCli(process.argv.slice(2), {
-  commandName: "flow-qa",
+  commandName: "qa",
   cwd: process.cwd(),
   stdout: process.stdout,
   stderr: process.stderr,
