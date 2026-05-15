@@ -51,6 +51,13 @@ def get_connected_client() -> AnyTypeClient:
 def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tuple[str, str]:
     """Get space selection from user or argument.
 
+    Resolution order:
+        1. Explicit ``space`` arg (name or ID)
+        2. Saved selection in ``~/.jarvis/config.json``
+        3. ``backends.anytype.default_space_id`` from ``~/.jarvis/config.yaml``
+        4. Single available space (auto-select)
+        5. Interactive prompt (TTY only)
+
     Args:
         client: Connected AnyType client
         space: Optional space name or ID
@@ -58,6 +65,8 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
     Returns:
         Tuple of (space_id, space_name)
     """
+    import sys
+
     from jarvis.state import get_selected_space, save_selected_space
 
     spaces = client.get_spaces()
@@ -70,11 +79,24 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
         console.print(f"[red]Space not found: {space}[/red]")
         raise SystemExit(1)
 
-    # Check saved selection
+    # Check saved selection (~/.jarvis/config.json)
     saved_space_id = get_selected_space()
     if saved_space_id:
         for space_id, space_name in spaces:
             if space_id == saved_space_id:
+                return space_id, space_name
+
+    # Fall back to config.yaml default_space_id (works for cron / non-interactive)
+    try:
+        from jarvis.config import load_config
+
+        cfg = load_config()
+        default_id = cfg.backends.anytype.default_space_id
+    except Exception:
+        default_id = None
+    if default_id:
+        for space_id, space_name in spaces:
+            if space_id == default_id:
                 return space_id, space_name
 
     # Single space - use automatically
@@ -82,6 +104,15 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
         space_id, space_name = spaces[0]
         save_selected_space(space_id)
         return space_id, space_name
+
+    # Non-interactive context: fail loudly instead of hanging on EOF
+    if not sys.stdin.isatty():
+        console.print(
+            "[red]No space resolved and no TTY available for prompt.[/red] "
+            "Set backends.anytype.default_space_id in ~/.jarvis/config.yaml "
+            "or pass --space."
+        )
+        raise SystemExit(2)
 
     # Prompt user
     console.print()

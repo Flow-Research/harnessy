@@ -294,7 +294,12 @@ def extract_top_items(brief, n=3):
 
 
 def jarvis_journal(path, today):
-    """Write the brief to Jarvis journal. Logs failures explicitly to stderr."""
+    """Write the brief to Jarvis journal. Returns True on success, False on failure.
+
+    Failure is reported as False rather than raised so the caller can decide
+    whether to fail the whole script. We do fail the cron-visible exit code on
+    delivery failure — a brief that doesn't reach AnyType is not "success".
+    """
     title = f"Daily Brief — {today.strftime('%B %d, %Y')}"
     print(f"Writing to Jarvis journal: {title}", file=sys.stderr)
     try:
@@ -307,7 +312,7 @@ def jarvis_journal(path, today):
         )
         if result.returncode == 0:
             print("Jarvis journal write: success", file=sys.stderr)
-            return
+            return True
         # Non-zero exit: log everything so the failure is visible in cron logs
         print(
             f"Jarvis journal write FAILED (exit {result.returncode})",
@@ -317,16 +322,19 @@ def jarvis_journal(path, today):
             print(f"  stdout: {result.stdout.strip()}", file=sys.stderr)
         if result.stderr:
             print(f"  stderr: {result.stderr.strip()}", file=sys.stderr)
+        return False
     except subprocess.TimeoutExpired as e:
         print(
             f"Jarvis journal write TIMED OUT after {e.timeout}s",
             file=sys.stderr,
         )
+        return False
     except (FileNotFoundError, OSError) as e:
         print(
             f"Jarvis journal write ERROR: {type(e).__name__}: {e}",
             file=sys.stderr,
         )
+        return False
 
 
 def send_notification(brief):
@@ -407,10 +415,19 @@ def main():
     print(f"Brief saved to {path}", file=sys.stderr)
 
     # Step 6: Jarvis journal integration
-    jarvis_journal(path, today)
+    delivered = jarvis_journal(path, today)
 
     # Step 7: Desktop notification
     send_notification(brief)
+
+    # Surface delivery failure to cron — file-only success is not user-visible.
+    if not delivered:
+        print(
+            "Error: brief generated but Jarvis journal write failed — "
+            "see stderr above. Marking run as failed.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "specs": [
+    {
+      "path": "qa/browser/scripts/app-full-regression.md",
+      "app": "web",
+      "layer": "browser"
+    },
+    {
+      "path": "qa/api/scripts/app-api-regression.md",
+      "app": "web",
+      "layer": "api"
+    }
+  ],
+  "apps": [
+    {
+      "id": "web",
+      "tests": {
+        "browser": [
+          "apps/web/tests/browser-integration/suites"
+        ],
+        "api": [
+          "apps/web/tests/integration/api-routes"
+        ]
+      }
+    }
+  ],
+  "output": {
+    "coverage": "qa/qa-coverage.md"
+  }
+}

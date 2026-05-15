@@ -1,0 +1,30 @@
+name: dependency-manager
+type: opencode
+version: 0.1.0
+install_scope: global
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Plan, verify, and explicitly install skill and script runtime dependencies from Harnessy manifests."
+permissions: [read, execute]
+data_categories: [none]
+egress: []
+invoke: "/dependency-manager"
+location: tools/flow-install/skills/dependency-manager
+autoresearch:
+  enabled: true
+  metric_layer: 1
+  time_budget_seconds: 1200
+  evaluation_window: 3
+  constraints:
+    max_regression_rate: 0.1
+    max_human_intervention: 0.5
+dependencies:
+  - tool: node
+    description: "Node.js runtime for flow-deps"
+    check: "node --version"
+    required: true
+  - tool: python3
+    description: "Python 3 for Python package probing and installation"
+    check: "python3 --version"
+    required: false
