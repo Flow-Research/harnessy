@@ -730,6 +730,27 @@ updated: 2026-03-23
 ---
 
 ---
+name: security-audit
+type: opencode
+version: 1.0.0
+install_scope: global
+status: active
+owner: harnessy-team
+blast_radius: medium
+description: "Autonomous security auditor that identifies vulnerabilities, misconfigurations, and OWASP-style risks."
+location: tools/flow-install/skills/security-audit
+invoke: "/security-audit"
+permissions: [read]
+data_categories: [none]
+egress: []
+phase: P2
+tags: [security, audit, owasp]
+depends_on: []
+created: 2026-05-14
+updated: 2026-05-14
+---
+
+---
 name: anytype-skill
 type: opencode
 version: 0.1.0
