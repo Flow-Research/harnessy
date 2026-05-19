@@ -63,6 +63,12 @@ coverage/
 # === Logs ===
 *.log
 
+# === Generated data & outputs ===
+*.csv
+results.csv
+.experiments/
+*.json.bak
+
 # === Git / release scratch ===
 .gitmodules
 

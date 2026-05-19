@@ -21,6 +21,20 @@ Use this checklist to ensure your environment is ready to run the controlled reg
   git --version
   git config --global user.name
   ```
+  
+- [ ] **LLM API key set** (choose one provider)
+  ```bash
+  # Option 1: Gemini (FREE)
+  echo $GOOGLE_API_KEY
+  
+  # Option 2: Claude
+  echo $ANTHROPIC_API_KEY
+  
+  # Option 3: GPT
+  echo $OPENAI_API_KEY
+  
+  # One of the above should be set
+  ```
 
 - [ ] Running from Harnessy repository root
   ```bash
@@ -41,6 +55,7 @@ Use this checklist to ensure your environment is ready to run the controlled reg
   ```bash
   ls -la tests/harness/run-regression-recovery-experiment.sh
   ls -la tests/harness/experiment_analysis.py
+  ls -la tests/harness/skill_repair.py
   ```
 
 - [ ] **Target skill installed**
@@ -69,6 +84,23 @@ Use this checklist to ensure your environment is ready to run the controlled reg
   ```bash
   export PYTHONPATH="$PYTHONPATH:./tools/flow-install/skills/_shared"
   python3 -c "from ratchet import extract_variables; print('✓ ratchet importable')"
+  ```
+
+- [ ] **LLM package installed** (at least one)
+  ```bash
+  # Gemini (recommended for free usage)
+  python3 -c "import google.generativeai; print('✓ google-generativeai ready')"
+  
+  # OR Claude
+  python3 -c "import anthropic; print('✓ anthropic ready')"
+  
+  # OR GPT
+  python3 -c "import openai; print('✓ openai ready')"
+  
+  # If not installed:
+  # pip install google-generativeai
+  # pip install anthropic
+  # pip install openai
   ```
 
 ### Test Suite Validation

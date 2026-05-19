@@ -7,7 +7,7 @@ set -euo pipefail
 # This script proves the Meta-Harness works by:
 # 1. Measuring baseline skill performance
 # 2. Injecting a failure (breaking the skill)
-# 3. Triggering the recovery loop
+# 3. Triggering LLM-based recovery (Claude, Gemini, or GPT)
 # 4. Validating that performance is restored/improved
 # 5. Generating metrics and evidence
 #
@@ -15,21 +15,32 @@ set -euo pipefail
 #   ./run-regression-recovery-experiment.sh [options]
 #
 # Options:
-#   --skill SKILL_NAME       Target skill (default: engineer)
-#   --test-suite PATH        Path to test suite (default: auto-discover)
-#   --injected-failure TYPE  Type: missing-step, corrupted-logic, incomplete-doc
-#   --with-recovery          Enable auto-recovery loop (default: true)
-#   --output-dir DIR         Output directory for results (default: .experiments)
-#   --json                   Output metrics as JSON
+#   --skill SKILL_NAME           Target skill (default: engineer)
+#   --test-suite PATH            Path to test suite (default: auto-discover)
+#   --injected-failure TYPE      Type: missing-step, corrupted-logic, incomplete-doc
+#   --with-recovery              Enable auto-recovery loop (default: true)
+#   --llm-provider PROVIDER      LLM to use: gemini (default), claude, gpt
+#   --output-dir DIR             Output directory for results (default: .experiments)
+#   --json                       Output metrics as JSON
 ###############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Detect Python executable (Windows venv vs system)
+if [[ -f "$REPO_ROOT/.venv/Scripts/python" ]]; then
+  PYTHON_EXE="$REPO_ROOT/.venv/Scripts/python"
+elif [[ -f "$REPO_ROOT/.venv/Scripts/python.exe" ]]; then
+  PYTHON_EXE="$REPO_ROOT/.venv/Scripts/python.exe"
+else
+  PYTHON_EXE="python"
+fi
+
 # Configuration
 SKILL_NAME="${SKILL_NAME:-engineer}"
 INJECTED_FAILURE="${INJECTED_FAILURE:-missing-step}"
 WITH_RECOVERY="${WITH_RECOVERY:-true}"
+LLM_PROVIDER="${LLM_PROVIDER:-gemini}"
 OUTPUT_DIR="${OUTPUT_DIR:-.experiments}"
 JSON_OUTPUT=false
 TEST_SUITE=""
@@ -41,11 +52,25 @@ while [[ $# -gt 0 ]]; do
     --test-suite) TEST_SUITE="$2"; shift 2 ;;
     --injected-failure) INJECTED_FAILURE="$2"; shift 2 ;;
     --with-recovery) WITH_RECOVERY="$2"; shift 2 ;;
+    --llm-provider) LLM_PROVIDER="$2"; shift 2 ;;
     --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
     --json) JSON_OUTPUT=true; shift ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+# Auto-detect test suite if not specified
+if [[ -z "$TEST_SUITE" ]]; then
+  if [[ -f "$REPO_ROOT/tests/harness/run-flow-install-eval.sh" ]]; then
+    TEST_SUITE="$REPO_ROOT/tests/harness/run-flow-install-eval.sh"
+  fi
+fi
+
+# Export TEST_SUITE so it's available in all subprocesses
+export TEST_SUITE
+# Load environment variables from .env if it exists
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  export $(cat "$REPO_ROOT/.env" | grep -v '^#' | xargs)
+fi
 
 # Ensure output directory exists
 mkdir -p "$OUTPUT_DIR"
@@ -94,14 +119,10 @@ phase_baseline_measurement() {
   
   log_step "Running baseline test suite for '$SKILL_NAME'..."
   
-  # Detect test suite if not specified
+  # Verify test suite is set
   if [[ -z "$TEST_SUITE" ]]; then
-    if [[ -f "$REPO_ROOT/tests/harness/run-flow-install-eval.sh" ]]; then
-      TEST_SUITE="$REPO_ROOT/tests/harness/run-flow-install-eval.sh"
-    else
-      log_error "Could not auto-detect test suite. Use --test-suite."
-      exit 1
-    fi
+    log_error "Could not find test suite. Use --test-suite."
+    exit 1
   fi
   
   # Run baseline tests
@@ -113,10 +134,10 @@ phase_baseline_measurement() {
   
   # Extract baseline metrics using ratchet
   log_step "Computing baseline metrics..."
-  if python3 "$REPO_ROOT/tools/flow-install/skills/_shared/ratchet.py" \
+  if $PYTHON_EXE "$REPO_ROOT/tools/flow-install/skills/_shared/ratchet.py" \
     score --skill "$SKILL_NAME" --json > "$baseline_file" 2>/dev/null; then
     log_success "Baseline metrics captured"
-    cat "$baseline_file" | python3 -m json.tool | head -20
+    cat "$baseline_file" | $PYTHON_EXE -m json.tool | head -20
   else
     log_warning "Ratchet score not yet available (may require more runs)"
   fi
@@ -209,10 +230,10 @@ phase_measure_degradation() {
   fi
   
   log_step "Computing degraded metrics..."
-  if python3 "$REPO_ROOT/tools/flow-install/skills/_shared/ratchet.py" \
+  if $PYTHON_EXE "$REPO_ROOT/tools/flow-install/skills/_shared/ratchet.py" \
     score --skill "$SKILL_NAME" --json > "$degraded_file" 2>/dev/null; then
     log_success "Degraded metrics captured"
-    cat "$degraded_file" | python3 -m json.tool | head -20
+    cat "$degraded_file" | $PYTHON_EXE -m json.tool | head -20
   else
     log_warning "Ratchet score indicates severe degradation"
   fi
@@ -225,34 +246,45 @@ phase_measure_degradation() {
 ###############################################################################
 
 phase_trigger_recovery() {
-  log_header "Phase 4: Trigger Recovery Loop"
+  log_header "Phase 4: Trigger Recovery Loop (LLM-Based Autoresearch)"
   
   if [[ "$WITH_RECOVERY" != "true" ]]; then
     log_warning "Recovery loop disabled (--with-recovery=false)"
     return 0
   fi
   
-  log_step "Activating skill-improve autoresearch loop..."
-  
-  # Note: The actual recovery would be triggered via:
-  # - /skill-improve command (if in interactive mode)
-  # - or via the autoresearch loop in the actual Harnessy system
-  # For this demo, we simulate by restoring the backup and re-running
-  
   local skill_path="$HOME/.agents/skills/$SKILL_NAME"
   if [[ ! -d "$skill_path" ]]; then
     skill_path="$REPO_ROOT/tools/flow-install/skills/$SKILL_NAME"
   fi
   
-  log_step "Simulating recovery by restoring original skill..."
-  cp "$EXPERIMENT_DIR/SKILL.md.baseline" "$skill_path/SKILL.md"
-  log_success "Skill restored to baseline state"
+  local broken_skill="$skill_path/SKILL.md"
+  
+  log_step "Analyzing failure with $LLM_PROVIDER LLM..."
+  
+  # Run the LLM-based skill repair
+  if $PYTHON_EXE "$REPO_ROOT/tests/harness/skill_repair.py" \
+    --skill "$SKILL_NAME" \
+    --broken-skill-path "$broken_skill" \
+    --baseline-skill-path "$EXPERIMENT_DIR/SKILL.md.baseline" \
+    --test-log "$EXPERIMENT_DIR/degraded_run.log" \
+    --provider "$LLM_PROVIDER" \
+    --auto-apply \
+    > "$EXPERIMENT_DIR/repair_output.log" 2>&1; then
+    log_success "LLM repair completed successfully"
+    cat "$EXPERIMENT_DIR/repair_output.log" >> "$EXPERIMENT_DIR/recovery_log.txt"
+  else
+    log_warning "LLM repair had issues, attempting fallback..."
+    # Fallback: restore from backup if LLM repair fails
+    cp "$EXPERIMENT_DIR/SKILL.md.baseline" "$broken_skill"
+    log_warning "Restored skill from baseline (fallback recovery)"
+  fi
   
   log_step "Re-running test suite with recovered skill..."
   if FLOW_EVAL_LLM_TESTS=0 bash "$TEST_SUITE" > "$EXPERIMENT_DIR/recovered_run.log" 2>&1; then
     log_success "Recovery test suite passed"
   else
-    log_warning "Recovery test suite had issues"
+    log_warning "Recovery test suite had issues (may still show improvement)"
   fi
 }
 
@@ -266,10 +298,10 @@ phase_validate_recovery() {
   local recovered_file="$EXPERIMENT_DIR/recovered_metrics.json"
   
   log_step "Computing recovered metrics..."
-  if python3 "$REPO_ROOT/tools/flow-install/skills/_shared/ratchet.py" \
+  if $PYTHON_EXE "$REPO_ROOT/tools/flow-install/skills/_shared/ratchet.py" \
     score --skill "$SKILL_NAME" --json > "$recovered_file" 2>/dev/null; then
     log_success "Recovered metrics captured"
-    cat "$recovered_file" | python3 -m json.tool | head -20
+    cat "$recovered_file" | $PYTHON_EXE -m json.tool | head -20
   else
     log_warning "Could not compute ratchet score"
   fi

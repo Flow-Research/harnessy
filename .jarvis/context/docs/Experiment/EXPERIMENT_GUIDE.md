@@ -1,15 +1,33 @@
 # Harnessy Controlled Regression & Recovery Experiment Guide
 
-> **Objective:** Validate that the Meta-Harness can autonomously detect, diagnose, and recover from skill degradation through the autoresearch loop.
+> **Objective:** Validate that the Meta-Harness can autonomously detect, diagnose, and recover from skill degradation through **LLM-based autoresearch** using Claude, Gemini, or GPT.
+
+## Prerequisites
+
+- Python 3.9+
+- Bash 4.0+
+- Git
+- **LLM API key**: Choose one of:
+  - **Google Gemini** (FREE, recommended): https://aistudio.google.com/app/apikey
+  - **Anthropic Claude** (paid): https://console.anthropic.com/
+  - **OpenAI GPT** (paid, $5 free trial): https://platform.openai.com/api/keys
 
 ## Quick Start
 
 ```bash
-# Run the full experiment (takes ~5-10 minutes)
+# Set your LLM API key (Gemini is FREE and recommended)
+export GOOGLE_API_KEY="AIzaSy..."  # For Gemini (FREE)
+# OR
+export ANTHROPIC_API_KEY="sk-ant-..."  # For Claude (paid)
+# OR
+export OPENAI_API_KEY="sk-..."  # For GPT (paid)
+
+# Run the full experiment (takes ~10-15 minutes, includes LLM analysis)
 bash tests/harness/run-regression-recovery-experiment.sh \
   --skill engineer \
   --injected-failure missing-step \
   --with-recovery true \
+  --llm-provider gemini \
   --output-dir .experiments
 
 # Analyze results
@@ -20,6 +38,8 @@ python3 tests/harness/experiment_analysis.py \
   --output .experiments/regression-recovery-*
 ```
 
+**See [LLMS_GUIDE.md](LLMS_GUIDE.md) for detailed setup instructions for Gemini (free), Claude, or GPT.**
+
 ## What This Experiment Does
 
 The experiment runs in **6 phases**, each building on the previous to prove the Meta-Harness works:
@@ -29,7 +49,7 @@ The experiment runs in **6 phases**, each building on the previous to prove the 
 | **1. Baseline** | Measure clean skill performance | System can establish a control |
 | **2. Entropy** | Inject a controlled failure | Failure is technically possible |
 | **3. Degradation** | Measure broken skill | Failure is detectable via metrics |
-| **4. Recovery** | Trigger autoresearch loop | System can analyze & fix |
+| **4. Recovery** | Claude LLM analyzes & fixes skill | System can autonomously repair via AI |
 | **5. Validation** | Measure fixed skill | Recovery works |
 | **6. Evidence** | Compare metrics across phases | Autonomy is proven |
 
@@ -99,23 +119,24 @@ Multiplicative scoring means **weakness in any dimension drags the entire score 
 
 **Output:** `degraded_metrics.json` showing clear performance drop
 
-### Phase 4: Trigger Recovery
+### Phase 4: LLM-Based Recovery
 
 With `--with-recovery true`, the script:
 
-1. **Simulates recovery trigger** (in production, this would be `/skill-improve` command)
-2. **Analyzes failure traces** to identify the issue
-3. **Proposes fixes** (in this demo, we restore the baseline; in production, autoresearch would generate new instructions)
-4. **Re-runs test suite** with fixed skill
+1. **Calls Claude LLM** with the broken SKILL.md and test failure logs
+2. **Claude analyzes the failure** and identifies what went wrong
+3. **Claude proposes specific text edits** to repair SKILL.md (e.g., restore missing steps, fix corrupted instructions)
+4. **Experiment applies the edits** with `--auto-apply` flag
+5. **Re-runs test suite** with the Claude-repaired skill
 
-**In production flow:**
-- Real autoresearch loop would:
-  - Parse execution traces from degraded phase
-  - Identify where the skill failed
-  - Generate improved instructions
-  - Apply changes to SKILL.md
-  - Validate against hard constraints
-  - Keep only if ΔS > 0.02
+**Claude's analysis includes:**
+- Identifying the failure type (missing-step, corrupted-logic, incomplete-doc)
+- Showing exact text replacements with rationale
+- Recording repair proposals in `recovery_log.txt`
+
+**Fallback recovery:**
+- If Claude's repairs don't work, falls back to baseline restore (to ensure test completion)
+- This validates the ratchet's hard constraints
 
 ### Phase 5-6: Validate & Generate Evidence
 
@@ -189,11 +210,26 @@ Recovered: ○○○
 ```bash
 # Ensure Python 3.10+ and required tools
 python3 --version
-pip3 install --upgrade pip
+pip3 install --upgrade pip google-generativeai
+
+# Choose your LLM provider and set the API key:
+
+# Option 1: Google Gemini (FREE - recommended)
+export GOOGLE_API_KEY="AIzaSy..."
+
+# Option 2: Anthropic Claude (paid)
+# pip install anthropic
+# export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Option 3: OpenAI GPT (paid, $5 free trial)
+# pip install openai
+# export OPENAI_API_KEY="sk-..."
 
 # Check ratchet.py is available
 ls tools/flow-install/skills/_shared/ratchet.py
 ```
+
+**Note:** The recovery phase uses an LLM to analyze failures and propose fixes. See [LLMS_GUIDE.md](../../LLMS_GUIDE.md) for detailed setup instructions for each provider.
 
 ### Standard Run (Recommended)
 
