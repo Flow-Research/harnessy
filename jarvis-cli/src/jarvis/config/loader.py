@@ -10,7 +10,7 @@ from .defaults import (
     ENV_NOTION_TOKEN,
     ENV_NOTION_TOKEN_FALLBACK,
 )
-from .schema import JarvisConfig, NotionConfig, get_config_path
+from .schema import JarvisConfig, get_config_path
 
 
 class ConfigError(Exception):
