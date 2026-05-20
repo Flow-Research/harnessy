@@ -1,6 +1,5 @@
 """Tests for configuration schema models."""
 
-import os
 from pathlib import Path
 
 import pytest
