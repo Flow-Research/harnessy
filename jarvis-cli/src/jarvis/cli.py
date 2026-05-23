@@ -1663,7 +1663,10 @@ def _generate_docs() -> dict:
                                 "when --project is omitted"
                             ),
                             "--tag": "Tags to attach during auto-ingest",
-                            "--dest": "Destination for auto-ingest: private-context, wiki, journal, memory",
+                            "--dest": (
+                                "Destination for auto-ingest: private-context, "
+                                "wiki, journal, memory"
+                            ),
                             "--wiki-domain": (
                                 "Wiki domain when auto-ingesting to the wiki destination"
                             ),
