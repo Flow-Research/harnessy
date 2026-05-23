@@ -433,9 +433,6 @@ class AnyTypeAdapter:
         if title is not None:
             updates["name"] = title
 
-        if due_date is not None:
-            updates["due_date"] = due_date.isoformat()
-
         if priority is not None:
             updates["priority"] = priority.value
 
@@ -453,6 +450,14 @@ class AnyTypeAdapter:
                 self.update_object(space_id, task_id, updates)
             except Exception as e:
                 raise ConnectionError(f"Failed to update task: {e}", backend="anytype")
+
+        if due_date is not None:
+            try:
+                updated = self._client.update_task_date(space_id, task_id, due_date)
+            except RuntimeError as e:
+                raise ConnectionError(f"Failed to update task due date: {e}", backend="anytype")
+            if not updated:
+                raise ConnectionError("Failed to update task due date", backend="anytype")
 
         # Return updated task (refetch to get latest state)
         return self.get_task(space_id, task_id)

@@ -215,6 +215,31 @@ class TestAnyTypeAdapterTasks:
             assert "shopping" in task.tags
             assert task.is_done is False
 
+    def test_update_task_due_date_uses_task_date_helper(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """Task due date updates should not require a pre-existing object property."""
+        task = SimpleNamespace(id="task-123")
+        with (
+            patch.object(connected_adapter, "get_task", return_value=task) as get_task,
+            patch.object(connected_adapter, "update_object") as update_object,
+            patch.object(
+                connected_adapter._client,
+                "update_task_date",
+                return_value=True,
+            ) as update_task_date,
+        ):
+            result = connected_adapter.update_task(
+                "space-1",
+                "task-123",
+                due_date=date(2026, 6, 6),
+            )
+
+        assert result is task
+        assert get_task.call_count == 2
+        update_object.assert_not_called()
+        update_task_date.assert_called_once_with("space-1", "task-123", date(2026, 6, 6))
+
     def test_get_tasks_negative_offset(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test get_tasks rejects negative offset."""
         with pytest.raises(ValidationError) as exc_info:
