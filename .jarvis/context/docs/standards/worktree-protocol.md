@@ -32,10 +32,10 @@ projects/
     worktrees/
       feat-auth-redirect/
       fix-ci-timeouts/
-  accelerate-africa/
+  client-portal/
     dev/
     worktrees/
-      117-program-team-investment/
+      feat-investor-dashboard/
 ```
 
 ### Meaning Of Each Directory
