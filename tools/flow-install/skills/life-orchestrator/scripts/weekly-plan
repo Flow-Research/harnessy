@@ -1,10 +1,10 @@
 #!/bin/bash
-# weekly-plan — Generate the weekly plan via Claude.
+# weekly-plan — Generate the weekly plan via the Harnessy AI runner.
 #
 # Called by launchd (com.flow-harness.project.weekly-plan). Can also be run
 # manually: `bash tools/flow-install/skills/life-orchestrator/scripts/weekly-plan`
 #
-# Pattern: read inputs into variables, build a prompt, pipe to claude -p via
+# Pattern: read inputs into variables, build a prompt, pipe to ai_runner.py via
 # stdin, capture stdout, write to output file. This avoids needing claude to
 # have filesystem read/write permissions outside the project root.
 #
@@ -83,7 +83,18 @@ TEMPLATE=$(cat "$TEMPLATE_FILE")
 
 # Step 3: build prompt
 PROMPT=$(cat <<EOF
-You are generating a weekly plan for the user. Output ONLY the plan in markdown — no preamble, no commentary, no questions.
+You are writing the user's weekly planning note. Output ONLY the plan in markdown - no preamble, no commentary, no questions.
+
+Voice and style:
+- Write like a sharp teammate who knows the work, not like an AI report or strategy memo.
+- Use plain human language, short paragraphs, and concrete verbs.
+- Be specific about names, projects, dates, blockers, and decisions.
+- Avoid grand framing and consultant phrases such as "center of gravity", "proof loop", "unlock",
+  "operating leverage", "surfaced", "material", "front-line execution", "decision gate",
+  "low-friction", "at scale", and "lane-based".
+- If a sentence sounds like a memo headline, rewrite it as the direct fact.
+- Do not scold the user for having many active projects. Treat the portfolio as intentional and
+  focus on owners, cadence, decisions, and follow-through.
 
 # Priorities
 $PRIORITIES
@@ -105,23 +116,40 @@ $TEMPLATE
 $STATE_JSON
 \`\`\`
 
-Produce the weekly plan for Week $WEEK of $YEAR ($MONTH). Output the markdown plan only.
+Produce the weekly plan for Week $WEEK of $YEAR ($MONTH). Use the template structure, but keep
+the language direct and natural. Output the markdown plan only.
 EOF
 )
 
-# Step 4: invoke claude
-echo "Invoking claude -p..." >&2
-PLAN=$(echo "$PROMPT" | claude -p --output-format text --model sonnet 2>&1)
-CLAUDE_EXIT=$?
-
-if [ $CLAUDE_EXIT -ne 0 ]; then
-    echo "ERROR: claude exited $CLAUDE_EXIT" >&2
-    echo "$PLAN" >&2
-    exit 1
+# Step 4: invoke the provider-agnostic AI runner
+AI_RUNNER="$SKILL_DIR/../_shared/ai_runner.py"
+if [ ! -f "$AI_RUNNER" ]; then
+    echo "ERROR: Harnessy AI runner missing at $AI_RUNNER" >&2
+    exit 2
 fi
 
+echo "Invoking Harnessy AI runner..." >&2
+RUNNER_ERR=$(mktemp -t weekly-plan-ai-runner.XXXXXX)
+PLAN=$(printf '%s' "$PROMPT" | python3 "$AI_RUNNER" \
+    --provider "${HARNESSY_AI_PROVIDER:-auto}" \
+    --model "${HARNESSY_AI_MODEL:-sonnet}" \
+    --fallback-model "${HARNESSY_AI_FALLBACK_MODEL:-haiku}" \
+    --budget-usd "${HARNESSY_AI_BUDGET_USD:-0.75}" \
+    --timeout "${HARNESSY_AI_TIMEOUT:-540}" \
+    --cwd "$PROJECT_ROOT" 2>"$RUNNER_ERR")
+RUNNER_EXIT=$?
+
+if [ $RUNNER_EXIT -ne 0 ]; then
+    echo "ERROR: Harnessy AI runner exited $RUNNER_EXIT" >&2
+    sed 's/^/  /' "$RUNNER_ERR" >&2
+    rm -f "$RUNNER_ERR"
+    exit 1
+fi
+sed 's/^/  /' "$RUNNER_ERR" >&2
+rm -f "$RUNNER_ERR"
+
 if [ -z "$PLAN" ]; then
-    echo "ERROR: claude produced empty output" >&2
+    echo "ERROR: Harnessy AI runner produced empty output" >&2
     exit 1
 fi
 

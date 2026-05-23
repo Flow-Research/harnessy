@@ -1,7 +1,9 @@
 """Tests for AnyTypeAdapter."""
 
 from datetime import date
-from unittest.mock import patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,7 +15,7 @@ from jarvis.adapters.exceptions import (
     ValidationError,
 )
 from jarvis.config.schema import AnyTypeConfig, BackendsConfig, JarvisConfig
-from jarvis.models import Priority
+from jarvis.models import BackendObject, Priority
 
 
 class TestAnyTypeAdapterCapabilities:
@@ -128,18 +130,14 @@ class TestAnyTypeAdapterSpaces:
         with pytest.raises(ConnectionError):
             adapter.get_default_space()
 
-    def test_get_default_space_from_config(
-        self, connected_adapter: AnyTypeAdapter
-    ) -> None:
+    def test_get_default_space_from_config(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test get_default_space uses config value."""
         connected_adapter._default_space_id = "configured-space"
 
         result = connected_adapter.get_default_space()
         assert result == "configured-space"
 
-    def test_get_default_space_first_space(
-        self, connected_adapter: AnyTypeAdapter
-    ) -> None:
+    def test_get_default_space_first_space(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test get_default_space returns first space when not configured."""
         with patch.object(
             connected_adapter._client,
@@ -159,9 +157,7 @@ class TestAnyTypeAdapterSpaces:
             connected_adapter.set_default_space("space-1")
             assert connected_adapter._default_space_id == "space-1"
 
-    def test_set_default_space_not_found(
-        self, connected_adapter: AnyTypeAdapter
-    ) -> None:
+    def test_set_default_space_not_found(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test set_default_space with invalid space."""
         with patch.object(
             connected_adapter._client,
@@ -195,9 +191,7 @@ class TestAnyTypeAdapterTasks:
             connected_adapter.create_task("space-1", "")
         assert "empty" in str(exc_info.value).lower()
 
-    def test_create_task_title_too_long(
-        self, connected_adapter: AnyTypeAdapter
-    ) -> None:
+    def test_create_task_title_too_long(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test create_task rejects too-long title."""
         with pytest.raises(ValidationError) as exc_info:
             connected_adapter.create_task("space-1", "x" * 501)
@@ -205,9 +199,7 @@ class TestAnyTypeAdapterTasks:
 
     def test_create_task_success(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test create_task returns Task model."""
-        with patch.object(
-            connected_adapter._client, "create_task", return_value="task-123"
-        ):
+        with patch.object(connected_adapter._client, "create_task", return_value="task-123"):
             task = connected_adapter.create_task(
                 space_id="space-1",
                 title="Buy groceries",
@@ -223,9 +215,32 @@ class TestAnyTypeAdapterTasks:
             assert "shopping" in task.tags
             assert task.is_done is False
 
-    def test_get_tasks_negative_offset(
+    def test_update_task_due_date_uses_task_date_helper(
         self, connected_adapter: AnyTypeAdapter
     ) -> None:
+        """Task due date updates should not require a pre-existing object property."""
+        task = SimpleNamespace(id="task-123")
+        with (
+            patch.object(connected_adapter, "get_task", return_value=task) as get_task,
+            patch.object(connected_adapter, "update_object") as update_object,
+            patch.object(
+                connected_adapter._client,
+                "update_task_date",
+                return_value=True,
+            ) as update_task_date,
+        ):
+            result = connected_adapter.update_task(
+                "space-1",
+                "task-123",
+                due_date=date(2026, 6, 6),
+            )
+
+        assert result is task
+        assert get_task.call_count == 2
+        update_object.assert_not_called()
+        update_task_date.assert_called_once_with("space-1", "task-123", date(2026, 6, 6))
+
+    def test_get_tasks_negative_offset(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test get_tasks rejects negative offset."""
         with pytest.raises(ValidationError) as exc_info:
             connected_adapter.get_tasks("space-1", offset=-1)
@@ -254,19 +269,194 @@ class TestAnyTypeAdapterJournal:
         with pytest.raises(ConnectionError):
             adapter.create_journal_entry("space-1", "Today was great")
 
-    def test_get_journal_entries_negative_offset(
-        self, connected_adapter: AnyTypeAdapter
-    ) -> None:
+    def test_get_journal_entries_negative_offset(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test get_journal_entries rejects negative offset."""
         with pytest.raises(ValidationError):
             connected_adapter.get_journal_entries("space-1", offset=-1)
 
-    def test_search_journal_negative_offset(
-        self, connected_adapter: AnyTypeAdapter
-    ) -> None:
+    def test_search_journal_negative_offset(self, connected_adapter: AnyTypeAdapter) -> None:
         """Test search_journal rejects negative offset."""
         with pytest.raises(ValidationError):
             connected_adapter.search_journal("space-1", "query", offset=-1)
+
+
+class TestAnyTypeAdapterSyncOperations:
+    """Test Anytype operations used by jarvis sync."""
+
+    @pytest.fixture
+    def connected_adapter(self) -> AnyTypeAdapter:
+        """Create a connected adapter."""
+        adapter = AnyTypeAdapter()
+        adapter._client._authenticated = True
+        return adapter
+
+    def _fake_space(self) -> SimpleNamespace:
+        def get_type_byname(name: str) -> SimpleNamespace:
+            return SimpleNamespace(name=name, key=f"ot-{name.lower()}")
+
+        def create_object(obj: object) -> SimpleNamespace:
+            assert getattr(obj, "name")
+            return SimpleNamespace(id="created-1")
+
+        return SimpleNamespace(
+            get_type_byname=get_type_byname,
+            create_object=create_object,
+        )
+
+    def test_create_page_in_attaches_with_shared_collection_helper(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """Sync page creation should use the resilient AnyType list-link helper."""
+        connected_adapter._client._client = SimpleNamespace(
+            get_space=lambda _space_id: self._fake_space()
+        )
+        with (
+            patch.object(
+                connected_adapter._client, "_add_to_collection", return_value=True
+            ) as add_to_collection,
+            patch("anytype.Object") as object_cls,
+        ):
+            object_cls.side_effect = lambda name, type: SimpleNamespace(
+                name=name, type=type, body=""
+            )
+
+            object_id = connected_adapter.create_page_in("space-1", "parent-1", "Page", "Body")
+
+        assert object_id == "created-1"
+        add_to_collection.assert_called_once_with("space-1", "parent-1", "created-1")
+
+    def test_create_collection_in_fails_when_attachment_fails(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """A child Collection is not synced successfully unless it appears under parent."""
+        connected_adapter._client._client = SimpleNamespace(
+            get_space=lambda _space_id: self._fake_space()
+        )
+        with (
+            patch.object(connected_adapter._client, "_add_to_collection", return_value=False),
+            patch("anytype.Object") as object_cls,
+        ):
+            object_cls.side_effect = lambda name, type: SimpleNamespace(name=name, type=type)
+
+            with pytest.raises(ConnectionError):
+                connected_adapter.create_collection_in("space-1", "parent-1", "Child")
+
+    def test_create_collection_in_reattaches_existing_exact_name_collection(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """Interrupted sync retries should reuse one exact-name orphan Collection."""
+        type_collection = SimpleNamespace(name="Collection", key="ot-collection")
+        existing = SimpleNamespace(id="existing-1", name="Child")
+        fake_space = SimpleNamespace(
+            get_type_byname=lambda _name: type_collection,
+            get_object=lambda _object_id: (_ for _ in ()).throw(RuntimeError("not linked")),
+            search=lambda **_kwargs: [existing],
+            create_object=MagicMock(side_effect=AssertionError("should not create duplicate")),
+        )
+        connected_adapter._client._client = SimpleNamespace(get_space=lambda _space_id: fake_space)
+
+        with patch.object(
+            connected_adapter._client, "_add_to_collection", return_value=True
+        ) as add_to_collection:
+            object_id = connected_adapter.create_collection_in("space-1", "parent-1", "Child")
+
+        assert object_id == "existing-1"
+        add_to_collection.assert_called_once_with("space-1", "parent-1", "existing-1")
+
+    def test_delete_object_delegates_to_client(self, connected_adapter: AnyTypeAdapter) -> None:
+        """Sync prune deletes through the shared Anytype client."""
+        with patch.object(
+            connected_adapter._client, "delete_object", return_value=True
+        ) as delete_object:
+            result = connected_adapter.delete_object("space-1", "obj-1")
+
+        assert result is True
+        delete_object.assert_called_once_with("space-1", "obj-1")
+
+    def test_upload_file_in_uploads_and_attaches(
+        self, connected_adapter: AnyTypeAdapter, tmp_path: Path
+    ) -> None:
+        """Native file sync should upload through Files API and link to Collection."""
+        source = tmp_path / "image.png"
+        source.write_bytes(b"\x89PNG\r\n")
+        with (
+            patch.object(
+                connected_adapter._client, "upload_file", return_value="file-1"
+            ) as upload_file,
+            patch.object(
+                connected_adapter._client, "_add_to_collection", return_value=True
+            ) as add_to_collection,
+        ):
+            result = connected_adapter.upload_file_in("space-1", "parent-1", source)
+
+        assert result == "file-1"
+        upload_file.assert_called_once_with("space-1", source)
+        add_to_collection.assert_called_once_with("space-1", "parent-1", "file-1")
+
+    def test_update_page_content_uses_markdown_update_api(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """Folder sync page updates should use the markdown-capable object API."""
+        api = SimpleNamespace(headers={"Anytype-Version": "old"}, updateObject=MagicMock())
+        fake_space = SimpleNamespace(get_object=lambda _object_id: SimpleNamespace(name="Page"))
+        connected_adapter._client._client = SimpleNamespace(
+            get_space=lambda _space_id: fake_space,
+            _apiEndpoints=api,
+        )
+
+        connected_adapter.update_page_content("space-1", "page-1", "# Body")
+
+        api.updateObject.assert_called_once_with(
+            "space-1",
+            "page-1",
+            {"name": "Page", "markdown": "# Body"},
+        )
+        assert api.headers["Anytype-Version"] == "old"
+
+    def test_delete_file_delegates_to_client(self, connected_adapter: AnyTypeAdapter) -> None:
+        """Sync prune deletes native file objects via the Files API."""
+        with patch.object(
+            connected_adapter._client, "delete_file", return_value=True
+        ) as delete_file:
+            result = connected_adapter.delete_file("space-1", "file-1")
+
+        assert result is True
+        delete_file.assert_called_once_with("space-1", "file-1")
+
+    def test_delete_object_not_connected(self) -> None:
+        """Sync prune delete raises when not connected."""
+        adapter = AnyTypeAdapter()
+        with pytest.raises(ConnectionError):
+            adapter.delete_object("space-1", "obj-1")
+
+    def test_validate_collection_accepts_collection(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """Collection destinations are valid sync roots."""
+        obj = BackendObject(
+            id="obj-1",
+            space_id="space-1",
+            name="Sync Root",
+            object_type="Collection",
+            type_key="ot-collection",
+            backend="anytype",
+        )
+        with patch.object(connected_adapter, "get_object", return_value=obj):
+            connected_adapter.validate_collection("space-1", "obj-1")
+
+    def test_validate_collection_rejects_page(self, connected_adapter: AnyTypeAdapter) -> None:
+        """Non-Collection destinations are rejected before sync writes."""
+        obj = BackendObject(
+            id="obj-1",
+            space_id="space-1",
+            name="Not a folder",
+            object_type="Page",
+            type_key="ot-page",
+            backend="anytype",
+        )
+        with patch.object(connected_adapter, "get_object", return_value=obj):
+            with pytest.raises(ValidationError):
+                connected_adapter.validate_collection("space-1", "obj-1")
 
 
 class TestAnyTypeAdapterTags:
@@ -322,9 +512,7 @@ class TestAnyTypeAdapterWithConfig:
     def test_init_with_default_space(self) -> None:
         """Test adapter uses default_space_id from config."""
         config = JarvisConfig(
-            backends=BackendsConfig(
-                anytype=AnyTypeConfig(default_space_id="my-space")
-            )
+            backends=BackendsConfig(anytype=AnyTypeConfig(default_space_id="my-space"))
         )
         adapter = AnyTypeAdapter(config)
 

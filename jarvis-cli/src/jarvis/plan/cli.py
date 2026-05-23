@@ -14,23 +14,20 @@ console = Console()
 
 @click.command("plan")
 @click.option(
-    "--days", "-d",
+    "--days",
+    "-d",
     default=7,
     type=click.IntRange(1, 30),
-    help="Planning horizon in days (1-30, default: 7)"
+    help="Planning horizon in days (1-30, default: 7)",
 )
 @click.option(
-    "--interactive", "-i",
+    "--interactive",
+    "-i",
     is_flag=True,
     default=False,
-    help="Enable interactive Q&A mode after generating plan"
+    help="Enable interactive Q&A mode after generating plan",
 )
-@click.option(
-    "--save", "-s",
-    is_flag=True,
-    default=False,
-    help="Save plan to ~/.jarvis/plans/"
-)
+@click.option("--save", "-s", is_flag=True, default=False, help="Save plan to ~/.jarvis/plans/")
 def plan_command(days: int, interactive: bool, save: bool) -> None:
     """Generate a weekly plan based on your goals and scheduled tasks.
 
@@ -134,7 +131,9 @@ def _run_interactive_mode(service, plan) -> None:
 
     # TODO: Implement plan refinement based on answers
     # For now, just acknowledge the input
-    console.print("[green]✓ Thank you for your answers. Plan refinement coming in a future update.[/green]")
+    console.print(
+        "[green]✓ Thank you for your answers. Plan refinement coming in a future update.[/green]"
+    )
 
 
 # Create alias command

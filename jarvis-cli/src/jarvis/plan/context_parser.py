@@ -12,10 +12,10 @@ from typing import Literal
 from ..context_reader import load_context
 from ..models import UserContext
 from ..models.plan import (
+    FOCUS_MODE_EMOJI,
     ExtractedGoal,
     FocusMode,
     FocusSummary,
-    FOCUS_MODE_EMOJI,
     PlanContext,
 )
 
@@ -211,7 +211,9 @@ def extract_goals(goals_raw: str) -> list[ExtractedGoal]:
         goals.extend(_parse_goals_frontmatter(frontmatter_match.group(1)))
 
     # Extract goals by timeframe headers
-    timeframe_patterns: list[tuple[str, Literal["this_week", "this_month", "this_quarter", "ongoing"]]] = [
+    timeframe_patterns: list[
+        tuple[str, Literal["this_week", "this_month", "this_quarter", "ongoing"]]
+    ] = [
         (r"##?\s*this\s*week", "this_week"),
         (r"##?\s*this\s*month", "this_month"),
         (r"##?\s*this\s*quarter", "this_quarter"),
@@ -422,7 +424,7 @@ def _parse_goals_frontmatter(frontmatter: str) -> list[ExtractedGoal]:
 
         # Check for list item
         if line.startswith("- "):
-            goal_text = line[2:].strip().strip('"\'')
+            goal_text = line[2:].strip().strip("\"'")
             if goal_text:
                 goals.append(
                     ExtractedGoal(

@@ -1,13 +1,49 @@
 """AnyType API client wrapper."""
 
+import mimetypes
+import time
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
+import requests
 from rich.console import Console
 
 from jarvis.models import Priority, Task
 
 console = Console()
+
+
+_RATE_LIMIT_MARKERS = (
+    "maximum request limit",
+    "rate limit",
+    "rate-limit",
+    "too many requests",
+    "429",
+)
+
+
+def _looks_rate_limited(message: str) -> bool:
+    return any(marker in message.lower() for marker in _RATE_LIMIT_MARKERS)
+
+
+def _add_to_collection_success(result: object) -> bool:
+    if result is True:
+        return True
+    if isinstance(result, str):
+        lowered = result.strip().lower()
+        return lowered in {"ok", "true"} or "success" in lowered or "added" in lowered
+    if isinstance(result, dict):
+        status = str(result.get("status") or result.get("message") or "").lower()
+        if result.get("error"):
+            return False
+        return (
+            bool(result.get("success"))
+            or status in {"ok", "success"}
+            or "success" in status
+            or "added" in status
+        )
+    return False
 
 
 class AnyTypeClient:
@@ -71,6 +107,83 @@ class AnyTypeClient:
         """
         spaces = self.get_spaces()
         return spaces[0][0]
+
+    def upload_file(self, space_id: str, path: Path) -> str:
+        """Upload a local file as a native AnyType file object.
+
+        AnyType added file endpoints after the Python client package version
+        used here, so this method talks to the local REST API directly.
+
+        Args:
+            space_id: AnyType space ID.
+            path: Local file to upload.
+
+        Returns:
+            The uploaded file object's ID.
+        """
+        if not self._authenticated:
+            raise RuntimeError("Not authenticated. Call connect() first.")
+        if self._client is None or self._client._apiEndpoints is None:
+            raise RuntimeError("AnyType client is not connected.")
+
+        api = self._client._apiEndpoints
+        url = f"{api.api_url}/spaces/{space_id}/files"
+        headers = dict(api.headers)
+        headers.pop("Content-Type", None)
+        headers["Anytype-Version"] = "2025-11-08"
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        try:
+            with path.open("rb") as f:
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    files={"file": (path.name, f, media_type)},
+                    timeout=120,
+                )
+        except OSError as e:
+            raise RuntimeError(f"Could not read file '{path}': {e}") from e
+        return self._parse_file_upload_response(response)
+
+    def delete_file(self, space_id: str, file_id: str, *, skip_bin: bool = False) -> bool:
+        """Delete a native AnyType file object."""
+        if not self._authenticated:
+            raise RuntimeError("Not authenticated. Call connect() first.")
+        if self._client is None or self._client._apiEndpoints is None:
+            raise RuntimeError("AnyType client is not connected.")
+
+        api = self._client._apiEndpoints
+        url = f"{api.api_url}/spaces/{space_id}/files/{file_id}"
+        headers = dict(api.headers)
+        headers["Anytype-Version"] = "2025-11-08"
+        response = requests.delete(
+            url,
+            headers=headers,
+            params={"skip_bin": str(skip_bin).lower()},
+            timeout=60,
+        )
+        if 200 <= response.status_code < 300:
+            return True
+        raise RuntimeError(self._api_error_message(response))
+
+    def _parse_file_upload_response(self, response: requests.Response) -> str:
+        if not (200 <= response.status_code < 300):
+            raise RuntimeError(self._api_error_message(response))
+        try:
+            data = response.json()
+        except ValueError as e:
+            raise RuntimeError("AnyType file upload returned non-JSON response") from e
+        object_id = data.get("object_id") or data.get("id")
+        if not object_id:
+            raise RuntimeError(f"AnyType file upload response missing object_id: {data}")
+        return str(object_id)
+
+    def _api_error_message(self, response: requests.Response) -> str:
+        try:
+            payload = response.json()
+            message = payload.get("message") or payload
+        except ValueError:
+            message = response.text
+        return f"AnyType API error {response.status_code}: {message}"
 
     def get_tasks_in_range(
         self,
@@ -488,32 +601,59 @@ class AnyTypeClient:
         Returns:
             True if API calls succeeded and object should be visible in collection
         """
-        try:
-            # Multiple formats are needed to establish proper bidirectional links
-            # This is a quirk of the AnyType API - single format doesn't work
-            formats = [
-                {"object_ids": [object_id]},
-                {"ids": [object_id]},
-                {"objects": [object_id]},
-                {"objectIds": [object_id]},
-            ]
+        # Multiple formats are needed to establish proper bidirectional links.
+        # This is a quirk of the AnyType API: a single accepted payload can
+        # return success without reliably making the object visible in the list.
+        formats = [
+            {"object_ids": [object_id]},
+            {"ids": [object_id]},
+            {"objects": [object_id]},
+            {"objectIds": [object_id]},
+        ]
+        max_attempts = 6
+        last_errors: list[str] = []
 
+        for attempt in range(max_attempts):
             success_count = 0
+            attempt_errors: list[str] = []
+            rate_limited = False
             for fmt in formats:
                 try:
                     result = self._client._apiEndpoints.addObjectsToList(
                         space_id, collection_id, fmt
                     )
-                    if result == "Objects added successfully":
+                    if _add_to_collection_success(result):
                         success_count += 1
-                except Exception:
-                    # Some formats may not be supported, continue with others
+                except Exception as exc:
+                    message = str(exc) or exc.__class__.__name__
+                    attempt_errors.append(message)
+                    rate_limited = rate_limited or _looks_rate_limited(message)
+                    # Some formats may not be supported; continue with others.
                     pass
 
-            return success_count > 0
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not add to collection: {e}[/yellow]")
+            if success_count > 0:
+                return True
+
+            last_errors = attempt_errors
+            if rate_limited and attempt < max_attempts - 1:
+                time.sleep(min(2**attempt, 20))
+                continue
+
+            if rate_limited:
+                detail = "; ".join(last_errors) if last_errors else "request limit reached"
+                raise RuntimeError(
+                    "Anytype request limit while adding object "
+                    f"'{object_id}' to Collection '{collection_id}': {detail}"
+                )
+            if attempt_errors:
+                detail = "; ".join(attempt_errors)
+                raise RuntimeError(
+                    f"Could not add object '{object_id}' to Collection "
+                    f"'{collection_id}': {detail}"
+                )
             return False
+
+        return False
 
     def create_page(
         self,

@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import pytest
+
 from jarvis.reading_list.cache import ResultCache, URLCache, clear_cache
 from jarvis.reading_list.models import (
     FetchedContent,
@@ -6,11 +10,16 @@ from jarvis.reading_list.models import (
     ReadingItem,
     SourceDocument,
     SourceType,
-    Tier,
     Topic,
     classify_item_type,
     timestamp_now,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep cache tests out of the operator's real ~/.jarvis tree."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
 
 def test_url_cache_round_trip() -> None:

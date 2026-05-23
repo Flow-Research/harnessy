@@ -105,9 +105,7 @@ def task_to_notion_properties(
     }
 
     if due_date:
-        properties[mappings.get("due_date", "Due Date")] = {
-            "date": {"start": due_date.isoformat()}
-        }
+        properties[mappings.get("due_date", "Due Date")] = {"date": {"start": due_date.isoformat()}}
 
     if priority:
         properties[mappings.get("priority", "Priority")] = {
@@ -115,9 +113,7 @@ def task_to_notion_properties(
         }
 
     if tags:
-        properties[mappings.get("tags", "Tags")] = {
-            "multi_select": [{"name": tag} for tag in tags]
-        }
+        properties[mappings.get("tags", "Tags")] = {"multi_select": [{"name": tag} for tag in tags]}
 
     if is_done is not None:
         properties[mappings.get("done", "Done")] = {"checkbox": is_done}
@@ -193,14 +189,10 @@ def journal_to_notion_properties(
     }
 
     if entry_date:
-        properties[mappings.get("date", "Date")] = {
-            "date": {"start": entry_date.isoformat()}
-        }
+        properties[mappings.get("date", "Date")] = {"date": {"start": entry_date.isoformat()}}
 
     if tags:
-        properties[mappings.get("tags", "Tags")] = {
-            "multi_select": [{"name": tag} for tag in tags]
-        }
+        properties[mappings.get("tags", "Tags")] = {"multi_select": [{"name": tag} for tag in tags]}
 
     return properties
 
@@ -231,38 +223,38 @@ def content_to_notion_blocks(content: str) -> list[dict[str, Any]]:
 
         # Check for headings
         if para.startswith("### "):
-            blocks.append({
-                "object": "block",
-                "type": "heading_3",
-                "heading_3": {
-                    "rich_text": [{"type": "text", "text": {"content": para[4:]}}]
-                },
-            })
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "heading_3",
+                    "heading_3": {"rich_text": [{"type": "text", "text": {"content": para[4:]}}]},
+                }
+            )
         elif para.startswith("## "):
-            blocks.append({
-                "object": "block",
-                "type": "heading_2",
-                "heading_2": {
-                    "rich_text": [{"type": "text", "text": {"content": para[3:]}}]
-                },
-            })
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "heading_2",
+                    "heading_2": {"rich_text": [{"type": "text", "text": {"content": para[3:]}}]},
+                }
+            )
         elif para.startswith("# "):
-            blocks.append({
-                "object": "block",
-                "type": "heading_1",
-                "heading_1": {
-                    "rich_text": [{"type": "text", "text": {"content": para[2:]}}]
-                },
-            })
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {"rich_text": [{"type": "text", "text": {"content": para[2:]}}]},
+                }
+            )
         else:
             # Regular paragraph
-            blocks.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": para}}]
-                },
-            })
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": [{"type": "text", "text": {"content": para}}]},
+                }
+            )
 
     return blocks
 

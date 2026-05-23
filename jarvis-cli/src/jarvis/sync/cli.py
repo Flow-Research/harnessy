@@ -8,7 +8,9 @@ UX patterns mirror the rest of jarvis:
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from typing import cast
 
 import click
 from rich.console import Console
@@ -16,7 +18,13 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from jarvis.sync.engine import SyncAdapter, SyncOperation, SyncResult, run_sync
+from jarvis.sync.engine import (
+    SyncAdapter,
+    SyncOperation,
+    SyncResult,
+    UnsupportedMode,
+    run_sync,
+)
 from jarvis.sync.object_link import AnytypeLink, InvalidLinkError, parse_link
 from jarvis.sync.presets import (
     Preset,
@@ -31,7 +39,7 @@ console = Console()
 
 @click.group(name="sync")
 def sync_group() -> None:
-    """Sync local folders/files to an Anytype Space."""
+    """Sync local folders/files to an Anytype Collection."""
 
 
 # ---------------------------------------------------------------------------
@@ -53,16 +61,45 @@ def sync_group() -> None:
     "destination_str",
     type=str,
     default=None,
-    help="Anytype object link for the target folder. Overrides the preset's destination.",
+    help="Anytype object link for the target Collection. Overrides the preset's destination.",
 )
 @click.option("--prune", is_flag=True, help="Delete on Anytype what's gone locally.")
 @click.option("--dry-run", is_flag=True, help="Show what would change without touching Anytype.")
+@click.option("--yes", "assume_yes", is_flag=True, help="Skip confirmation prompts for writes.")
+@click.option(
+    "--include-extension",
+    "include_extension",
+    multiple=True,
+    help="Additional text file extension to include, e.g. .md or py. Repeatable.",
+)
+@click.option(
+    "--ignore",
+    "ignore_glob",
+    multiple=True,
+    help="Additional glob to ignore during traversal. Repeatable.",
+)
+@click.option(
+    "--skip-destination-check",
+    is_flag=True,
+    help="Do not verify that the destination object is an Anytype Collection before writing.",
+)
+@click.option(
+    "--unsupported-mode",
+    type=click.Choice(["upload", "warn", "stub", "error"]),
+    default=None,
+    help=("How to handle files that cannot sync as text: upload, warn, stub, or error."),
+)
 def run_cmd(
     preset_name: str | None,
     source_str: str | None,
     destination_str: str | None,
     prune: bool,
     dry_run: bool,
+    assume_yes: bool,
+    include_extension: tuple[str, ...],
+    ignore_glob: tuple[str, ...],
+    skip_destination_check: bool,
+    unsupported_mode: str | None,
 ) -> None:
     """Run a sync. Prompts interactively for any missing source/destination."""
     preset: Preset | None = None
@@ -85,11 +122,20 @@ def run_cmd(
 
     if preset is not None:
         include_extensions = preset.options.include_extensions
+        effective_unsupported_mode: UnsupportedMode = preset.options.unsupported_mode
         ignore = preset.ignore
     else:
-        include_extensions = PresetOptions().include_extensions
+        default_options = PresetOptions()
+        include_extensions = default_options.include_extensions
+        effective_unsupported_mode = default_options.unsupported_mode
         ignore = [".git", ".DS_Store", "node_modules"]
-    eff_preset_name = preset_name or "_adhoc"
+    if include_extension:
+        include_extensions = _normalize_extensions([*include_extensions, *include_extension])
+    if ignore_glob:
+        ignore = [*ignore, *ignore_glob]
+    if unsupported_mode:
+        effective_unsupported_mode = cast(UnsupportedMode, unsupported_mode)
+    eff_preset_name = _state_name(preset_name, source, destination)
 
     # Show plan
     prior_state = load_state(eff_preset_name)
@@ -99,18 +145,25 @@ def run_cmd(
             f"[bold]Destination object:[/bold] {destination.object_id}\n"
             f"[bold]Destination space:[/bold] {destination.space_id}\n"
             f"[bold]Preset:[/bold] {eff_preset_name}\n"
+            f"[bold]Unsupported files:[/bold] {effective_unsupported_mode}\n"
             f"[bold]Prune:[/bold] {prune}    [bold]Dry run:[/bold] {dry_run}",
             title="About to sync",
         )
     )
-    if not dry_run and not Confirm.ask("Proceed?", default=True):
+    if not dry_run and not assume_yes and not Confirm.ask("Proceed?", default=True):
         console.print("Cancelled.")
         return
 
-    # Get the adapter
-    adapter = _get_anytype_adapter()
-    if adapter is None:
-        return
+    if dry_run:
+        adapter: SyncAdapter = _DryRunAdapter()
+    else:
+        adapter = _get_anytype_adapter()
+        if adapter is None:
+            return
+        if not skip_destination_check and not _validate_destination_collection(
+            adapter, destination
+        ):
+            return
 
     result = run_sync(
         preset_name=eff_preset_name,
@@ -122,12 +175,15 @@ def run_cmd(
         prior_state=prior_state,
         dry_run=dry_run,
         prune=prune,
+        unsupported_mode=effective_unsupported_mode,
     )
 
     if not dry_run and result.state is not None:
         save_state(result.state)
 
     _print_summary(result, dry_run)
+    if result.errors:
+        raise SystemExit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +235,37 @@ def preset_add() -> None:
         raw = Prompt.ask("Ignore globs (comma-separated)", default=", ".join(ignore_default))
         ignore = [g.strip() for g in raw.split(",") if g.strip()]
 
+    options = PresetOptions()
+    if not Confirm.ask(
+        f"Use default included extensions? [{', '.join(options.include_extensions)}]",
+        default=True,
+    ):
+        raw = Prompt.ask(
+            "Included file extensions (comma-separated)",
+            default=", ".join(options.include_extensions),
+        )
+        options = PresetOptions(
+            include_extensions=_normalize_extensions(raw.split(",")),
+            unsupported_mode=options.unsupported_mode,
+        )
+    unsupported_raw = Prompt.ask(
+        "Unsupported file handling",
+        choices=["upload", "warn", "stub", "error"],
+        default=options.unsupported_mode,
+    )
+    options = PresetOptions(
+        include_extensions=options.include_extensions,
+        unsupported_mode=cast(UnsupportedMode, unsupported_raw),
+    )
+
     try:
-        preset = Preset(name=name, source=source, destination=destination, ignore=ignore)
+        preset = Preset(
+            name=name,
+            source=source,
+            destination=destination,
+            ignore=ignore,
+            options=options,
+        )
     except ValueError as e:
         console.print(f"[red]Invalid preset: {e}[/red]")
         raise SystemExit(1) from e
@@ -261,8 +346,31 @@ def preset_edit(name: str) -> None:
         default=", ".join(existing.ignore),
     ).strip()
     new_ignore = [g.strip() for g in new_ignore_str.split(",") if g.strip()]
+    new_extensions_str = Prompt.ask(
+        "Included file extensions (comma-separated)",
+        default=", ".join(existing.options.include_extensions),
+    ).strip()
+    new_options = PresetOptions(
+        include_extensions=_normalize_extensions(new_extensions_str.split(",")),
+        unsupported_mode=existing.options.unsupported_mode,
+    )
+    new_unsupported_mode = Prompt.ask(
+        "Unsupported file handling",
+        choices=["upload", "warn", "stub", "error"],
+        default=existing.options.unsupported_mode,
+    ).strip()
+    new_options = PresetOptions(
+        include_extensions=new_options.include_extensions,
+        unsupported_mode=cast(UnsupportedMode, new_unsupported_mode),
+    )
 
-    updated = Preset(name=name, source=new_source, destination=new_dest, ignore=new_ignore)
+    updated = Preset(
+        name=name,
+        source=new_source,
+        destination=new_dest,
+        ignore=new_ignore,
+        options=new_options,
+    )
     registry.upsert(updated)
     save_registry(registry)
     console.print(f"[green]✓ Updated preset '{name}'.[/green]")
@@ -290,7 +398,11 @@ def preset_delete(name: str) -> None:
 
 def _resolve_source(cli_source: str | None, preset: Preset | None) -> Path | None:
     if cli_source:
-        return Path(cli_source).expanduser().resolve()
+        p = Path(cli_source).expanduser().resolve()
+        if not p.exists():
+            console.print(f"[red]Path does not exist: {p}[/red]")
+            return None
+        return p
     if preset is not None and preset.source is not None:
         return preset.source.expanduser().resolve()
     raw = Prompt.ask("Source path (file or directory)").strip()
@@ -304,9 +416,35 @@ def _resolve_source(cli_source: str | None, preset: Preset | None) -> Path | Non
     return p
 
 
-def _resolve_destination(
-    cli_destination: str | None, preset: Preset | None
-) -> AnytypeLink | None:
+def _normalize_extensions(values: tuple[str, ...] | list[str]) -> list[str]:
+    """Return cleaned extensions with leading dots and no empty entries."""
+    out: list[str] = []
+    for value in values:
+        ext = value.strip()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = f".{ext}"
+        if ext not in out:
+            out.append(ext)
+    return out
+
+
+def _state_name(preset_name: str | None, source: Path, destination: AnytypeLink) -> str:
+    """Return the state bucket for a sync run.
+
+    Presets keep their explicit name. Ad-hoc runs get a deterministic source +
+    destination key so different one-off syncs do not overwrite each other's
+    incremental state.
+    """
+    if preset_name:
+        return preset_name
+    raw = f"{source.resolve()}|{destination.space_id}|{destination.object_id}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"_adhoc_{digest}"
+
+
+def _resolve_destination(cli_destination: str | None, preset: Preset | None) -> AnytypeLink | None:
     if cli_destination:
         try:
             return parse_link(cli_destination)
@@ -380,6 +518,55 @@ def _get_anytype_adapter() -> SyncAdapter | None:
         return None
 
 
+def _validate_destination_collection(adapter: SyncAdapter, destination: AnytypeLink) -> bool:
+    """Verify real syncs only target a Collection/list-like Anytype object."""
+    validator = getattr(adapter, "validate_collection", None)
+    if validator is None:
+        return True
+    try:
+        validator(destination.space_id, destination.object_id)
+        return True
+    except Exception as e:
+        console.print(f"[red]Invalid sync destination: {e}[/red]")
+        console.print(
+            "[dim]Pass an Anytype Collection link, or use --skip-destination-check "
+            "if you know this object can accept children.[/dim]"
+        )
+        return False
+
+
+class _DryRunAdapter:
+    """Adapter guard for dry-runs; the engine should never call it."""
+
+    def create_collection_in(
+        self, space_id: str, parent_collection_id: str | None, name: str
+    ) -> str:
+        raise RuntimeError("dry-run attempted to create a collection")
+
+    def create_page_in(
+        self,
+        space_id: str,
+        parent_collection_id: str | None,
+        name: str,
+        body_markdown: str,
+    ) -> str:
+        raise RuntimeError("dry-run attempted to create a page")
+
+    def update_page_content(self, space_id: str, object_id: str, body_markdown: str) -> None:
+        raise RuntimeError("dry-run attempted to update a page")
+
+    def upload_file_in(
+        self, space_id: str, parent_collection_id: str | None, file_path: Path
+    ) -> str:
+        raise RuntimeError("dry-run attempted to upload a file")
+
+    def delete_object(self, space_id: str, object_id: str) -> bool:
+        raise RuntimeError("dry-run attempted to delete an object")
+
+    def delete_file(self, space_id: str, file_id: str) -> bool:
+        raise RuntimeError("dry-run attempted to delete a file")
+
+
 def _print_summary(result: SyncResult, dry_run: bool) -> None:
     title = "Dry run summary" if dry_run else "Sync summary"
     console.print(
@@ -387,11 +574,20 @@ def _print_summary(result: SyncResult, dry_run: bool) -> None:
             f"[bold]Created:[/bold] {result.created}\n"
             f"[bold]Updated:[/bold] {result.updated}\n"
             f"[bold]Unchanged:[/bold] {result.unchanged}\n"
+            f"[bold]Skipped:[/bold] {result.skipped}\n"
+            f"[bold]Stubbed:[/bold] {result.stubbed}\n"
             f"[bold]Pruned:[/bold] {result.pruned}\n"
+            f"[bold]Warnings:[/bold] {len(result.warnings)}\n"
             f"[bold]Errors:[/bold] {len(result.errors)}",
             title=title,
         )
     )
+    if result.warnings:
+        console.print("\n[yellow bold]Warnings:[/yellow bold]")
+        for warning in result.warnings[:25]:
+            console.print(f"  • {warning}")
+        if len(result.warnings) > 25:
+            console.print(f"  [dim]… {len(result.warnings) - 25} more[/dim]")
     if result.errors:
         console.print("\n[red bold]Errors:[/red bold]")
         for err in result.errors:

@@ -19,8 +19,8 @@ from ..models.plan import (
 )
 from .prompts import (
     PLAN_SYSTEM_PROMPT,
-    build_plan_prompt,
     build_interactive_questions_prompt,
+    build_plan_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,9 +40,7 @@ class PlanGenerator:
         try:
             from anthropic import Anthropic
         except ImportError:
-            raise RuntimeError(
-                "anthropic package not installed. Run: uv pip install anthropic"
-            )
+            raise RuntimeError("anthropic package not installed. Run: uv pip install anthropic")
 
         self.client = Anthropic(api_key=api_key)
         self.model = model
@@ -98,7 +96,7 @@ class PlanGenerator:
 
         except Exception as e:
             logger.warning(f"AI plan generation failed: {e}")
-            console.print(f"[yellow]Warning: AI generation failed, using fallback plan[/yellow]")
+            console.print("[yellow]Warning: AI generation failed, using fallback plan[/yellow]")
             return self._generate_fallback_plan(tasks, gap_analysis, start_date, days)
 
     def generate_questions(

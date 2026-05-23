@@ -153,9 +153,7 @@ class TestNotionAdapterSpaces:
 class TestNotionAdapterTasks:
     """Test task CRUD operations."""
 
-    def test_create_task_minimal(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_create_task_minimal(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test creating a task with minimal fields."""
         task = adapter.create_task(
             space_id=space_id,
@@ -168,9 +166,7 @@ class TestNotionAdapterTasks:
         # Cleanup
         adapter.delete_task(space_id, task.id)
 
-    def test_create_task_full(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_create_task_full(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test creating a task with all fields."""
         due = date.today() + timedelta(days=7)
         task = adapter.create_task(
@@ -205,9 +201,7 @@ class TestNotionAdapterTasks:
         # Cleanup
         adapter.delete_task(space_id, created.id)
 
-    def test_get_task_not_found(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_get_task_not_found(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test getting nonexistent task raises NotFoundError."""
         # Use a valid UUID format but nonexistent
         fake_id = "00000000-0000-0000-0000-000000000000"
@@ -217,12 +211,8 @@ class TestNotionAdapterTasks:
     def test_get_tasks(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test querying tasks."""
         # Create some tasks
-        task1 = adapter.create_task(
-            space_id=space_id, title="Notion Query Test 1"
-        )
-        task2 = adapter.create_task(
-            space_id=space_id, title="Notion Query Test 2"
-        )
+        task1 = adapter.create_task(space_id=space_id, title="Notion Query Test 1")
+        task2 = adapter.create_task(space_id=space_id, title="Notion Query Test 2")
 
         try:
             tasks = adapter.get_tasks(space_id, include_done=False)
@@ -235,9 +225,7 @@ class TestNotionAdapterTasks:
             adapter.delete_task(space_id, task1.id)
             adapter.delete_task(space_id, task2.id)
 
-    def test_get_tasks_with_date_filter(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_get_tasks_with_date_filter(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test querying tasks with date filter."""
         today = date.today()
         tomorrow = today + timedelta(days=1)
@@ -261,9 +249,7 @@ class TestNotionAdapterTasks:
         finally:
             adapter.delete_task(space_id, task.id)
 
-    def test_get_tasks_with_pagination(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_get_tasks_with_pagination(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test task pagination."""
         # Create multiple tasks
         tasks_created = []
@@ -312,9 +298,7 @@ class TestNotionAdapterTasks:
         finally:
             adapter.delete_task(space_id, task.id)
 
-    def test_update_task_mark_done(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_update_task_mark_done(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test marking a task as done."""
         task = adapter.create_task(
             space_id=space_id,
@@ -346,9 +330,7 @@ class TestNotionAdapterTasks:
         # In Notion, archived pages can still be retrieved but won't appear in queries
         # The page still exists, just archived
 
-    def test_create_task_validation(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_create_task_validation(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test task creation validation."""
         # Empty title should fail
         with pytest.raises(ValidationError):
@@ -358,9 +340,7 @@ class TestNotionAdapterTasks:
         with pytest.raises(ValidationError):
             adapter.create_task(space_id=space_id, title="x" * 501)
 
-    def test_negative_offset_validation(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_negative_offset_validation(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test negative offset raises ValidationError."""
         with pytest.raises(ValidationError):
             adapter.get_tasks(space_id, offset=-1)
@@ -369,9 +349,7 @@ class TestNotionAdapterTasks:
 class TestNotionAdapterJournal:
     """Test journal CRUD operations."""
 
-    def test_create_journal_entry(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_create_journal_entry(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test creating a journal entry."""
         entry = adapter.create_journal_entry(
             space_id=space_id,
@@ -385,9 +363,7 @@ class TestNotionAdapterJournal:
         # Cleanup
         adapter.delete_journal_entry(space_id, entry.id)
 
-    def test_create_journal_entry_with_date(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_create_journal_entry_with_date(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test creating a journal entry with specific date."""
         yesterday = date.today() - timedelta(days=1)
         entry = adapter.create_journal_entry(
@@ -402,9 +378,7 @@ class TestNotionAdapterJournal:
         # Cleanup
         adapter.delete_journal_entry(space_id, entry.id)
 
-    def test_create_journal_auto_title(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_create_journal_auto_title(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test journal entry with auto-generated title."""
         entry = adapter.create_journal_entry(
             space_id=space_id,
@@ -417,9 +391,7 @@ class TestNotionAdapterJournal:
         # Cleanup
         adapter.delete_journal_entry(space_id, entry.id)
 
-    def test_get_journal_entry(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_get_journal_entry(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test getting a journal entry with content."""
         # Create entry
         created = adapter.create_journal_entry(
@@ -436,9 +408,7 @@ class TestNotionAdapterJournal:
         finally:
             adapter.delete_journal_entry(space_id, created.id)
 
-    def test_get_journal_entries(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_get_journal_entries(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test listing journal entries."""
         # Create entries
         entry1 = adapter.create_journal_entry(
@@ -462,9 +432,7 @@ class TestNotionAdapterJournal:
             adapter.delete_journal_entry(space_id, entry1.id)
             adapter.delete_journal_entry(space_id, entry2.id)
 
-    def test_update_journal_entry(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_update_journal_entry(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test updating a journal entry."""
         entry = adapter.create_journal_entry(
             space_id=space_id,
@@ -484,9 +452,7 @@ class TestNotionAdapterJournal:
         finally:
             adapter.delete_journal_entry(space_id, entry.id)
 
-    def test_delete_journal_entry(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_delete_journal_entry(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test deleting (archiving) a journal entry."""
         entry = adapter.create_journal_entry(
             space_id=space_id,
@@ -517,9 +483,7 @@ class TestNotionAdapterTags:
 class TestNotionAdapterSearch:
     """Test search operations."""
 
-    def test_search_journal(
-        self, adapter: NotionAdapter, space_id: str
-    ) -> None:
+    def test_search_journal(self, adapter: NotionAdapter, space_id: str) -> None:
         """Test searching journal entries."""
         # Create entry with unique content
         unique_text = f"notion_unique_search_{date.today().isoformat()}"

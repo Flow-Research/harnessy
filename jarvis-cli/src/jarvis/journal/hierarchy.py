@@ -57,9 +57,7 @@ class JournalHierarchy:
         if self._journal_id:
             return self._journal_id
 
-        self._journal_id = self.client.get_or_create_collection(
-            self.space_id, "Journal"
-        )
+        self._journal_id = self.client.get_or_create_collection(self.space_id, "Journal")
         return self._journal_id
 
     def get_year_container(self, year: int) -> str:
@@ -75,9 +73,7 @@ class JournalHierarchy:
             return self._year_cache[year]
 
         journal_id = self.get_journal_collection()
-        year_id = self.client.get_or_create_container(
-            self.space_id, journal_id, str(year)
-        )
+        year_id = self.client.get_or_create_container(self.space_id, journal_id, str(year))
         self._year_cache[year] = year_id
         return year_id
 
@@ -103,9 +99,7 @@ class JournalHierarchy:
 
         year_id = self.get_year_container(year)
         month_name = self.MONTHS[month - 1]
-        month_id = self.client.get_or_create_container(
-            self.space_id, year_id, month_name
-        )
+        month_id = self.client.get_or_create_container(self.space_id, year_id, month_name)
         self._month_cache[cache_key] = month_id
         return month_id
 

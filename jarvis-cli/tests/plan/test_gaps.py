@@ -1,13 +1,12 @@
 """Tests for gap detection functionality."""
 
-import pytest
 from datetime import date, datetime, timedelta
 
-from jarvis.models import Task, Priority
+from jarvis.models import Task
 from jarvis.models.plan import (
+    ExtractedGoal,
     FocusMode,
     FocusSummary,
-    ExtractedGoal,
     PlanContext,
     TaskCategory,
 )
@@ -136,10 +135,7 @@ class TestDetectGaps:
         today = date.today()
 
         # 8 tasks on the same day
-        tasks = [
-            make_task(f"Task {i}", task_id=str(i), scheduled_date=today)
-            for i in range(8)
-        ]
+        tasks = [make_task(f"Task {i}", task_id=str(i), scheduled_date=today) for i in range(8)]
         context = make_context()
         categories = []
 

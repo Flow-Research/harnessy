@@ -1,11 +1,11 @@
 """Tests for BackendObject model and object CLI ID parsing."""
 
 from datetime import datetime
-
-import pytest
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from jarvis.models import BackendObject, ObjectProperty, PropertyFormat
-from jarvis.object.cli import parse_object_id
+from jarvis.object.cli import _get_space, parse_object_id
 
 
 class TestBackendObject:
@@ -173,6 +173,24 @@ class TestObjectProperty:
         """Test display_value for numbers."""
         prop = ObjectProperty(key="priority", format=PropertyFormat.NUMBER, value=42)
         assert prop.display_value == "42"
+
+
+class TestObjectSpaceSelection:
+    """Tests for object CLI space selection behavior."""
+
+    def test_explicit_space_does_not_update_saved_selection(self) -> None:
+        """Test one-off object lookups do not change the global selected space."""
+        adapter = MagicMock()
+        adapter.list_spaces.return_value = [
+            SimpleNamespace(id="space_1", name="Personal"),
+            SimpleNamespace(id="space_2", name="Flow"),
+        ]
+
+        with patch("jarvis.object.cli.save_selected_space", create=True) as mock_save:
+            space_id, space_name = _get_space(adapter, "Flow")
+
+        assert (space_id, space_name) == ("space_2", "Flow")
+        mock_save.assert_not_called()
 
 
 class TestParseObjectId:

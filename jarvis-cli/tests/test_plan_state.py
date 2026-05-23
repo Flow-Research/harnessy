@@ -1,7 +1,7 @@
-from datetime import date, datetime, timezone
+import os
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest import mock
-import os
 
 from jarvis.models import AppliedBlockResult, PlanApplyResult, PlannedBlock, SchedulePlan
 from jarvis.plans import state
@@ -10,7 +10,7 @@ from jarvis.plans import state
 def make_plan(plan_id: str = "plan_test") -> SchedulePlan:
     return SchedulePlan(
         plan_id=plan_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         horizon_start=date(2026, 3, 2),
         horizon_end=date(2026, 3, 8),
         backend="anytype",
@@ -20,8 +20,8 @@ def make_plan(plan_id: str = "plan_test") -> SchedulePlan:
                 block_id="blk_1",
                 task_id="task_1",
                 task_title="Task",
-                start=datetime(2026, 3, 2, 10, 0, tzinfo=timezone.utc),
-                end=datetime(2026, 3, 2, 11, 0, tzinfo=timezone.utc),
+                start=datetime(2026, 3, 2, 10, 0, tzinfo=UTC),
+                end=datetime(2026, 3, 2, 11, 0, tzinfo=UTC),
                 estimated_minutes=60,
                 reason="test",
             )
@@ -46,7 +46,7 @@ def test_list_plan_ids_excludes_apply_artifacts(tmp_path: Path) -> None:
         state.save_plan(make_plan("plan_one"))
         result = PlanApplyResult(
             plan_id="plan_one",
-            applied_at=datetime.now(timezone.utc),
+            applied_at=datetime.now(UTC),
             results=[
                 AppliedBlockResult(
                     block_id="blk_1",
@@ -70,7 +70,7 @@ def test_save_and_load_plan_apply_round_trip(tmp_path: Path) -> None:
     with mock.patch("jarvis.plans.state.PLAN_DIR", tmp_path):
         result = PlanApplyResult(
             plan_id="plan_apply",
-            applied_at=datetime.now(timezone.utc),
+            applied_at=datetime.now(UTC),
             results=[
                 AppliedBlockResult(
                     block_id="blk_2",

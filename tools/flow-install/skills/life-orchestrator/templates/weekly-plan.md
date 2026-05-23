@@ -4,7 +4,7 @@
 
 ---
 
-## Top 3 Priorities
+## This Week
 
 1. {{priority_1}}
 2. {{priority_2}}
@@ -12,19 +12,25 @@
 
 ---
 
-## Meetings & Calls
+## Decisions To Make
+
+{{open_decisions}}
+
+---
+
+## Calls And Follow-Ups
 
 {{meetings_and_calls}}
 
 ---
 
-## Goal-Agent Runs to Launch
+## Agent Runs
 
 {{goal_agent_runs}}
 
 ---
 
-## Content to Publish
+## Content
 
 {{content_to_publish}}
 
@@ -36,6 +42,6 @@
 
 ---
 
-## Task List Alignment
+## Watchlist
 
 {{task_list_alignment}}

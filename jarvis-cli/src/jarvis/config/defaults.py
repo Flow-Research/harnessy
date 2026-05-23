@@ -49,6 +49,23 @@ content:
 analytics:
   enabled: false
   metrics_file: "~/.jarvis/metrics.json"
+
+# Fathom meeting ingestion
+fathom:
+  # Optional: choose a default named account for `jarvis meeting fathom ...`
+  # default_account: work
+
+  # Configure named accounts when you use multiple Google/Fathom identities.
+  # Keep secrets in environment variables, not in this file.
+  # accounts:
+  #   work:
+  #     email: "you@work.com"
+  #     api_key_env_var: "FATHOM_API_KEY_WORK"
+  #     webhook_secret_env_var: "FATHOM_WEBHOOK_SECRET_WORK"
+  #   personal:
+  #     email: "you@gmail.com"
+  #     api_key_env_var: "FATHOM_API_KEY_PERSONAL"
+  #     webhook_secret_env_var: "FATHOM_WEBHOOK_SECRET_PERSONAL"
 """
 
 # Valid backend names

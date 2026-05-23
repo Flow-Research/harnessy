@@ -140,16 +140,10 @@ def _merge_contexts(global_ctx: UserContext, folder_ctx: UserContext) -> UserCon
     """
     return UserContext(
         # Core context
-        preferences_raw=_merge_field(
-            global_ctx.preferences_raw, folder_ctx.preferences_raw
-        ),
+        preferences_raw=_merge_field(global_ctx.preferences_raw, folder_ctx.preferences_raw),
         patterns_raw=_merge_field(global_ctx.patterns_raw, folder_ctx.patterns_raw),
-        constraints_raw=_merge_field(
-            global_ctx.constraints_raw, folder_ctx.constraints_raw
-        ),
-        priorities_raw=_merge_field(
-            global_ctx.priorities_raw, folder_ctx.priorities_raw
-        ),
+        constraints_raw=_merge_field(global_ctx.constraints_raw, folder_ctx.constraints_raw),
+        priorities_raw=_merge_field(global_ctx.priorities_raw, folder_ctx.priorities_raw),
         # Extended context
         goals_raw=_merge_field(global_ctx.goals_raw, folder_ctx.goals_raw),
         projects_raw=_merge_field(global_ctx.projects_raw, folder_ctx.projects_raw),
@@ -157,9 +151,7 @@ def _merge_contexts(global_ctx: UserContext, folder_ctx: UserContext) -> UserCon
         focus_raw=_merge_field(global_ctx.focus_raw, folder_ctx.focus_raw),
         blockers_raw=_merge_field(global_ctx.blockers_raw, folder_ctx.blockers_raw),
         calendar_raw=_merge_field(global_ctx.calendar_raw, folder_ctx.calendar_raw),
-        delegation_raw=_merge_field(
-            global_ctx.delegation_raw, folder_ctx.delegation_raw
-        ),
+        delegation_raw=_merge_field(global_ctx.delegation_raw, folder_ctx.delegation_raw),
         decisions_raw=_merge_field(global_ctx.decisions_raw, folder_ctx.decisions_raw),
     )
 

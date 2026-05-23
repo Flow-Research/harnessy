@@ -53,10 +53,11 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
 
     Resolution order:
         1. Explicit ``space`` arg (name or ID)
-        2. Saved selection in ``~/.jarvis/config.json``
-        3. ``backends.anytype.default_space_id`` from ``~/.jarvis/config.yaml``
-        4. Single available space (auto-select)
-        5. Interactive prompt (TTY only)
+        2. ``backends.anytype.default_space_id`` in non-interactive contexts
+        3. Saved selection in ``~/.jarvis/config.json``
+        4. ``backends.anytype.default_space_id`` from ``~/.jarvis/config.yaml``
+        5. Single available space (auto-select)
+        6. Interactive prompt (TTY only)
 
     Args:
         client: Connected AnyType client
@@ -79,6 +80,10 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
         console.print(f"[red]Space not found: {space}[/red]")
         raise SystemExit(1)
 
+    configured_default = _configured_default_space(spaces)
+    if not sys.stdin.isatty() and configured_default:
+        return configured_default
+
     # Check saved selection (~/.jarvis/config.json)
     saved_space_id = get_selected_space()
     if saved_space_id:
@@ -87,17 +92,8 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
                 return space_id, space_name
 
     # Fall back to config.yaml default_space_id (works for cron / non-interactive)
-    try:
-        from jarvis.config import load_config
-
-        cfg = load_config()
-        default_id = cfg.backends.anytype.default_space_id
-    except Exception:
-        default_id = None
-    if default_id:
-        for space_id, space_name in spaces:
-            if space_id == default_id:
-                return space_id, space_name
+    if configured_default:
+        return configured_default
 
     # Single space - use automatically
     if len(spaces) == 1:
@@ -132,6 +128,148 @@ def get_space_selection(client: AnyTypeClient, space: str | None = None) -> tupl
     return space_id, space_name
 
 
+def _configured_default_space(spaces: list[tuple[str, str]]) -> tuple[str, str] | None:
+    """Return configured AnyType default space when it is available."""
+    try:
+        from jarvis.config import load_config
+
+        cfg = load_config()
+        default_id = cfg.backends.anytype.default_space_id
+    except Exception:
+        default_id = None
+
+    if default_id:
+        for space_id, space_name in spaces:
+            if space_id == default_id:
+                return space_id, space_name
+
+    return None
+
+
+def get_space_selections(
+    client: AnyTypeClient,
+    spaces: tuple[str, ...] | None = None,
+) -> list[tuple[str, str]]:
+    """Get one or more target spaces for a journal write.
+
+    Resolution order:
+        1. Explicit repeated ``--space`` args (name or ID)
+        2. Single available space (auto-select)
+        3. Interactive multi-select prompt (TTY only)
+        4. Existing single-space selection behavior for non-interactive contexts
+
+    Args:
+        client: Connected AnyType client
+        spaces: Optional repeated space names or IDs from the CLI
+
+    Returns:
+        List of (space_id, space_name) tuples.
+    """
+    import sys
+
+    from jarvis.state import save_selected_space
+
+    requested = tuple(s for s in (spaces or ()) if s)
+    available_spaces = client.get_spaces()
+
+    if not available_spaces:
+        console.print("[red]No AnyType spaces found.[/red]")
+        raise SystemExit(1)
+
+    if requested:
+        return _resolve_requested_spaces(available_spaces, requested)
+
+    if len(available_spaces) == 1:
+        space_id, space_name = available_spaces[0]
+        save_selected_space(space_id)
+        return [(space_id, space_name)]
+
+    if sys.stdin.isatty():
+        return _prompt_for_space_selections(available_spaces)
+
+    return [get_space_selection(client)]
+
+
+def _resolve_requested_spaces(
+    available_spaces: list[tuple[str, str]],
+    requested: tuple[str, ...],
+) -> list[tuple[str, str]]:
+    """Resolve repeated space args against available spaces."""
+    resolved: list[tuple[str, str]] = []
+    seen_ids: set[str] = set()
+    missing: list[str] = []
+
+    for requested_space in requested:
+        match = next(
+            (
+                (space_id, space_name)
+                for space_id, space_name in available_spaces
+                if space_id == requested_space or space_name.lower() == requested_space.lower()
+            ),
+            None,
+        )
+        if not match:
+            missing.append(requested_space)
+            continue
+
+        space_id, _ = match
+        if space_id not in seen_ids:
+            resolved.append(match)
+            seen_ids.add(space_id)
+
+    if missing:
+        console.print(f"[red]Space not found: {', '.join(missing)}[/red]")
+        console.print("[dim]Available spaces:[/dim]")
+        for _, space_name in available_spaces:
+            console.print(f"  • {space_name}")
+        raise SystemExit(1)
+
+    return resolved
+
+
+def _prompt_for_space_selections(
+    available_spaces: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Prompt for one or more spaces using comma-separated numbers."""
+    from jarvis.state import save_selected_space
+
+    console.print()
+    console.print("[bold]Select journal spaces:[/bold]")
+    for i, (_, space_name) in enumerate(available_spaces, 1):
+        console.print(f"  [cyan]{i}[/cyan]. {space_name}")
+    console.print("[dim]Enter numbers separated by commas, or 'all'.[/dim]")
+
+    while True:
+        choice = Prompt.ask("Spaces", default="1").strip().lower()
+        if choice == "all":
+            return available_spaces
+
+        selected_indexes: list[int] = []
+        invalid = False
+        for part in choice.split(","):
+            stripped = part.strip()
+            if not stripped:
+                continue
+            try:
+                idx = int(stripped)
+            except ValueError:
+                invalid = True
+                break
+            if not 1 <= idx <= len(available_spaces):
+                invalid = True
+                break
+            if idx not in selected_indexes:
+                selected_indexes.append(idx)
+
+        if not invalid and selected_indexes:
+            selected = [available_spaces[idx - 1] for idx in selected_indexes]
+            if len(selected) == 1:
+                save_selected_space(selected[0][0])
+            return selected
+
+        console.print("[red]Enter valid numbers from the list, or 'all'.[/red]")
+
+
 def get_anthropic_client():  # type: ignore[return]
     """Get Anthropic client from environment.
 
@@ -146,9 +284,7 @@ def get_anthropic_client():  # type: ignore[return]
     try:
         from anthropic import Anthropic
     except ImportError:
-        raise RuntimeError(
-            "anthropic package not installed. Run: uv pip install anthropic"
-        )
+        raise RuntimeError("anthropic package not installed. Run: uv pip install anthropic")
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -203,7 +339,7 @@ def generate_title(content: str) -> str:
 
     if title:
         # Clean up any quotes or extra formatting
-        return title.strip('"\'')
+        return title.strip("\"'")
 
     # Fallback: use first line or truncated content
     console.print("[yellow]Could not generate title, using fallback[/yellow]")
@@ -232,7 +368,12 @@ def journal_cli() -> None:
     type=click.Path(exists=True),
     help="Read entry content from a file (prepends AI summary)",
 )
-@click.option("--space", default=None, help="Space name or ID")
+@click.option(
+    "--space",
+    "spaces",
+    multiple=True,
+    help="Space name or ID (repeatable; omit for interactive multi-select)",
+)
 @click.option("--title", default=None, help="Custom title (skips AI generation)")
 @click.option("--no-deep-dive", is_flag=True, help="Skip deep dive prompt")
 def write_entry(
@@ -240,7 +381,7 @@ def write_entry(
     editor: bool,
     interactive: bool,
     file_path: str | None,
-    space: str | None,
+    spaces: tuple[str, ...],
     title: str | None,
     no_deep_dive: bool,
 ) -> None:
@@ -295,59 +436,43 @@ def write_entry(
 
         # Connect to AnyType
         client = get_connected_client()
-        space_id, space_name = get_space_selection(client, space)
-
-        # Create hierarchy and entry
-        console.print(f"[dim]Saving to {space_name}...[/dim]")
-        hierarchy = JournalHierarchy(client, space_id)
-
+        target_spaces = get_space_selections(client, spaces)
         entry_date = date.today()
-        entry_id, _, _, _ = hierarchy.create_entry(
-            entry_date=entry_date,
-            title=entry_title,
-            content=content,
-        )
 
-        # Create local reference
-        full_title = f"{entry_date.day} - {entry_title}"
-        path = hierarchy.get_path(entry_date)
+        successes: list[tuple[str, JournalEntryReference]] = []
+        failures: list[tuple[str, str]] = []
 
-        ref = JournalEntryReference(
-            id=entry_id,
-            space_id=space_id,
-            path=path,
-            title=full_title,
-            entry_date=entry_date,
-            created_at=datetime.now(),
-            content_preview=(
-                content[:CONTENT_PREVIEW_LENGTH]
-                if len(content) > CONTENT_PREVIEW_LENGTH
-                else content
-            ),
-        )
-        save_entry_reference(ref)
+        for space_id, space_name in target_spaces:
+            try:
+                ref = _save_entry_to_space(
+                    client=client,
+                    space_id=space_id,
+                    space_name=space_name,
+                    entry_date=entry_date,
+                    title=entry_title,
+                    content=content,
+                )
+                successes.append((space_name, ref))
+            except Exception as e:
+                failures.append((space_name, str(e)))
 
-        # Delete draft since save succeeded
-        try:
-            draft_path.unlink()
-        except OSError:
-            pass  # Non-critical: draft cleanup failed
+        if not failures:
+            try:
+                draft_path.unlink()
+            except OSError:
+                pass  # Non-critical: draft cleanup failed
 
-        # Success message
-        console.print()
-        console.print(
-            Panel(
-                f"[green]Entry saved![/green]\n\n"
-                f"[bold]{full_title}[/bold]\n"
-                f"[dim]{path}[/dim]",
-                title="Journal",
-                border_style="green",
-            )
-        )
+        _display_write_summary(successes, failures)
 
-        # Offer deep dive
+        if failures:
+            console.print("[dim]Draft kept for recovery.[/dim]")
+            raise SystemExit(1)
+
         if not no_deep_dive:
-            _offer_deep_dive(entry_id, content)
+            if len(successes) == 1:
+                _offer_deep_dive(successes[0][1].id, content)
+            elif len(successes) > 1:
+                console.print("[dim]Deep dive skipped for multi-space write.[/dim]")
 
     except SystemExit:
         raise
@@ -355,6 +480,80 @@ def write_entry(
         console.print(f"[red]Error: {e}[/red]")
         console.print("[dim]Your draft has been saved for recovery.[/dim]")
         raise SystemExit(1)
+
+
+def _save_entry_to_space(
+    client: AnyTypeClient,
+    space_id: str,
+    space_name: str,
+    entry_date: date,
+    title: str,
+    content: str,
+) -> JournalEntryReference:
+    """Save a journal entry to one target space and persist its local reference."""
+    console.print(f"[dim]Saving to {space_name}...[/dim]")
+    hierarchy = JournalHierarchy(client, space_id)
+
+    entry_id, _, _, _ = hierarchy.create_entry(
+        entry_date=entry_date,
+        title=title,
+        content=content,
+    )
+
+    full_title = f"{entry_date.day} - {title}"
+    path = hierarchy.get_path(entry_date)
+
+    ref = JournalEntryReference(
+        id=entry_id,
+        space_id=space_id,
+        path=path,
+        title=full_title,
+        entry_date=entry_date,
+        created_at=datetime.now(),
+        content_preview=(
+            content[:CONTENT_PREVIEW_LENGTH] if len(content) > CONTENT_PREVIEW_LENGTH else content
+        ),
+    )
+    save_entry_reference(ref)
+    return ref
+
+
+def _display_write_summary(
+    successes: list[tuple[str, JournalEntryReference]],
+    failures: list[tuple[str, str]],
+) -> None:
+    """Display a per-space journal write summary."""
+    if len(successes) == 1 and not failures:
+        space_name, ref = successes[0]
+        console.print()
+        console.print(
+            Panel(
+                f"[green]Entry saved![/green]\n\n"
+                f"[bold]{ref.title}[/bold]\n"
+                f"[dim]{ref.path}[/dim]\n"
+                f"[dim]Space: {space_name}[/dim]",
+                title="Journal",
+                border_style="green",
+            )
+        )
+        return
+
+    lines: list[str] = []
+    if successes:
+        lines.append("[green]Saved[/green]")
+        for space_name, ref in successes:
+            lines.append(f"  ✓ {space_name}: {ref.title} ([dim]{ref.path}[/dim])")
+
+    if failures:
+        if lines:
+            lines.append("")
+        lines.append("[red]Failed[/red]")
+        for space_name, error in failures:
+            lines.append(f"  ✗ {space_name}: {error}")
+
+    border_style = "red" if failures else "green"
+    console.print()
+    console.print(Panel("\n".join(lines), title="Journal", border_style=border_style))
 
 
 def _compose_file_entry(file_content: str, file_path: str | None) -> str:
@@ -542,16 +741,18 @@ def read_entry(entry_id: str | None, number: int | None, latest: bool) -> None:
 
         # Display entry info
         console.print()
-        console.print(Panel(
-            f"[bold]{target_entry.title}[/bold]\n\n"
-            f"[dim]Date:[/dim] {target_entry.entry_date}\n"
-            f"[dim]Path:[/dim] {target_entry.path}\n"
-            f"[dim]ID:[/dim] {target_entry.id}\n\n"
-            f"{target_entry.content_preview}"
-            f"{'...' if len(target_entry.content_preview) >= CONTENT_PREVIEW_LENGTH else ''}",
-            title="Journal Entry",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                f"[bold]{target_entry.title}[/bold]\n\n"
+                f"[dim]Date:[/dim] {target_entry.entry_date}\n"
+                f"[dim]Path:[/dim] {target_entry.path}\n"
+                f"[dim]ID:[/dim] {target_entry.id}\n\n"
+                f"{target_entry.content_preview}"
+                f"{'...' if len(target_entry.content_preview) >= CONTENT_PREVIEW_LENGTH else ''}",
+                title="Journal Entry",
+                border_style="blue",
+            )
+        )
 
         # Show deep dive indicator
         if target_entry.has_deep_dive:
@@ -654,10 +855,9 @@ def get_insights(since: str, limit: int) -> None:
             return
 
         # Format entries for analysis
-        entries_text = "\n\n---\n\n".join([
-            f"**{e.entry_date} - {e.title}**\n{e.content_preview}"
-            for e in entries
-        ])
+        entries_text = "\n\n---\n\n".join(
+            [f"**{e.entry_date} - {e.title}**\n{e.content_preview}" for e in entries]
+        )
 
         # Create time range description
         time_range = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
@@ -673,11 +873,13 @@ def get_insights(since: str, limit: int) -> None:
             console.print("[yellow]Could not generate insights[/yellow]")
             return
 
-        console.print(Panel(
-            insights,
-            title=f"Insights from {len(entries)} Entries",
-            border_style="magenta",
-        ))
+        console.print(
+            Panel(
+                insights,
+                title=f"Insights from {len(entries)} Entries",
+                border_style="magenta",
+            )
+        )
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")

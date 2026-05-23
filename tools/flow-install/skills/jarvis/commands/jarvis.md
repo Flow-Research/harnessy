@@ -47,6 +47,16 @@ Here is the complete command documentation from Jarvis:
 
 This skill depends on live `jarvis docs --json` output, but the human-written guidance in this file must still be updated whenever important CLI commands are added, changed, or removed. Keep `src/jarvis/cli.py`, `jarvis-cli/AGENTS.md`, and this file in sync, then refresh installed artifacts with `pnpm skills:register` and `uv tool install --force ./jarvis-cli`.
 
+## High-Signal Command Families
+
+Use `jarvis docs --json` as the source of truth, but these command families are common enough to keep in mind:
+
+- `jarvis meeting ...`: ingest files, stdin, URLs, Fathom recordings, or Fathom webhook inbox payloads into private context, memory, wiki, or journal destinations.
+- `jarvis reading-list ...` / `jarvis rl`: organize, prioritize, extract, and cache reading-list sources.
+- `jarvis sync ...`: sync local folders into an AnyType Collection. Directories become Collections, Markdown/text files become Pages, and other files upload as native AnyType file objects by default. Use `jarvis sync run --source <path> --destination <object_id:space_id> --dry-run` first, then rerun without `--dry-run`; add `--yes` for non-interactive writes, `--prune` when deleted local files should be deleted from AnyType, and repeated `--include-extension` flags to add extra text file types. Handle non-text or non-UTF-8 files with `--unsupported-mode upload|warn|stub|error`; `upload` is the default, while `stub` creates metadata placeholder Pages without uploading the binary content.
+- `jarvis object ...` / `jarvis o`: inspect or edit arbitrary backend objects.
+- `jarvis journal ...` / `jarvis j`: write, list, read, search, and summarize journal entries.
+
 ## User Request
 
 $ARGUMENTS
@@ -227,6 +237,18 @@ jarvis android run ./builds/demo.apk --avd Medium_Phone_API_36.1 --reinstall
 | Read journal entry | `jarvis journal read` |
 | Search journal | `jarvis journal search` |
 | Get journal insights | `jarvis journal insights` |
+| Ingest meeting transcript / notes into private project context (`private/<user>/<project>/meetings/YYYY/Mon/dd-title.md`) | `jarvis meeting ingest <file> --project <slug> --dest private-context` |
+| Absorb meeting takeaways into private memory | `jarvis meeting ingest <file> --dest memory` |
+| Auto-route meeting notes to the matching private project | `jarvis meeting ingest <file> --auto-route --dest private-context --dest memory` |
+| List Fathom meetings | `jarvis meeting fathom list` |
+| Pull Fathom meeting by ID | `jarvis meeting fathom ingest` |
+| Pull today's/recent/unpulled Fathom meetings as a fallback | `jarvis meeting fathom ingest-today` |
+| Incrementally poll configured Fathom accounts | `jarvis meeting fathom poll` |
+| Create/delete/check Fathom webhooks | `jarvis meeting fathom webhook create/delete/status` |
+| Launch Fathom webhook + tunnel tmux stack | `jarvis meeting fathom start` |
+| Run Fathom webhook receiver | `jarvis meeting fathom webhook serve` |
+| Ingest Fathom webhook inbox | `jarvis meeting fathom webhook ingest-inbox` |
+| Configure Fathom accounts and env activation | `jarvis config fathom-setup` |
 | Show context status | `jarvis context status` |
 | Edit context file | `jarvis context edit` |
 | Prioritize a reading list (CLI AI) | `jarvis reading-list organize` or `jarvis rl` |

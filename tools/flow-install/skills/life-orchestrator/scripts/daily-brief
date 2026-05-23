@@ -53,6 +53,12 @@ _USER_PROJECT_PREFIX = f"_{_USERNAME}/"
 
 JARVIS_BIN = "jarvis"  # installed globally via: uv tool install --force ./jarvis-cli
 
+SHARED_DIR = os.path.abspath(os.path.join(SCRIPTS_DIR, "..", "..", "_shared"))
+if SHARED_DIR not in sys.path:
+    sys.path.insert(0, SHARED_DIR)
+
+from ai_runner import format_failure, run_ai_prompt  # type: ignore  # noqa: E402
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,21 +128,33 @@ def build_prompt(state, today):
         )
 
     return f"""\
-You are the user's chief of staff. Read their priorities, daily notes, the change summary from
-overnight, and the current project status files. Produce a daily brief that tells them:
+You are writing the user's morning note. Read their priorities, daily notes, the change summary
+from overnight, and the current project status files. Produce a daily brief with these sections:
 
-1. What Moved — what progressed across their projects (in plain strategic language, not file names)
-2. What Needs Them — decisions, reviews, approvals only they can do, ranked by urgency
-3. Strategic Picture — where they stand against their quarterly priorities, any warnings about
-   spreading too thin or missing deadlines
-4. Background Work — what agents are doing, what completed, what's waiting
+1. What Changed - what actually moved across their projects, stated plainly
+2. Decisions For You - decisions, reviews, or approvals only the user can do, ranked by urgency
+3. How I Read It - the practical interpretation: what matters, what is stale, what should be
+   delegated, and which cadence or owner would help
+4. In The Background - what agents or lower-priority work completed, stalled, or is waiting
 
 Pay special attention to the "notes" field in the state data — these are the user's own thoughts,
 reminders, and action items captured throughout the day. Use them to understand what's on their
 mind, what they're prioritizing, and what they might be forgetting.
 
-Write like a trusted advisor, not a system log. Be specific. Be honest. If something is
-stalled, say so. If he's overcommitted, flag it.
+Write like a sharp teammate leaving a useful note, not like an AI report, strategy memo, or
+system log. Use normal human language, short paragraphs, and concrete verbs. It is fine to use
+contractions. Avoid grand summary sentences and consultant phrases.
+
+Do not use phrases like "center of gravity", "proof loop", "unlock", "operating leverage",
+"surfaced", "material", "front-line execution", "decision gate", "low-friction", "at scale",
+"lane-based", or similar AI/consulting language. If a sentence sounds like a memo headline,
+rewrite it as the direct fact.
+
+Be specific and honest. If something is stalled, say so. Do not complain that the user is
+stretched, overcommitted, over an attention budget, or above a three-project limit. Do not
+mention "more than three fronts" or count live projects against a fixed attention cap. Assume a
+large active portfolio is intentional. When many projects are live, say what owner, cadence,
+automation, or decision rule would make it manageable.
 
 Here is the current state data:
 <state>
@@ -145,7 +163,7 @@ Here is the current state data:
 
 Today's date: {date_str}
 
-Output the brief in markdown format with the sections above. Do NOT include a title heading —
+Output the brief in markdown format with the sections above. Do NOT include a title heading -
 the title is already set by the journal entry. Start directly with the first section.
 
 {reminders_block}{wiki_block}"""
@@ -223,42 +241,31 @@ def compact_state(state):
     return compact
 
 
-def call_claude(prompt):
-    """Call claude -p with the prompt via stdin. Returns the brief text or None.
+def call_ai(prompt):
+    """Call the configured AI provider. Returns the brief text or None.
 
-    Uses --strict-mcp-config with an empty MCP file to skip project/plugin MCP
-    startup latency, and --fallback-model so sonnet overload retries on haiku
-    instead of timing out the whole brief. Auth stays on OAuth/keychain
-    (--bare is intentionally NOT used because it would disable keychain auth).
+    Provider selection is handled by the shared Harnessy AI runner:
+    HARNESSY_AI_PROVIDER=auto|claude|codex|opencode.
     """
-    # Stay under flow-cron-exec wrapper's 600s per-attempt cap (60s headroom for cleanup).
-    timeout_s = 540
-    empty_mcp = os.path.expanduser("~/.agents/cron/empty-mcp.json")
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p",
-                "--output-format", "text",
-                "--model", "sonnet",
-                "--fallback-model", "haiku",
-                "--max-budget-usd", "0.50",
-                "--strict-mcp-config",
-                "--mcp-config", empty_mcp,
-            ],
-            input=prompt,
-            capture_output=True, text=True, timeout=timeout_s,
-            cwd=PROJECT_ROOT,
-        )
-        if result.returncode != 0:
-            print(f"Error: claude call failed (exit {result.returncode}): {result.stderr.strip()}", file=sys.stderr)
-            return None
-        return result.stdout
-    except FileNotFoundError:
-        print("Error: 'claude' command not found — is Claude Code installed?", file=sys.stderr)
-        return None
-    except subprocess.TimeoutExpired:
-        print(f"Error: claude call timed out after {timeout_s}s", file=sys.stderr)
-        return None
+    # Keep one provider from consuming the full flow-cron-exec 600s attempt cap.
+    timeout_s = int(os.environ.get("HARNESSY_AI_TIMEOUT", "180"))
+    result = run_ai_prompt(
+        prompt,
+        cwd=PROJECT_ROOT,
+        model=os.environ.get("HARNESSY_AI_MODEL", "sonnet"),
+        fallback_model=os.environ.get("HARNESSY_AI_FALLBACK_MODEL", "haiku"),
+        timeout_s=timeout_s,
+        budget_usd=os.environ.get("HARNESSY_AI_BUDGET_USD", "0.50"),
+    )
+    if result.ok:
+        if result.warning:
+            print(f"Warning: {result.warning}", file=sys.stderr)
+        print(f"AI provider: {result.provider}", file=sys.stderr)
+        return result.text
+
+    print("Error: failed to generate brief via Harnessy AI runner", file=sys.stderr)
+    print(format_failure(result), file=sys.stderr)
+    return None
 
 
 def brief_path(today):
@@ -274,6 +281,29 @@ def save_brief(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def configured_journal_space():
+    """Return the explicit Anytype space for daily-brief journal delivery.
+
+    Jarvis has a mutable selected-space cache that interactive/object commands
+    can change. Cron delivery should instead use the stable configured default.
+    """
+    env_space = os.environ.get("LIFE_ORCHESTRATOR_JOURNAL_SPACE")
+    if env_space:
+        return env_space
+
+    config_path = os.path.expanduser("~/.jarvis/config.yaml")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.startswith("default_space_id:"):
+                    return stripped.split(":", 1)[1].strip().strip("'\"") or None
+    except (OSError, IOError):
+        return None
+
+    return None
 
 
 def extract_top_items(brief, n=3):
@@ -302,12 +332,18 @@ def jarvis_journal(path, today):
     """
     title = f"Daily Brief — {today.strftime('%B %d, %Y')}"
     print(f"Writing to Jarvis journal: {title}", file=sys.stderr)
+    journal_space = configured_journal_space()
     try:
+        cmd = [
+            JARVIS_BIN, "journal", "write",
+            "--file", path,
+            "--title", title,
+            "--no-deep-dive",
+        ]
+        if journal_space:
+            cmd.extend(["--space", journal_space])
         result = subprocess.run(
-            [JARVIS_BIN, "journal", "write",
-             "--file", path,
-             "--title", title,
-             "--no-deep-dive"],
+            cmd,
             capture_output=True, text=True, timeout=60,
         )
         if result.returncode == 0:
@@ -397,8 +433,8 @@ def main():
     # Step 3: Generate brief via Claude
     prompt = build_prompt(state, today)
 
-    print("Generating brief with Claude...", file=sys.stderr)
-    brief = call_claude(prompt)
+    print("Generating brief with Harnessy AI runner...", file=sys.stderr)
+    brief = call_ai(prompt)
 
     if brief is None:
         print("Error: failed to generate brief", file=sys.stderr)

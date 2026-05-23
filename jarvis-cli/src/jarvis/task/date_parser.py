@@ -1,12 +1,11 @@
 """Natural language date parsing for task creation."""
 
 from datetime import date
-from typing import Optional
 
 import dateparser
 
 
-def parse_due_date(input_str: str) -> Optional[date]:
+def parse_due_date(input_str: str) -> date | None:
     """Parse natural language date string to date object.
 
     Supports formats like:

@@ -9,8 +9,10 @@ from jarvis.adapters import AdapterRegistry
 from jarvis.adapters.base import KnowledgeBaseAdapter
 from jarvis.adapters.exceptions import (
     AuthError,
-    ConnectionError as AdapterConnectionError,
     NotSupportedError,
+)
+from jarvis.adapters.exceptions import (
+    ConnectionError as AdapterConnectionError,
 )
 from jarvis.models import Priority
 from jarvis.state import save_selected_space

@@ -343,9 +343,7 @@ class TestDetermineCaptureMode:
 
     def test_file_path_beats_editor(self) -> None:
         """Test that --file takes precedence over --editor."""
-        mode, text = determine_capture_mode(
-            text=None, force_editor=True, file_path="/tmp/test.md"
-        )
+        mode, text = determine_capture_mode(text=None, force_editor=True, file_path="/tmp/test.md")
         assert mode == CaptureMode.FILE
         assert text == "/tmp/test.md"
 
@@ -357,9 +355,7 @@ class TestDetermineCaptureMode:
 
     def test_file_path_beats_interactive(self) -> None:
         """Test that --file takes precedence over --interactive."""
-        mode, text = determine_capture_mode(
-            text=None, interactive=True, file_path="/tmp/test.md"
-        )
+        mode, text = determine_capture_mode(text=None, interactive=True, file_path="/tmp/test.md")
         assert mode == CaptureMode.FILE
         assert text == "/tmp/test.md"
 

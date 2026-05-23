@@ -435,7 +435,7 @@ class TestQueryOperations:
                 id=f"entry_{i:03d}",
                 space_id="space_1",
                 path="Journal/2026/January",
-                title=f"{i+1} - Entry {i}",
+                title=f"{i + 1} - Entry {i}",
                 entry_date=date(2026, 1, i + 1),
                 created_at=datetime(2026, 1, i + 1, 10, 0, 0),
             )
@@ -510,7 +510,7 @@ class TestQueryOperations:
                 id=f"entry_{i:03d}",
                 space_id="space_1",
                 path="Journal/2026/January",
-                title=f"{i+1} - Test Entry",
+                title=f"{i + 1} - Test Entry",
                 entry_date=date(2026, 1, i + 1),
                 created_at=datetime.now(),
             )

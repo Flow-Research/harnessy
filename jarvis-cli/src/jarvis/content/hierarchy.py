@@ -11,10 +11,19 @@ from pathlib import Path
 from jarvis.anytype_client import AnyTypeClient
 from jarvis.content.frontmatter import parse_frontmatter
 
-
 MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
@@ -62,9 +71,7 @@ class ContentHierarchy:
         if year in self._year_cache:
             return self._year_cache[year]
         root_id = self.get_content_root()
-        year_id = self.client.get_or_create_container(
-            self.space_id, root_id, str(year)
-        )
+        year_id = self.client.get_or_create_container(self.space_id, root_id, str(year))
         self._year_cache[year] = year_id
         return year_id
 
@@ -76,9 +83,7 @@ class ContentHierarchy:
         if cache_key in self._month_cache:
             return self._month_cache[cache_key]
         year_id = self.get_year_container(year)
-        month_id = self.client.get_or_create_container(
-            self.space_id, year_id, MONTHS[month - 1]
-        )
+        month_id = self.client.get_or_create_container(self.space_id, year_id, MONTHS[month - 1])
         self._month_cache[cache_key] = month_id
         return month_id
 
@@ -114,9 +119,7 @@ class ContentHierarchy:
         # Create piece collection: "02 - Your AI Agent Should Have a Job"
         day_prefix = piece_dir.name[:2]
         piece_name = f"{day_prefix} - {title}"
-        piece_id = self.client.get_or_create_container(
-            self.space_id, month_id, piece_name
-        )
+        piece_id = self.client.get_or_create_container(self.space_id, month_id, piece_name)
 
         # Push each .md file as a page in the piece collection
         for md_file in sorted(piece_dir.glob("*.md")):
@@ -172,9 +175,18 @@ class ContentHierarchy:
                 month_str = parts[i + 1]
                 # Try abbreviated month name
                 month_map = {
-                    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4,
-                    "May": 5, "Jun": 6, "Jul": 7, "Aug": 8,
-                    "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+                    "Jan": 1,
+                    "Feb": 2,
+                    "Mar": 3,
+                    "Apr": 4,
+                    "May": 5,
+                    "Jun": 6,
+                    "Jul": 7,
+                    "Aug": 8,
+                    "Sep": 9,
+                    "Oct": 10,
+                    "Nov": 11,
+                    "Dec": 12,
                 }
                 if month_str in month_map:
                     return year, month_map[month_str]

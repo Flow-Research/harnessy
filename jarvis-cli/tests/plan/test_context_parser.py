@@ -1,14 +1,13 @@
 """Tests for context parsing functionality."""
 
-import pytest
 from datetime import date
 
 from jarvis.models import UserContext
-from jarvis.models.plan import FocusMode, ExtractedGoal
+from jarvis.models.plan import FocusMode
 from jarvis.plan.context_parser import (
+    extract_bullet_points,
     extract_focus,
     extract_goals,
-    extract_bullet_points,
     extract_project_names,
     parse_user_context,
 )
