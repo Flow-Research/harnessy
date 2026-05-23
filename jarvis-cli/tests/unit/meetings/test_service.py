@@ -83,7 +83,11 @@ class TestWriteMeetingMemory:
         assert second.written_paths == [str(note)]
         assert note.exists()
         assert list(note.parent.glob("23-seas-partnership-sync*.md")) == [note]
-        assert "Julian: Revise the proposal." in note.read_text(encoding="utf-8")
+        note_text = note.read_text(encoding="utf-8")
+        assert "Aligned on a sustainable Enugu innovation hub structure." in note_text
+        assert "Julian: Revise the proposal." in note_text
+        assert "## Transcript" not in note_text
+        assert "Let's revise the proposal" not in note_text
 
     def test_writes_private_context_meeting_without_project_to_general_path(
         self, monkeypatch, tmp_path

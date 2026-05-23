@@ -199,8 +199,9 @@ binary content.
 
 ### Meeting Ingestion
 
-Jarvis can normalize meeting transcripts and summaries into a canonical meeting
-artifact, then route that artifact into one or more destinations:
+Jarvis can normalize meeting transcripts and summaries into a concise,
+summary-first meeting artifact, then route that artifact into one or more
+destinations:
 
 - `private-context`
 - `wiki`
@@ -218,6 +219,11 @@ cat transcript.txt | jarvis meeting ingest - --resolver stdin --dest private-con
 # Saved Fathom JSON/webhook payload
 jarvis meeting ingest ./fathom-payload.json --no-enrich-ai --json
 ```
+
+Written meeting artifacts keep the durable parts: summaries, key decisions,
+action items, open questions, participants, project tags, and source metadata.
+Full transcripts can be used for enrichment and routing, but they are not dumped
+into private context, wiki, or journal notes by default.
 
 ### Fathom Setup
 

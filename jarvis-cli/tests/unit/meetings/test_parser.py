@@ -172,3 +172,25 @@ class TestRenderMeetingMarkdown:
         assert "# Board Sync" in rendered
         assert "## Metadata" in rendered
         assert "## Executive Summary" in rendered
+        assert "## Transcript" not in rendered
+
+    def test_render_omits_transcript_discussion(self) -> None:
+        source = SourceDocument(
+            source_type=SourceType.FILE,
+            source_ref="/tmp/meeting.md",
+            title="Founder Sync",
+            markdown=(
+                "# Founder Sync\n\n"
+                "## Summary\n\nWe agreed on the next fundraising steps.\n\n"
+                "## Transcript\n\n"
+                "Alice: This is the full line-by-line discussion.\n"
+            ),
+            last_modified="1",
+        )
+        meeting = parse_meeting_document(source)
+
+        rendered = render_meeting_markdown(meeting)
+
+        assert "We agreed on the next fundraising steps." in rendered
+        assert "## Transcript" not in rendered
+        assert "full line-by-line discussion" not in rendered

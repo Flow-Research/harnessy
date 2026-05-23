@@ -20,6 +20,20 @@ from .parser import (
 )
 
 FATHOM_API_BASE = "https://api.fathom.ai/external/v1"
+_FATHOM_SUMMARY_HEADINGS = (
+    normalize_heading("Summary"),
+    normalize_heading("Executive Summary"),
+    normalize_heading("Overview"),
+    normalize_heading("Key Takeaways"),
+    normalize_heading("Meeting Purpose"),
+)
+_FATHOM_ACTION_HEADINGS = (
+    normalize_heading("Action Items"),
+    normalize_heading("Actions"),
+    normalize_heading("Next Steps"),
+    normalize_heading("Follow Ups"),
+    normalize_heading("Follow-up"),
+)
 
 
 class FathomClient:
@@ -219,14 +233,12 @@ def parse_fathom_payload(
             normalize_heading("Risks"),
         },
     )
-    summary = first_section(
-        summary_sections,
-        {
-            normalize_heading("Summary"),
-            normalize_heading("Executive Summary"),
-            normalize_heading("Overview"),
-        },
-    ) or first_paragraph(summary_preamble or summary_markdown)
+    summary = first_section(summary_sections, _FATHOM_SUMMARY_HEADINGS) or first_paragraph(
+        summary_preamble
+    )
+    action_items = fathom_action_items(payload) or extract_first_list(
+        summary_sections, _FATHOM_ACTION_HEADINGS
+    )
     transcript = fathom_transcript_markdown(payload)
     recording_id = payload.get("recording_id", "")
     ref = source_ref or f"fathom:{recording_id}"
@@ -242,10 +254,10 @@ def parse_fathom_payload(
         summary=summary,
         detailed_summary=summary_markdown.strip(),
         decisions=decisions,
-        action_items=fathom_action_items(payload),
+        action_items=action_items,
         open_questions=open_questions,
         transcript=transcript,
-        raw_markdown=compose_raw_markdown(summary_markdown, transcript),
+        raw_markdown=summary_markdown.strip(),
     )
 
 
@@ -346,14 +358,3 @@ def fathom_transcript_markdown(payload: dict[str, Any]) -> str:
         prefix = f"[{timestamp}] " if timestamp else ""
         lines.append(f"{prefix}{display_name}: {text}")
     return "\n".join(lines)
-
-
-def compose_raw_markdown(summary_markdown: str, transcript: str) -> str:
-    """Compose a fallback raw markdown artifact from summary and transcript data."""
-
-    sections: list[str] = []
-    if summary_markdown:
-        sections.append(summary_markdown.strip())
-    if transcript:
-        sections.append("## Transcript\n\n" + transcript.strip())
-    return "\n\n".join(sections).strip()

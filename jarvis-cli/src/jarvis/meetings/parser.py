@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from datetime import date, datetime
 
 from jarvis.reading_list.models import SourceDocument
@@ -176,7 +177,7 @@ def extract_transcript_block(markdown: str) -> str:
     return markdown.strip()
 
 
-def first_section(sections: dict[str, str], names: set[str]) -> str:
+def first_section(sections: dict[str, str], names: Iterable[str]) -> str:
     """Return the first present section body from a candidate heading set."""
 
     for name in names:
@@ -243,7 +244,7 @@ def meeting_filename(meeting: MeetingRecord) -> str:
 
 
 def render_meeting_markdown(meeting: MeetingRecord) -> str:
-    """Render a canonical markdown artifact for a meeting record."""
+    """Render a concise meeting artifact for context and memory destinations."""
 
     lines = [f"# {meeting.title}", "", "## Metadata", ""]
     lines.append(f"- Date: {meeting.meeting_date.isoformat()}")
@@ -268,9 +269,16 @@ def render_meeting_markdown(meeting: MeetingRecord) -> str:
             lines.append(body.strip())
 
     add_section("Executive Summary", meeting.summary)
-    add_section("Detailed Summary", meeting.detailed_summary)
+    add_section("Detailed Summary", demote_markdown_headings(meeting.detailed_summary))
     add_section("Key Decisions", meeting.decisions)
     add_section("Action Items", meeting.action_items)
     add_section("Open Questions", meeting.open_questions)
-    add_section("Transcript", meeting.transcript or meeting.raw_markdown)
     return "\n".join(lines).strip() + "\n"
+
+
+def demote_markdown_headings(markdown: str) -> str:
+    """Nest source summary headings under the rendered meeting section."""
+
+    if not markdown:
+        return ""
+    return re.sub(r"^(#{1,5})\s+", r"#\1 ", markdown.strip(), flags=re.MULTILINE)

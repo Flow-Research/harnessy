@@ -84,6 +84,25 @@ class TestFathomNormalization:
         assert meeting.decisions == ["Delay hiring until June"]
         assert meeting.action_items == ["Alice Johnson: Send revised proposal"]
         assert "Alice Johnson: Let's revisit the budget allocations." in meeting.transcript
+        assert "Let's revisit the budget allocations." not in meeting.raw_markdown
+
+    def test_parse_payload_uses_summary_headings_and_action_fallbacks(self) -> None:
+        payload = _payload()
+        payload["default_summary"] = {
+            "markdown_formatted": (
+                "## Key Takeaways\n\n"
+                "- The team aligned on a narrower launch scope.\n"
+                "- Budget review should move before hiring.\n\n"
+                "## Next Steps\n\n"
+                "- Bob to update the launch budget\n"
+            )
+        }
+        payload["action_items"] = []
+
+        meeting = parse_fathom_payload(payload)
+
+        assert "narrower launch scope" in meeting.summary
+        assert meeting.action_items == ["Bob to update the launch budget"]
 
     def test_parse_json_text(self) -> None:
         meeting = parse_fathom_json_text(json.dumps({"items": [_payload()]}))

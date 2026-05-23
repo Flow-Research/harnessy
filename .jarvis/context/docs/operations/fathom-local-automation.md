@@ -195,9 +195,14 @@ When Fathom sends a webhook:
 2. Jarvis verifies the webhook signature.
 3. Jarvis archives the raw JSON payload locally.
 4. Jarvis immediately normalizes the payload into a `MeetingRecord`.
-5. Jarvis renders the canonical markdown meeting artifact.
+5. Jarvis renders a summary-first markdown meeting artifact.
 6. Jarvis writes that markdown into the chosen destination(s).
 7. The archived inbox file moves from `pending/` to `processed/`.
+
+The written artifact keeps summaries, key decisions, action items, open
+questions, participants, project tags, and source metadata. Raw webhook payloads
+remain archived for audit/retry, but the full transcript is not dumped into
+private context, wiki, or journal notes by default.
 
 ## Where Files Go
 
@@ -212,7 +217,8 @@ Raw archived webhook payloads:
 Normalized private-context meeting notes:
 
 ```text
-.jarvis/context/private/<user>/meetings/YYYY/Mon/YYYY-MM-DD-<slug>.md
+.jarvis/context/private/<user>/meetings/YYYY/Mon/dd-<slug>.md
+.jarvis/context/private/<user>/<project>/meetings/YYYY/Mon/dd-<slug>.md
 ```
 
 ## Manual Inbox Mode
