@@ -27,13 +27,14 @@ Validate that generated or maintained tests are complete, trustworthy, and align
 3. Pattern adherence against delivery-profile-configured validator rules.
 4. Role and authorization coverage.
 5. Canonical QA contract compliance: `@qa-spec` / `@qa-suite` headers, canonical ID format, and `Status: implemented` scenarios must align with tests.
+6. Persistence-sensitive browser scenarios preserve `DB Assert:` coverage or document why DB validation is unavailable in the target environment.
 
 ## Steps
 
 1. Run the canonical drift preflight first:
 
 ```bash
-flow-qa drift --profile <qa-profile> --json
+qa drift --profile <qa-profile> --json
 ```
 
 2. Treat any of these as quality defects:
@@ -46,6 +47,7 @@ flow-qa drift --profile <qa-profile> --json
 5. Run `${AGENTS_SKILLS_ROOT}/test-quality-validator/scripts/validate-coverage.ts` with the optional delivery profile.
 6. Run `${AGENTS_SKILLS_ROOT}/test-quality-validator/scripts/validate-correctness.ts` against the project's browser/API suites with the optional delivery profile.
 7. Synthesize the drift defects and validator output into a single quality report.
+8. Flag browser suites that appear to have been generated only from source assumptions when no walkthrough artifacts, accessible selectors, or stable selector rationale are present.
 
 ## Decision Trace Protocol
 

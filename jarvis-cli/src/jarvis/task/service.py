@@ -1,7 +1,7 @@
 """Task creation service."""
 
 from datetime import date
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jarvis.anytype_client import AnyTypeClient
@@ -25,10 +25,10 @@ class TaskService:
         self,
         space_id: str,
         title: str,
-        due_date: Optional[date] = None,
-        priority: Optional[str] = None,
-        tags: Optional[list[str]] = None,
-        description: Optional[str] = None,
+        due_date: date | None = None,
+        priority: str | None = None,
+        tags: list[str] | None = None,
+        description: str | None = None,
     ) -> str:
         """Create a task in AnyType.
 

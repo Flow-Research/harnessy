@@ -133,9 +133,7 @@ class TestAnyTypeAdapterSpaces:
 class TestAnyTypeAdapterTasks:
     """Test task CRUD operations."""
 
-    def test_create_task_minimal(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_create_task_minimal(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test creating a task with minimal fields."""
         task = adapter.create_task(
             space_id=space_id,
@@ -149,9 +147,7 @@ class TestAnyTypeAdapterTasks:
         # Cleanup
         adapter.delete_task(space_id, task.id)
 
-    def test_create_task_full(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_create_task_full(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test creating a task with all fields."""
         due = date.today() + timedelta(days=7)
         task = adapter.create_task(
@@ -188,9 +184,7 @@ class TestAnyTypeAdapterTasks:
         # Cleanup
         adapter.delete_task(space_id, created.id)
 
-    def test_get_task_not_found(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_get_task_not_found(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test getting nonexistent task raises NotFoundError."""
         with pytest.raises(NotFoundError):
             adapter.get_task(space_id, "nonexistent-task-id")
@@ -213,9 +207,7 @@ class TestAnyTypeAdapterTasks:
             adapter.delete_task(space_id, task1.id)
             adapter.delete_task(space_id, task2.id)
 
-    def test_get_tasks_with_date_filter(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_get_tasks_with_date_filter(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test querying tasks with date filter."""
         today = date.today()
         tomorrow = today + timedelta(days=1)
@@ -239,9 +231,7 @@ class TestAnyTypeAdapterTasks:
         finally:
             adapter.delete_task(space_id, task.id)
 
-    def test_get_tasks_with_pagination(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_get_tasks_with_pagination(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test task pagination."""
         # Create multiple tasks
         tasks_created = []
@@ -302,9 +292,7 @@ class TestAnyTypeAdapterTasks:
         # Note: In AnyType, deleted objects may still be retrievable (soft delete)
         # The delete_task returns True to indicate the operation completed
 
-    def test_create_task_validation(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_create_task_validation(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test task creation validation."""
         # Empty title should fail
         with pytest.raises(ValidationError):
@@ -324,9 +312,7 @@ class TestAnyTypeAdapterJournal:
     """
 
     @pytest.mark.xfail(reason="JournalHierarchy has issues with AnyType backend")
-    def test_create_journal_entry(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_create_journal_entry(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test creating a journal entry."""
         entry = adapter.create_journal_entry(
             space_id=space_id,
@@ -341,9 +327,7 @@ class TestAnyTypeAdapterJournal:
         adapter.delete_journal_entry(space_id, entry.id)
 
     @pytest.mark.xfail(reason="JournalHierarchy has issues with AnyType backend")
-    def test_create_journal_entry_with_date(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_create_journal_entry_with_date(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test creating a journal entry with specific date."""
         yesterday = date.today() - timedelta(days=1)
         entry = adapter.create_journal_entry(
@@ -359,9 +343,7 @@ class TestAnyTypeAdapterJournal:
         adapter.delete_journal_entry(space_id, entry.id)
 
     @pytest.mark.xfail(reason="JournalHierarchy has issues with AnyType backend")
-    def test_get_journal_entry(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_get_journal_entry(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test getting a journal entry."""
         # Create entry
         created = adapter.create_journal_entry(
@@ -378,9 +360,7 @@ class TestAnyTypeAdapterJournal:
             adapter.delete_journal_entry(space_id, created.id)
 
     @pytest.mark.xfail(reason="JournalHierarchy has issues with AnyType backend")
-    def test_get_journal_entries(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_get_journal_entries(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test listing journal entries."""
         # Create entries
         entry1 = adapter.create_journal_entry(
@@ -405,9 +385,7 @@ class TestAnyTypeAdapterJournal:
             adapter.delete_journal_entry(space_id, entry2.id)
 
     @pytest.mark.xfail(reason="JournalHierarchy has issues with AnyType backend")
-    def test_delete_journal_entry(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_delete_journal_entry(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test deleting a journal entry."""
         entry = adapter.create_journal_entry(
             space_id=space_id,
@@ -440,9 +418,7 @@ class TestAnyTypeAdapterSearch:
     """Test search operations."""
 
     @pytest.mark.xfail(reason="JournalHierarchy has issues with AnyType backend")
-    def test_search_journal(
-        self, adapter: AnyTypeAdapter, space_id: str
-    ) -> None:
+    def test_search_journal(self, adapter: AnyTypeAdapter, space_id: str) -> None:
         """Test searching journal entries."""
         # Create entry with unique content
         unique_text = f"unique_search_text_{date.today().isoformat()}"

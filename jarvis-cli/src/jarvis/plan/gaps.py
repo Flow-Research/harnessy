@@ -187,7 +187,8 @@ def _detect_focus_conflicts(
             largest = max(unaligned_categories, key=lambda c: c.task_count)
             conflicts.append(
                 f'Focus mode is "{context.focus.mode.value.title()}" but '
-                f"{largest.task_count} {largest.name.lower()} tasks ({int(unaligned_percent)}%) scheduled')"
+                f"{largest.task_count} {largest.name.lower()} tasks "
+                f"({int(unaligned_percent)}%) scheduled"
             )
 
     # Check for specific mode conflicts
@@ -196,8 +197,7 @@ def _detect_focus_conflicts(
         exploratory_count = sum(
             c.task_count
             for c in categories
-            if c.name.lower() in ("learning", "exploring", "research")
-            and not c.is_aligned
+            if c.name.lower() in ("learning", "exploring", "research") and not c.is_aligned
         )
         if exploratory_count > 3:
             conflicts.append(
@@ -212,9 +212,7 @@ def _detect_focus_conflicts(
             if c.name.lower() in ("development", "business", "research")
         )
         if work_count > 5:
-            conflicts.append(
-                f"Recovery mode but {work_count} high-intensity work tasks scheduled"
-            )
+            conflicts.append(f"Recovery mode but {work_count} high-intensity work tasks scheduled")
 
     return conflicts
 
@@ -252,7 +250,8 @@ def _detect_schedule_issues(
     if overloaded_days:
         day_names = [d.strftime("%A") for d in sorted(overloaded_days)]
         if len(day_names) == 1:
-            issues.append(f"{day_names[0]} is overloaded ({tasks_by_day[overloaded_days[0]]} tasks)")
+            task_count = tasks_by_day[overloaded_days[0]]
+            issues.append(f"{day_names[0]} is overloaded ({task_count} tasks)")
         else:
             issues.append(f"{', '.join(day_names)} are overloaded (>6 tasks each)")
 
@@ -282,14 +281,76 @@ def _extract_keywords(text: str) -> set[str]:
     """
     # Common words to ignore
     stopwords = {
-        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-        "of", "with", "by", "from", "this", "that", "these", "those", "is",
-        "are", "was", "were", "be", "been", "being", "have", "has", "had",
-        "do", "does", "did", "will", "would", "could", "should", "may",
-        "might", "must", "shall", "can", "need", "dare", "ought", "used",
-        "my", "your", "his", "her", "its", "our", "their", "what", "which",
-        "who", "whom", "when", "where", "why", "how", "all", "each", "every",
-        "week", "month", "day", "today", "tomorrow", "year", "time",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "this",
+        "that",
+        "these",
+        "those",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "every",
+        "week",
+        "month",
+        "day",
+        "today",
+        "tomorrow",
+        "year",
+        "time",
     }
 
     keywords: set[str] = set()

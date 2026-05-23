@@ -181,9 +181,7 @@ class TestKnowledgeBaseAdapterProtocol:
             def list_tags(self, space_id: str) -> list[Tag]:
                 return []
 
-            def create_tag(
-                self, space_id: str, name: str, color: str | None = None
-            ) -> Tag:
+            def create_tag(self, space_id: str, name: str, color: str | None = None) -> Tag:
                 return Tag(id="tag-1", name=name, color=color)
 
             def get_object(self, space_id: str, object_id: str) -> BackendObject:
@@ -397,9 +395,7 @@ class TestMinimalAdapterBehavior:
             def list_tags(self, space_id: str) -> list[Tag]:
                 return [Tag(id="tag-1", name="work", color="#ff0000")]
 
-            def create_tag(
-                self, space_id: str, name: str, color: str | None = None
-            ) -> Tag:
+            def create_tag(self, space_id: str, name: str, color: str | None = None) -> Tag:
                 return Tag(id="tag-new", name=name, color=color)
 
             def get_object(self, space_id: str, object_id: str) -> BackendObject:
@@ -412,9 +408,7 @@ class TestMinimalAdapterBehavior:
 
         return TestAdapter()
 
-    def test_capabilities_returns_dict(
-        self, adapter: KnowledgeBaseAdapter
-    ) -> None:
+    def test_capabilities_returns_dict(self, adapter: KnowledgeBaseAdapter) -> None:
         """Test capabilities property returns expected dict."""
         caps = adapter.capabilities
         assert isinstance(caps, dict)
@@ -422,9 +416,7 @@ class TestMinimalAdapterBehavior:
         assert caps["journal"] is True
         assert caps["daily_notes"] is False
 
-    def test_backend_name_returns_string(
-        self, adapter: KnowledgeBaseAdapter
-    ) -> None:
+    def test_backend_name_returns_string(self, adapter: KnowledgeBaseAdapter) -> None:
         """Test backend_name property."""
         assert adapter.backend_name == "test"
 
@@ -445,9 +437,7 @@ class TestMinimalAdapterBehavior:
         assert spaces[0].id == "space-1"
         assert spaces[0].backend == "test"
 
-    def test_default_space_operations(
-        self, adapter: KnowledgeBaseAdapter
-    ) -> None:
+    def test_default_space_operations(self, adapter: KnowledgeBaseAdapter) -> None:
         """Test get/set default space."""
         assert adapter.get_default_space() == "space-1"
 

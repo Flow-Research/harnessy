@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
-import re
 from uuid import uuid4
 
 from jarvis.models import (
     CalendarBusySlot,
-    Priority,
     PlannedBlock,
+    Priority,
     SchedulePlan,
     Suggestion,
     Task,
@@ -123,7 +123,10 @@ def build_reorganize_suggestions(
                     task_name=task.title,
                     current_date=current_day,
                     proposed_date=new_day,
-                    reasoning="Protect deep-work capacity while preserving deadline safety and balancing daily load.",
+                    reasoning=(
+                        "Protect deep-work capacity while preserving deadline "
+                        "safety and balancing daily load."
+                    ),
                     confidence=0.72,
                     created_at=datetime.now(),
                 )

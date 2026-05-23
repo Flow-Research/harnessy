@@ -5,14 +5,14 @@ operations and provides capability checking, error translation, and
 business logic coordination.
 """
 
-from .task_service import TaskService
+from .adapter_service import ensure_connected, get_adapter
 from .journal_service import JournalService
-from .adapter_service import get_adapter, ensure_connected
 from .planning_service import (
     build_calendar_plan,
     build_reorganize_suggestions,
     parse_work_hours_from_context,
 )
+from .task_service import TaskService
 
 __all__ = [
     "TaskService",

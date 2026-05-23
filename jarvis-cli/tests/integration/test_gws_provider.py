@@ -1,7 +1,7 @@
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -35,7 +35,7 @@ def test_gws_provider_freebusy_query() -> None:
         pytest.skip("Set RUN_GWS_INTEGRATION_TESTS=1 with valid gws auth to run")
 
     provider = GWSProvider()
-    start = datetime.now(timezone.utc)
+    start = datetime.now(UTC)
     end = start + timedelta(days=1)
 
     slots = provider.get_busy_slots(start=start, end=end, calendar_id="primary")
@@ -52,7 +52,7 @@ def test_gws_provider_event_lifecycle_create_and_delete() -> None:
         pytest.skip("Set RUN_GWS_WRITE_INTEGRATION_TESTS=1 to run write lifecycle test")
 
     provider = GWSProvider()
-    start = datetime.now(timezone.utc) + timedelta(minutes=10)
+    start = datetime.now(UTC) + timedelta(minutes=10)
     end = start + timedelta(minutes=15)
     summary = f"Jarvis integration test {int(start.timestamp())}"
 

@@ -1,7 +1,7 @@
 """Tests for AdapterRegistry."""
 
-from datetime import date, datetime
 from collections.abc import Generator
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest

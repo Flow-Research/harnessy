@@ -47,8 +47,7 @@ def _resolve_notes_dir() -> Path:
     return notes_dir
 
 
-MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
 def _today_file(notes_dir: Path) -> Path:
@@ -92,10 +91,15 @@ def append_note(text: str, category: str | None = None) -> Path:
 
 @click.command("note")
 @click.argument("text", nargs=-1, required=False)
-@click.option("-c", "--category", type=click.Choice(
-    ["decision", "meeting", "idea", "blocker", "followup", "priority"],
-    case_sensitive=False,
-), help="Categorize the note")
+@click.option(
+    "-c",
+    "--category",
+    type=click.Choice(
+        ["decision", "meeting", "idea", "blocker", "followup", "priority"],
+        case_sensitive=False,
+    ),
+    help="Categorize the note",
+)
 @click.option("-i", "--interactive", is_flag=True, help="Interactive multi-line input")
 def note_command(text: tuple[str, ...], category: str | None, interactive: bool) -> None:
     """Capture a quick note for the daily brief.

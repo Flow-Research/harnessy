@@ -4,8 +4,8 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
+from httpx import Headers
 
-from jarvis.adapters.notion.adapter import NotionAdapter
 from jarvis.adapters.exceptions import (
     AuthError,
     ConfigError,
@@ -14,8 +14,27 @@ from jarvis.adapters.exceptions import (
     RateLimitError,
     ValidationError,
 )
+from jarvis.adapters.notion.adapter import NotionAdapter
 from jarvis.config.schema import BackendsConfig, JarvisConfig, NotionConfig
 from jarvis.models import Priority
+
+
+def make_api_response_error(
+    status: int,
+    message: str,
+    code: object,
+    headers: dict[str, str] | None = None,
+) -> Exception:
+    """Build a notion-client APIResponseError for the installed SDK version."""
+    from notion_client.errors import APIResponseError
+
+    return APIResponseError(
+        code=code,
+        status=status,
+        message=message,
+        headers=Headers(headers or {}),
+        raw_body_text=message,
+    )
 
 
 def create_notion_config() -> JarvisConfig:
@@ -93,15 +112,12 @@ class TestNotionAdapterConnection:
 
         with patch("jarvis.adapters.notion.adapter.get_backend_token", return_value="invalid"):
             with patch("notion_client.Client") as mock_client_class:
-                from notion_client.errors import APIErrorCode, APIResponseError
+                from notion_client.errors import APIErrorCode
 
                 mock_client = MagicMock()
-                mock_response = MagicMock()
-                mock_response.status_code = 401
-                mock_response.headers = {}
 
-                mock_client.users.me.side_effect = APIResponseError(
-                    mock_response, "Unauthorized", APIErrorCode.Unauthorized
+                mock_client.users.me.side_effect = make_api_response_error(
+                    401, "Unauthorized", APIErrorCode.Unauthorized
                 )
                 mock_client_class.return_value = mock_client
 
@@ -294,12 +310,9 @@ class TestNotionAdapterTasks:
 
     def test_get_task_not_found(self, connected_adapter: NotionAdapter) -> None:
         """Test get_task raises NotFoundError."""
-        from notion_client.errors import APIErrorCode, APIResponseError
+        from notion_client.errors import APIErrorCode
 
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.headers = {}
-        error = APIResponseError(mock_response, "Page not found", APIErrorCode.ObjectNotFound)
+        error = make_api_response_error(404, "Page not found", APIErrorCode.ObjectNotFound)
 
         connected_adapter._client.pages.retrieve.side_effect = error
 
@@ -363,9 +376,7 @@ class TestNotionAdapterJournal:
         assert entry.entry_date == date(2025, 1, 25)
         assert entry.content == "Today was productive."
 
-    def test_get_journal_entries_negative_offset(
-        self, connected_adapter: NotionAdapter
-    ) -> None:
+    def test_get_journal_entries_negative_offset(self, connected_adapter: NotionAdapter) -> None:
         """Test get_journal_entries rejects negative offset."""
         with pytest.raises(ValidationError):
             connected_adapter.get_journal_entries("space-1", offset=-1)
@@ -444,36 +455,29 @@ class TestNotionAdapterErrorHandling:
 
     def test_handle_api_error_401(self, connected_adapter: NotionAdapter) -> None:
         """Test 401 error raises AuthError."""
-        from notion_client.errors import APIErrorCode, APIResponseError
+        from notion_client.errors import APIErrorCode
 
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.headers = {}
-        error = APIResponseError(mock_response, "Unauthorized", APIErrorCode.Unauthorized)
+        error = make_api_response_error(401, "Unauthorized", APIErrorCode.Unauthorized)
 
         with pytest.raises(AuthError):
             connected_adapter._handle_api_error(error)
 
     def test_handle_api_error_404(self, connected_adapter: NotionAdapter) -> None:
         """Test 404 error raises NotFoundError."""
-        from notion_client.errors import APIErrorCode, APIResponseError
+        from notion_client.errors import APIErrorCode
 
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.headers = {}
-        error = APIResponseError(mock_response, "Not found", APIErrorCode.ObjectNotFound)
+        error = make_api_response_error(404, "Not found", APIErrorCode.ObjectNotFound)
 
         with pytest.raises(NotFoundError):
             connected_adapter._handle_api_error(error)
 
     def test_handle_api_error_429(self, connected_adapter: NotionAdapter) -> None:
         """Test 429 error raises RateLimitError."""
-        from notion_client.errors import APIErrorCode, APIResponseError
+        from notion_client.errors import APIErrorCode
 
-        mock_response = MagicMock()
-        mock_response.status_code = 429
-        mock_response.headers = {"Retry-After": "30"}
-        error = APIResponseError(mock_response, "Rate limited", APIErrorCode.RateLimited)
+        error = make_api_response_error(
+            429, "Rate limited", APIErrorCode.RateLimited, {"Retry-After": "30"}
+        )
 
         with pytest.raises(RateLimitError) as exc_info:
             connected_adapter._handle_api_error(error)
@@ -481,14 +485,9 @@ class TestNotionAdapterErrorHandling:
 
     def test_handle_api_error_500(self, connected_adapter: NotionAdapter) -> None:
         """Test 500 error raises ConnectionError."""
-        from notion_client.errors import APIErrorCode, APIResponseError
+        from notion_client.errors import APIErrorCode
 
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.headers = {}
-        error = APIResponseError(
-            mock_response, "Server error", APIErrorCode.InternalServerError
-        )
+        error = make_api_response_error(500, "Server error", APIErrorCode.InternalServerError)
 
         with pytest.raises(ConnectionError):
             connected_adapter._handle_api_error(error)

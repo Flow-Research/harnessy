@@ -19,7 +19,7 @@ See `.jarvis/context/docs/standards/qa-process.md` for the shared QA contract th
 2. Run the deterministic drift preflight:
 
 ```bash
-flow-qa drift --profile <qa-profile> --json
+qa drift --profile <qa-profile> --json
 ```
 
 3. Treat these drift findings as quality defects:
@@ -28,6 +28,7 @@ flow-qa drift --profile <qa-profile> --json
 - non-canonical scenario IDs
 - `Status: implemented` scenarios without matching tests
 - tests referencing nonexistent specs
+- persistence-sensitive browser scenarios with no `DB Assert:` coverage or explicit environment limitation
 
 4. If acceptance-criteria coverage is part of the request, parse criteria with:
 
@@ -49,6 +50,11 @@ pnpm exec tsx ${AGENTS_SKILLS_ROOT}/test-quality-validator/scripts/validate-corr
 ```
 
 7. Report a merged result that includes both runtime drift defects and validator findings.
+
+For browser suites, explicitly call out false-green risks from unverified
+selectors, missing Playwright walkthrough evidence, missing DB assertions, and
+assertions that only check navigation without verifying the user-visible or
+persisted outcome.
 
 ## Completion criteria
 

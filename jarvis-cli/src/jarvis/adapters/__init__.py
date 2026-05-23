@@ -14,7 +14,8 @@ Usage:
     notion_adapter = get_adapter("notion")
 """
 
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from .base import AdapterClass, KnowledgeBaseAdapter
 from .exceptions import (
@@ -135,9 +136,7 @@ class AdapterRegistry:
 
         if name not in cls._adapters:
             available = ", ".join(cls._adapters.keys()) if cls._adapters else "none"
-            raise AdapterNotFoundError(
-                f"Backend '{name}' not found. Available: {available}"
-            )
+            raise AdapterNotFoundError(f"Backend '{name}' not found. Available: {available}")
 
         # Return existing instance or create new one
         if name not in cls._instances:
@@ -216,6 +215,7 @@ def _register_builtin_adapters() -> None:
     # AnyType adapter (local gRPC, requires anytype-client)
     try:
         from .anytype import AnyTypeAdapter
+
         AdapterRegistry.register("anytype", AnyTypeAdapter)
     except ImportError:
         pass  # anytype-client not installed
@@ -223,6 +223,7 @@ def _register_builtin_adapters() -> None:
     # Notion adapter (API-based, requires notion-client)
     try:
         from .notion import NotionAdapter
+
         AdapterRegistry.register("notion", NotionAdapter)
     except ImportError:
         pass  # notion-client not installed

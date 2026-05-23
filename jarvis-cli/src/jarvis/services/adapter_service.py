@@ -5,12 +5,11 @@ active adapter instance, handling connection state, and providing
 a clean interface for CLI commands.
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
 from ..adapters import AdapterRegistry
 from ..adapters.base import KnowledgeBaseAdapter
-from ..adapters.exceptions import ConnectionError, AdapterNotFoundError
 from ..config import load_config
 
 

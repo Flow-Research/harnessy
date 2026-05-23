@@ -1,11 +1,11 @@
 name: qa-runtime
 type: opencode
-version: 0.1.0
+version: 0.3.0
 install_scope: global
 owner: julian
 status: experimental
 blast_radius: medium
-description: "Deterministic QA runtime for parsing regression specs, scanning tests, detecting drift, and generating coverage from a repo-local QA profile."
+description: "Deterministic qa CLI for parsing regression specs, scanning tests, detecting drift, and generating coverage from a repo-local QA profile."
 permissions: [read, write, execute]
 data_categories: [none]
 egress: []
@@ -21,6 +21,6 @@ autoresearch:
     max_human_intervention: 0.5
 dependencies:
   - tool: node
-    description: "Node.js runtime for the flow-qa CLI"
+    description: "Node.js runtime for the qa CLI"
     check: "node --version"
     required: true

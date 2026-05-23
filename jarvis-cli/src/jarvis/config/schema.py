@@ -90,6 +90,38 @@ class AnalyticsConfig(BaseModel):
     metrics_file: str = Field(default="~/.jarvis/metrics.json")
 
 
+class FathomAccountConfig(BaseModel):
+    """Configuration for a single Fathom account."""
+
+    email: str | None = Field(default=None, description="Google/Fathom account email")
+    api_key_env_var: str = Field(
+        default="FATHOM_API_KEY",
+        description="Environment variable holding the API key for this account",
+    )
+    webhook_secret_env_var: str = Field(
+        default="FATHOM_WEBHOOK_SECRET",
+        description="Environment variable holding the webhook signing secret for this account",
+    )
+    webhook_id: str | None = Field(
+        default=None,
+        description="Last Fathom webhook ID registered for this account",
+    )
+    webhook_destination_url: str | None = Field(
+        default=None,
+        description="Last Fathom webhook destination URL registered for this account",
+    )
+
+
+class FathomConfig(BaseModel):
+    """Configuration for one or more Fathom accounts."""
+
+    default_account: str | None = Field(
+        default=None,
+        description="Default named Fathom account to use when none is specified",
+    )
+    accounts: dict[str, FathomAccountConfig] = Field(default_factory=dict)
+
+
 class JarvisConfig(BaseSettings):
     """Root configuration model for Jarvis.
 
@@ -114,6 +146,7 @@ class JarvisConfig(BaseSettings):
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
     content: ContentConfig = Field(default_factory=ContentConfig)
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
+    fathom: FathomConfig = Field(default_factory=FathomConfig)
 
     @field_validator("active_backend")
     @classmethod

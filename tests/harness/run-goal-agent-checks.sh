@@ -55,8 +55,14 @@ main() {
     templates_dir="$SOURCE_ROOT/tools/flow-install/skills/goal-agent/templates"
   fi
 
-  local trivial_goal="$templates_dir/test-trivial-goal.md"
-  [[ -f "$trivial_goal" ]] || fail "missing trivial goal template"
+  local trivial_goal_template="$templates_dir/test-trivial-goal.md"
+  [[ -f "$trivial_goal_template" ]] || fail "missing trivial goal template"
+
+  local standard_goals_dir="$HOME/.agents/goals/2026/May"
+  mkdir -p "$standard_goals_dir"
+
+  local trivial_goal="$standard_goals_dir/20-harness-trivial-goal.md"
+  cp "$trivial_goal_template" "$trivial_goal"
 
   local setup_json
   setup_json="$(mktemp /tmp/goal-agent-setup-XXXXXX)"
@@ -76,7 +82,7 @@ main() {
   goal-agent guard "$run_id" --tool Write --target ".goal-agent/$run_id/current-prompt.md" >/dev/null
   pass "runtime policy blocks app writes and allows state writes"
 
-  local auto_goal="$TARGET_DIR/.harness-goal-agent-auto-verify.md"
+  local auto_goal="$standard_goals_dir/20-harness-goal-agent-auto-verify.md"
   cat > "$auto_goal" <<'EOF'
 # Goal: Auto verify harness check
 
@@ -107,7 +113,7 @@ EOF
   grep -q "Approved Auto Verification" "$auto_state_dir/prepared-goal.md" || fail "prepared-goal.md missing approved auto verification section"
   pass "auto verification approval persists to run state"
 
-  local chain_goal="$TARGET_DIR/.harness-goal-chain.meta.yaml"
+  local chain_goal="$standard_goals_dir/20-harness-goal-chain.meta.yaml"
   cat > "$chain_goal" <<'EOF'
 title: "Harness goal chain"
 objective: "Verify chain setup"

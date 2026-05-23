@@ -36,6 +36,16 @@ class TestSingleFile:
         f.write_bytes(b"\x89PNG")
         assert list(walk(f, EXTS, DEFAULT_IGNORE)) == []
 
+    def test_reports_excluded_extension_when_requested(self, tmp_path: Path) -> None:
+        f = tmp_path / "image.png"
+        f.write_bytes(b"\x89PNG")
+        items = list(walk(f, EXTS, DEFAULT_IGNORE, include_unsupported=True))
+
+        assert len(items) == 1
+        assert items[0].kind == "unsupported_file"
+        assert items[0].relpath == "image.png"
+        assert items[0].skip_reason == "extension is not included"
+
 
 class TestDirectoryWalk:
     def test_preorder_with_subdirs(self, tmp_path: Path) -> None:
@@ -67,6 +77,26 @@ class TestDirectoryWalk:
         items = list(walk(tmp_path, EXTS, DEFAULT_IGNORE))
         names = {i.relpath for i in items if i.kind == "file"}
         assert names == {"keep.md"}
+
+    def test_reports_unsupported_files_in_directory_when_requested(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"keep.md": "ok", "skip.png": "binary"})
+        items = list(walk(tmp_path, EXTS, DEFAULT_IGNORE, include_unsupported=True))
+
+        assert [(i.kind, i.relpath) for i in items] == [
+            ("file", "keep.md"),
+            ("unsupported_file", "skip.png"),
+        ]
+
+    def test_reports_invalid_utf8_for_included_extension(self, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.md"
+        bad.write_bytes(b"\xff\xfe\x00")
+
+        items = list(walk(tmp_path, EXTS, DEFAULT_IGNORE, include_unsupported=True))
+
+        assert len(items) == 1
+        assert items[0].kind == "unsupported_file"
+        assert items[0].relpath == "bad.md"
+        assert items[0].skip_reason == "not valid UTF-8 text"
 
     def test_respects_ignore_globs(self, tmp_path: Path) -> None:
         _build_tree(

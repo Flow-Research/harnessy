@@ -50,6 +50,7 @@ For specialized maintenance tasks, read as needed:
 | `docs/skill-promotion-maintainer-playbook.md` | Maintainer workflow for skill promotion |
 | `docs/personal-context-protocol.md` | Personal-context layout and ownership rules |
 | `docs/autoflow-autoresearch-system.md` | Autoflow and autoresearch reference |
+| `docs/operations/fathom-local-automation.md` | Local Fathom webhook + tunnel + auto-ingest runbook |
 
 ## Template Syntax
 

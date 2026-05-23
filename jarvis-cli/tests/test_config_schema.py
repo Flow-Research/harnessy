@@ -3,8 +3,8 @@
 import pytest
 
 from jarvis.config.schema import (
-    AnyTypeConfig,
     AnalyticsConfig,
+    AnyTypeConfig,
     BackendsConfig,
     JarvisConfig,
     NotionConfig,

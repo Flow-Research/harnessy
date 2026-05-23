@@ -1,7 +1,5 @@
 """Tests for Priority enum."""
 
-import pytest
-
 from jarvis.models.priority import Priority
 
 

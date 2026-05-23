@@ -1,6 +1,6 @@
 name: browser-integration-codegen
 type: opencode
-version: 0.2.1
+version: 0.2.2
 owner: julian
 status: experimental
 blast_radius: medium

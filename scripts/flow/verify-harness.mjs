@@ -181,6 +181,8 @@ const run = async () => {
   }
   if (communityConfig.mode === "none") {
     pass("Community skills not required", "mode=none");
+  } else if (expectedCommunitySkills.length === 0 && Number(communityConfig.expectedCount || 0) === 0) {
+    pass("Community skills not required", "mode=" + String(communityConfig.mode || "unknown") + ", expectedCount=0");
   } else if (expectedCommunitySkills.length === 0) {
     warn("Community skill expectations not declared", "mode=" + String(communityConfig.mode || "unknown"));
   }

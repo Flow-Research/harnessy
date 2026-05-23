@@ -42,9 +42,7 @@ def parse_link(text: str) -> AnytypeLink:
     if "://" not in raw and "/" not in raw and "?" not in raw and ":" in raw:
         parts = raw.split(":")
         if len(parts) != 2 or not all(p.strip() for p in parts):
-            raise InvalidLinkError(
-                f"raw form must be exactly 'object_id:space_id', got {raw!r}"
-            )
+            raise InvalidLinkError(f"raw form must be exactly 'object_id:space_id', got {raw!r}")
         return AnytypeLink(object_id=parts[0].strip(), space_id=parts[1].strip())
 
     parsed = urlparse(raw)
@@ -54,9 +52,7 @@ def parse_link(text: str) -> AnytypeLink:
         object_id = _first(qs.get("objectId"))
         space_id = _first(qs.get("spaceId"))
         if not object_id or not space_id:
-            raise InvalidLinkError(
-                f"anytype:// link missing objectId or spaceId: {raw!r}"
-            )
+            raise InvalidLinkError(f"anytype:// link missing objectId or spaceId: {raw!r}")
         return AnytypeLink(object_id=object_id, space_id=space_id)
 
     if parsed.scheme in ("http", "https"):
@@ -64,9 +60,7 @@ def parse_link(text: str) -> AnytypeLink:
         if not space_id:
             # An Anytype web link always carries spaceId. Without it, this isn't
             # an Anytype link — bail out before guessing.
-            raise InvalidLinkError(
-                f"https link missing spaceId query param: {raw!r}"
-            )
+            raise InvalidLinkError(f"https link missing spaceId query param: {raw!r}")
         path_parts = [p for p in parsed.path.split("/") if p]
         object_id: str | None = None
         if len(path_parts) >= 2 and path_parts[0] == "object":
@@ -74,9 +68,7 @@ def parse_link(text: str) -> AnytypeLink:
         elif len(path_parts) == 1:
             object_id = path_parts[0]
         if not object_id:
-            raise InvalidLinkError(
-                f"https link missing object id in path: {raw!r}"
-            )
+            raise InvalidLinkError(f"https link missing object id in path: {raw!r}")
         return AnytypeLink(object_id=object_id, space_id=space_id)
 
     raise InvalidLinkError(f"unrecognized link format: {raw!r}")

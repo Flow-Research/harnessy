@@ -1,6 +1,7 @@
 """Tests for AnyType client journal integration methods."""
 
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,9 +31,7 @@ class TestGetOrCreateCollection:
         with pytest.raises(RuntimeError, match="Not authenticated"):
             client.get_or_create_collection("space_123", "Journal")
 
-    def test_finds_existing_collection(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_finds_existing_collection(self, authenticated_client: AnyTypeClient) -> None:
         """Test finding an existing collection."""
         mock_space = MagicMock()
         mock_type = MagicMock()
@@ -49,9 +48,7 @@ class TestGetOrCreateCollection:
         assert result == "journal_123"
         mock_space.search.assert_called_once()
 
-    def test_creates_collection_if_not_found(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_creates_collection_if_not_found(self, authenticated_client: AnyTypeClient) -> None:
         """Test creating a new collection when not found."""
         mock_space = MagicMock()
         mock_type = MagicMock()
@@ -69,9 +66,7 @@ class TestGetOrCreateCollection:
         # create_object is called with an Object instance
         mock_space.create_object.assert_called_once()
 
-    def test_handles_missing_collection_type(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_handles_missing_collection_type(self, authenticated_client: AnyTypeClient) -> None:
         """Test error when Collection type doesn't exist."""
         mock_space = MagicMock()
 
@@ -82,6 +77,86 @@ class TestGetOrCreateCollection:
             authenticated_client.get_or_create_collection("space_123", "Journal")
 
 
+class TestFileApi:
+    """Tests for raw AnyType Files API helpers."""
+
+    def test_upload_file_requires_authentication(self, client: AnyTypeClient, tmp_path) -> None:
+        source = tmp_path / "image.png"
+        source.write_bytes(b"\x89PNG\r\n")
+        with pytest.raises(RuntimeError, match="Not authenticated"):
+            client.upload_file("space_123", source)
+
+    def test_upload_file_returns_object_id(
+        self, authenticated_client: AnyTypeClient, tmp_path
+    ) -> None:
+        source = tmp_path / "image.png"
+        source.write_bytes(b"\x89PNG\r\n")
+        authenticated_client._client._apiEndpoints = SimpleNamespace(
+            api_url="http://localhost:31009/v1",
+            headers={
+                "Authorization": "Bearer token",
+                "Content-Type": "application/json",
+                "Anytype-Version": "2025-05-20",
+            },
+        )
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"object_id": "file_123"}
+
+        with patch("jarvis.anytype_client.requests.post", return_value=response) as post:
+            result = authenticated_client.upload_file("space_123", source)
+
+        assert result == "file_123"
+        assert post.call_args.kwargs["headers"]["Anytype-Version"] == "2025-11-08"
+        assert "Content-Type" not in post.call_args.kwargs["headers"]
+        assert post.call_args.kwargs["files"]["file"][0] == "image.png"
+
+    def test_delete_file_returns_true(self, authenticated_client: AnyTypeClient) -> None:
+        authenticated_client._client._apiEndpoints = SimpleNamespace(
+            api_url="http://localhost:31009/v1",
+            headers={"Authorization": "Bearer token", "Anytype-Version": "2025-05-20"},
+        )
+        response = MagicMock(status_code=200)
+
+        with patch("jarvis.anytype_client.requests.delete", return_value=response) as delete:
+            result = authenticated_client.delete_file("space_123", "file_123")
+
+        assert result is True
+        assert delete.call_args.args[0].endswith("/spaces/space_123/files/file_123")
+        assert delete.call_args.kwargs["params"] == {"skip_bin": "false"}
+
+
+class TestAddToCollection:
+    """Tests for the Anytype Collection link helper used by sync."""
+
+    def test_retries_rate_limit_before_success(self, authenticated_client: AnyTypeClient) -> None:
+        api = authenticated_client._client._apiEndpoints
+        api.addObjectsToList.side_effect = [
+            RuntimeError("You have reached maximum request limit."),
+            RuntimeError("You have reached maximum request limit."),
+            RuntimeError("You have reached maximum request limit."),
+            RuntimeError("You have reached maximum request limit."),
+            "Objects added successfully",
+        ]
+
+        with patch("jarvis.anytype_client.time.sleep") as sleep:
+            result = authenticated_client._add_to_collection("space-1", "collection-1", "obj-1")
+
+        assert result is True
+        sleep.assert_called_once_with(1)
+
+    def test_surfaces_rate_limit_after_retries(self, authenticated_client: AnyTypeClient) -> None:
+        api = authenticated_client._client._apiEndpoints
+        api.addObjectsToList.side_effect = [
+            RuntimeError("You have reached maximum request limit.")
+        ] * 24
+
+        with (
+            patch("jarvis.anytype_client.time.sleep"),
+            pytest.raises(RuntimeError, match="Anytype request limit"),
+        ):
+            authenticated_client._add_to_collection("space-1", "collection-1", "obj-1")
+
+
 class TestGetOrCreateContainer:
     """Tests for get_or_create_container method."""
 
@@ -90,9 +165,7 @@ class TestGetOrCreateContainer:
         with pytest.raises(RuntimeError, match="Not authenticated"):
             client.get_or_create_container("space_123", "parent_456", "2026")
 
-    def test_finds_existing_container(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_finds_existing_container(self, authenticated_client: AnyTypeClient) -> None:
         """Test finding an existing container in parent's links."""
         mock_space = MagicMock()
         mock_parent = MagicMock()
@@ -101,21 +174,15 @@ class TestGetOrCreateContainer:
         mock_child.id = "year_2026"
 
         # Parent has the child in links property
-        mock_parent.properties = [
-            {"key": "links", "objects": ["year_2026"]}
-        ]
+        mock_parent.properties = [{"key": "links", "objects": ["year_2026"]}]
         mock_space.get_object.side_effect = [mock_parent, mock_child]
         authenticated_client._client.get_space.return_value = mock_space
 
-        result = authenticated_client.get_or_create_container(
-            "space_123", "parent_456", "2026"
-        )
+        result = authenticated_client.get_or_create_container("space_123", "parent_456", "2026")
 
         assert result == "year_2026"
 
-    def test_creates_container_if_not_found(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_creates_container_if_not_found(self, authenticated_client: AnyTypeClient) -> None:
         """Test creating a new container when not in parent's links."""
         mock_space = MagicMock()
         mock_type = MagicMock()
@@ -131,9 +198,7 @@ class TestGetOrCreateContainer:
         authenticated_client._client.get_space.return_value = mock_space
         authenticated_client._client._apiEndpoints = MagicMock()
 
-        result = authenticated_client.get_or_create_container(
-            "space_123", "parent_456", "2026"
-        )
+        result = authenticated_client.get_or_create_container("space_123", "parent_456", "2026")
 
         assert result == "new_container_123"
 
@@ -169,9 +234,7 @@ class TestCreatePage:
         # create_object is called with an Object instance
         mock_space.create_object.assert_called_once()
 
-    def test_create_page_handles_error(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_create_page_handles_error(self, authenticated_client: AnyTypeClient) -> None:
         """Test error handling during page creation."""
         mock_space = MagicMock()
         mock_type = MagicMock()
@@ -204,9 +267,7 @@ class TestGetPageContent:
 
         assert result == "Page content here"
 
-    def test_falls_back_to_body(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_falls_back_to_body(self, authenticated_client: AnyTypeClient) -> None:
         """Test fallback to body when markdown is empty."""
         mock_space = MagicMock()
         mock_obj = MagicMock()
@@ -220,9 +281,7 @@ class TestGetPageContent:
 
         assert result == "Body fallback"
 
-    def test_falls_back_to_description(
-        self, authenticated_client: AnyTypeClient
-    ) -> None:
+    def test_falls_back_to_description(self, authenticated_client: AnyTypeClient) -> None:
         """Test fallback to description when markdown and body are empty."""
         mock_space = MagicMock()
         mock_obj = MagicMock()

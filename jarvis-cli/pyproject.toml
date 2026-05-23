@@ -28,6 +28,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "dateparser>=1.2.0",
+    "requests>=2.32.0",
     # Backend abstraction dependencies
     "notion-client>=2.2.0",
     "httpx>=0.27.0",

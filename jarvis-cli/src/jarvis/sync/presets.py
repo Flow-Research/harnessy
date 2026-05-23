@@ -8,7 +8,7 @@ destination Anytype link (same), an ignore list, and options.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -27,6 +27,12 @@ class PresetOptions(BaseModel):
     include_extensions: list[str] = Field(
         default_factory=lambda: [".md", ".txt", ".markdown", ".text"],
         description="File extensions to include during sync.",
+    )
+    unsupported_mode: Literal["upload", "warn", "stub", "error"] = Field(
+        default="upload",
+        description=(
+            "How to handle files that cannot be synced as text pages: upload, warn, stub, or error."
+        ),
     )
 
 
@@ -55,9 +61,7 @@ class Preset(BaseModel):
         if not v:
             raise ValueError("preset name cannot be empty")
         if any(c in v for c in (" ", "/", "\\", ":")):
-            raise ValueError(
-                f"preset name must be slug-safe (no spaces, slashes, colons): {v!r}"
-            )
+            raise ValueError(f"preset name must be slug-safe (no spaces, slashes, colons): {v!r}")
         return v
 
     @field_validator("destination")

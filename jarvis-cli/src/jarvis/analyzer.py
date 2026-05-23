@@ -74,7 +74,4 @@ def get_light_days(analysis: WorkloadAnalysis) -> list[DayWorkload]:
 
 def get_moveable_tasks_on_day(tasks: list[Task], target_date: date) -> list[Task]:
     """Get moveable tasks scheduled for a specific date."""
-    return [
-        t for t in tasks
-        if t.scheduled_date == target_date and t.is_moveable
-    ]
+    return [t for t in tasks if t.scheduled_date == target_date and t.is_moveable]

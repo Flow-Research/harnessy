@@ -1,6 +1,7 @@
 """Tests for journal CLI commands."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,6 +11,7 @@ from jarvis.journal.cli import (
     generate_title,
     get_connected_client,
     get_space_selection,
+    get_space_selections,
     journal_cli,
 )
 
@@ -80,8 +82,10 @@ class TestGetSpaceSelection:
 
     @patch("jarvis.state.get_selected_space")
     @patch("jarvis.state.save_selected_space")
+    @patch("sys.stdin.isatty", return_value=True)
     def test_uses_saved_space(
         self,
+        mock_isatty: MagicMock,
         mock_save: MagicMock,
         mock_get: MagicMock,
         mock_client: MagicMock,
@@ -93,6 +97,46 @@ class TestGetSpaceSelection:
 
         assert space_id == "space_1"
 
+    def test_non_tty_prefers_config_default_over_saved_space(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test cron-style writes use configured default before mutable selection."""
+        cfg = SimpleNamespace(
+            backends=SimpleNamespace(
+                anytype=SimpleNamespace(default_space_id="space_1"),
+            ),
+        )
+
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch("jarvis.state.get_selected_space", return_value="space_2"),
+            patch("jarvis.config.load_config", return_value=cfg),
+        ):
+            space_id, space_name = get_space_selection(mock_client)
+
+        assert (space_id, space_name) == ("space_1", "Personal")
+
+    def test_interactive_uses_saved_space_before_config_default(
+        self,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test interactive writes keep selected-space convenience behavior."""
+        cfg = SimpleNamespace(
+            backends=SimpleNamespace(
+                anytype=SimpleNamespace(default_space_id="space_1"),
+            ),
+        )
+
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch("jarvis.state.get_selected_space", return_value="space_2"),
+            patch("jarvis.config.load_config", return_value=cfg),
+        ):
+            space_id, space_name = get_space_selection(mock_client)
+
+        assert (space_id, space_name) == ("space_2", "Work")
+
     @patch("jarvis.state.get_selected_space")
     @patch("jarvis.state.save_selected_space")
     def test_auto_selects_single_space(
@@ -102,13 +146,95 @@ class TestGetSpaceSelection:
     ) -> None:
         """Test auto-selection when only one space exists."""
         mock_get.return_value = None
+        cfg = SimpleNamespace(
+            backends=SimpleNamespace(
+                anytype=SimpleNamespace(default_space_id=None),
+            ),
+        )
         mock_client = MagicMock()
         mock_client.get_spaces.return_value = [("only_space", "Only Space")]
 
-        space_id, _ = get_space_selection(mock_client)
+        with patch("jarvis.config.load_config", return_value=cfg):
+            space_id, _ = get_space_selection(mock_client)
 
         assert space_id == "only_space"
         mock_save.assert_called_once_with("only_space")
+
+
+class TestGetSpaceSelections:
+    """Tests for multi-space journal target selection."""
+
+    def test_resolves_multiple_explicit_spaces(self, mock_client: MagicMock) -> None:
+        """Test resolving repeated --space values by name and ID."""
+        result = get_space_selections(mock_client, ("Personal", "space_2"))
+
+        assert result == [("space_1", "Personal"), ("space_2", "Work")]
+
+    def test_deduplicates_explicit_spaces(self, mock_client: MagicMock) -> None:
+        """Test duplicate explicit spaces are written once."""
+        result = get_space_selections(mock_client, ("Personal", "space_1"))
+
+        assert result == [("space_1", "Personal")]
+
+    def test_missing_explicit_space_exits(self, mock_client: MagicMock) -> None:
+        """Test all explicit spaces must resolve before writing."""
+        with pytest.raises(SystemExit):
+            get_space_selections(mock_client, ("Personal", "Missing"))
+
+    def test_no_spaces_exits(self) -> None:
+        """Test empty AnyType space list exits before prompting."""
+        client = MagicMock()
+        client.get_spaces.return_value = []
+
+        with pytest.raises(SystemExit):
+            get_space_selections(client)
+
+    @patch("jarvis.state.save_selected_space")
+    def test_auto_selects_only_space(
+        self,
+        mock_save: MagicMock,
+    ) -> None:
+        """Test auto-selection when only one target space exists."""
+        client = MagicMock()
+        client.get_spaces.return_value = [("only_space", "Only Space")]
+
+        result = get_space_selections(client)
+
+        assert result == [("only_space", "Only Space")]
+        mock_save.assert_called_once_with("only_space")
+
+    @patch("jarvis.journal.cli.Prompt.ask")
+    @patch("sys.stdin.isatty")
+    def test_prompts_for_multiple_spaces(
+        self,
+        mock_isatty: MagicMock,
+        mock_prompt: MagicMock,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test interactive comma-separated multi-select."""
+        mock_isatty.return_value = True
+        mock_prompt.return_value = "1, 2"
+
+        result = get_space_selections(mock_client)
+
+        assert result == [("space_1", "Personal"), ("space_2", "Work")]
+
+    @patch("jarvis.journal.cli.get_space_selection")
+    @patch("sys.stdin.isatty")
+    def test_non_tty_falls_back_to_single_space_selection(
+        self,
+        mock_isatty: MagicMock,
+        mock_single_selection: MagicMock,
+        mock_client: MagicMock,
+    ) -> None:
+        """Test non-interactive contexts preserve existing single-space behavior."""
+        mock_isatty.return_value = False
+        mock_single_selection.return_value = ("space_1", "Personal")
+
+        result = get_space_selections(mock_client)
+
+        assert result == [("space_1", "Personal")]
+        mock_single_selection.assert_called_once_with(mock_client)
 
 
 class TestGenerateTitle:
@@ -197,7 +323,7 @@ class TestWriteCommand:
     @patch("jarvis.journal.cli._offer_deep_dive")
     @patch("jarvis.journal.cli.save_entry_reference")
     @patch("jarvis.journal.cli.JournalHierarchy")
-    @patch("jarvis.journal.cli.get_space_selection")
+    @patch("jarvis.journal.cli.get_space_selections")
     @patch("jarvis.journal.cli.get_connected_client")
     @patch("jarvis.journal.cli.generate_title")
     @patch("jarvis.journal.cli.save_draft")
@@ -222,7 +348,7 @@ class TestWriteCommand:
         mock_save_draft.return_value = draft_path
         mock_gen_title.return_value = "Test Title"
         mock_get_client.return_value = MagicMock()
-        mock_get_space.return_value = ("space_1", "Personal")
+        mock_get_space.return_value = [("space_1", "Personal")]
 
         mock_hierarchy = MagicMock()
         mock_hierarchy.create_entry.return_value = (
@@ -234,9 +360,7 @@ class TestWriteCommand:
         mock_hierarchy.get_path.return_value = "Journal/2026/January"
         mock_hierarchy_class.return_value = mock_hierarchy
 
-        result = runner.invoke(
-            journal_cli, ["write", "Test entry content", "--no-deep-dive"]
-        )
+        result = runner.invoke(journal_cli, ["write", "Test entry content", "--no-deep-dive"])
 
         assert result.exit_code == 0
         assert "saved" in result.output.lower()
@@ -257,11 +381,11 @@ class TestWriteCommand:
         mock_save_draft.return_value = draft_path
 
         with patch("jarvis.journal.cli.get_connected_client") as mock_client:
-            with patch("jarvis.journal.cli.get_space_selection") as mock_space:
+            with patch("jarvis.journal.cli.get_space_selections") as mock_space:
                 with patch("jarvis.journal.cli.JournalHierarchy") as mock_h:
                     with patch("jarvis.journal.cli.save_entry_reference"):
                         mock_client.return_value = MagicMock()
-                        mock_space.return_value = ("s1", "Space")
+                        mock_space.return_value = [("s1", "Space")]
                         mock_h_inst = MagicMock()
                         mock_h_inst.create_entry.return_value = ("e", "j", "y", "m")
                         mock_h_inst.get_path.return_value = "Journal/2026/January"
@@ -275,6 +399,114 @@ class TestWriteCommand:
         assert result.exit_code == 0
         # AI generate_title should not be called when --title is provided
         assert "Custom Title" in result.output or "saved" in result.output.lower()
+
+    @patch("jarvis.journal.cli._offer_deep_dive")
+    @patch("jarvis.journal.cli.save_entry_reference")
+    @patch("jarvis.journal.cli.JournalHierarchy")
+    @patch("jarvis.journal.cli.get_space_selections")
+    @patch("jarvis.journal.cli.get_connected_client")
+    @patch("jarvis.journal.cli.generate_title")
+    @patch("jarvis.journal.cli.save_draft")
+    @patch("jarvis.journal.cli.capture_entry")
+    def test_multi_space_write_creates_entry_in_each_space(
+        self,
+        mock_capture: MagicMock,
+        mock_save_draft: MagicMock,
+        mock_gen_title: MagicMock,
+        mock_get_client: MagicMock,
+        mock_get_spaces: MagicMock,
+        mock_hierarchy_class: MagicMock,
+        mock_save_ref: MagicMock,
+        mock_deep_dive: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test one captured entry is written to each selected space."""
+        mock_capture.return_value = "Shared content"
+        draft_path = tmp_path / "draft.txt"
+        draft_path.write_text("Shared content")
+        mock_save_draft.return_value = draft_path
+        mock_gen_title.return_value = "Shared Title"
+        mock_get_client.return_value = MagicMock()
+        mock_get_spaces.return_value = [("space_1", "Personal"), ("space_2", "Work")]
+
+        h1 = MagicMock()
+        h1.create_entry.return_value = ("entry_1", "journal_1", "year_1", "month_1")
+        h1.get_path.return_value = "Journal/2026/May"
+        h2 = MagicMock()
+        h2.create_entry.return_value = ("entry_2", "journal_2", "year_2", "month_2")
+        h2.get_path.return_value = "Journal/2026/May"
+        mock_hierarchy_class.side_effect = [h1, h2]
+
+        result = runner.invoke(
+            journal_cli,
+            [
+                "write",
+                "Shared content",
+                "--space",
+                "Personal",
+                "--space",
+                "Work",
+                "--no-deep-dive",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert mock_hierarchy_class.call_count == 2
+        assert h1.create_entry.call_count == 1
+        assert h2.create_entry.call_count == 1
+        assert mock_save_ref.call_count == 2
+        assert not draft_path.exists()
+        mock_deep_dive.assert_not_called()
+
+    @patch("jarvis.journal.cli._offer_deep_dive")
+    @patch("jarvis.journal.cli.save_entry_reference")
+    @patch("jarvis.journal.cli.JournalHierarchy")
+    @patch("jarvis.journal.cli.get_space_selections")
+    @patch("jarvis.journal.cli.get_connected_client")
+    @patch("jarvis.journal.cli.generate_title")
+    @patch("jarvis.journal.cli.save_draft")
+    @patch("jarvis.journal.cli.capture_entry")
+    def test_partial_multi_space_failure_keeps_draft(
+        self,
+        mock_capture: MagicMock,
+        mock_save_draft: MagicMock,
+        mock_gen_title: MagicMock,
+        mock_get_client: MagicMock,
+        mock_get_spaces: MagicMock,
+        mock_hierarchy_class: MagicMock,
+        mock_save_ref: MagicMock,
+        mock_deep_dive: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Test best-effort writes keep successful refs and retain draft on failure."""
+        mock_capture.return_value = "Shared content"
+        draft_path = tmp_path / "draft.txt"
+        draft_path.write_text("Shared content")
+        mock_save_draft.return_value = draft_path
+        mock_gen_title.return_value = "Shared Title"
+        mock_get_client.return_value = MagicMock()
+        mock_get_spaces.return_value = [("space_1", "Personal"), ("space_2", "Work")]
+
+        h1 = MagicMock()
+        h1.create_entry.return_value = ("entry_1", "journal_1", "year_1", "month_1")
+        h1.get_path.return_value = "Journal/2026/May"
+        h2 = MagicMock()
+        h2.create_entry.side_effect = RuntimeError("save failed")
+        mock_hierarchy_class.side_effect = [h1, h2]
+
+        result = runner.invoke(
+            journal_cli,
+            ["write", "Shared content", "--space", "Personal", "--space", "Work"],
+        )
+
+        assert result.exit_code == 1
+        assert "Failed" in result.output
+        assert "Work" in result.output
+        assert draft_path.exists()
+        mock_save_ref.assert_called_once()
+        mock_deep_dive.assert_not_called()
 
 
 class TestEditorFlag:
@@ -315,9 +547,7 @@ class TestListCommand:
     """Tests for the list command."""
 
     @patch("jarvis.journal.state.load_entries")
-    def test_list_shows_entries(
-        self, mock_load: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_list_shows_entries(self, mock_load: MagicMock, runner: CliRunner) -> None:
         """Test listing entries displays table."""
         from datetime import date, datetime
 
@@ -362,9 +592,7 @@ class TestListCommand:
         assert "No journal entries yet" in result.output
 
     @patch("jarvis.journal.state.load_entries")
-    def test_list_respects_limit(
-        self, mock_load: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_list_respects_limit(self, mock_load: MagicMock, runner: CliRunner) -> None:
         """Test that limit option works."""
         from datetime import date, datetime
 
@@ -426,9 +654,7 @@ class TestReadCommand:
         assert "latest entry content" in result.output
 
     @patch("jarvis.journal.state.load_entries")
-    def test_read_no_entries(
-        self, mock_load: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_read_no_entries(self, mock_load: MagicMock, runner: CliRunner) -> None:
         """Test reading when no entries exist."""
         mock_load.return_value = []
 
@@ -479,9 +705,7 @@ class TestReadCommand:
         assert "Second" in result.output
 
     @patch("jarvis.journal.state.load_entries")
-    def test_read_invalid_number(
-        self, mock_load: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_read_invalid_number(self, mock_load: MagicMock, runner: CliRunner) -> None:
         """Test reading with invalid entry number."""
         from datetime import date, datetime
 
@@ -507,9 +731,7 @@ class TestSearchCommand:
     """Tests for the search command."""
 
     @patch("jarvis.journal.state.search_entries")
-    def test_search_finds_results(
-        self, mock_search: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_search_finds_results(self, mock_search: MagicMock, runner: CliRunner) -> None:
         """Test search returns matching entries."""
         from datetime import date, datetime
 
@@ -535,9 +757,7 @@ class TestSearchCommand:
         assert "1 matching" in result.output
 
     @patch("jarvis.journal.state.search_entries")
-    def test_search_no_results(
-        self, mock_search: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_search_no_results(self, mock_search: MagicMock, runner: CliRunner) -> None:
         """Test search with no matches."""
         mock_search.return_value = []
 
@@ -547,9 +767,7 @@ class TestSearchCommand:
         assert "No entries found" in result.output
 
     @patch("jarvis.journal.state.search_entries")
-    def test_search_respects_limit(
-        self, mock_search: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_search_respects_limit(self, mock_search: MagicMock, runner: CliRunner) -> None:
         """Test search limit option."""
         mock_search.return_value = []
 
@@ -608,9 +826,7 @@ class TestInsightsCommand:
         assert "Insights" in result.output
 
     @patch("jarvis.journal.state.get_entries_by_date_range")
-    def test_insights_no_entries(
-        self, mock_get_entries: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_insights_no_entries(self, mock_get_entries: MagicMock, runner: CliRunner) -> None:
         """Test insights with no entries in range."""
         mock_get_entries.return_value = []
 
@@ -619,9 +835,7 @@ class TestInsightsCommand:
         assert "No entries found" in result.output
 
     @patch("jarvis.journal.state.get_entries_by_date_range")
-    def test_insights_too_few_entries(
-        self, mock_get_entries: MagicMock, runner: CliRunner
-    ) -> None:
+    def test_insights_too_few_entries(self, mock_get_entries: MagicMock, runner: CliRunner) -> None:
         """Test insights with only one entry."""
         from datetime import date, datetime
 

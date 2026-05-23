@@ -1,6 +1,6 @@
 """Tests for JournalEntry model."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -21,7 +21,7 @@ class TestJournalEntry:
             content="Today was a productive day. I completed the backend abstraction.",
             entry_date=date(2024, 3, 15),
             tags=["reflection", "work"],
-            created_at=datetime(2024, 3, 15, 20, 0, 0, tzinfo=timezone.utc),
+            created_at=datetime(2024, 3, 15, 20, 0, 0, tzinfo=UTC),
             path="Journal/2024/March",
         )
 
@@ -37,7 +37,7 @@ class TestJournalEntry:
 
     def test_create_entry_minimal_fields(self) -> None:
         """Test entry creation with only required fields."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         entry = JournalEntry(
             id="entry-123",
             space_id="space-456",
@@ -56,7 +56,7 @@ class TestJournalEntry:
 
     def test_day_prefix_single_digit(self) -> None:
         """Test day_prefix for single digit days."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         entry = JournalEntry(
             id="entry-123",
             space_id="space-456",
@@ -68,7 +68,7 @@ class TestJournalEntry:
 
     def test_title_validation_empty(self) -> None:
         """Test title cannot be empty."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             JournalEntry(
                 id="entry-123",
@@ -81,7 +81,7 @@ class TestJournalEntry:
 
     def test_title_validation_too_long(self) -> None:
         """Test title cannot exceed 500 characters."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             JournalEntry(
                 id="entry-123",
@@ -94,7 +94,7 @@ class TestJournalEntry:
 
     def test_content_validation_too_long(self) -> None:
         """Test content cannot exceed 100000 characters."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             JournalEntry(
                 id="entry-123",
@@ -108,7 +108,7 @@ class TestJournalEntry:
 
     def test_tags_validation_too_many(self) -> None:
         """Test cannot have more than 50 tags."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             JournalEntry(
                 id="entry-123",
@@ -122,7 +122,7 @@ class TestJournalEntry:
 
     def test_tags_validation_tag_too_long(self) -> None:
         """Test individual tag cannot exceed 100 characters."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             JournalEntry(
                 id="entry-123",
@@ -145,7 +145,7 @@ class TestJournalEntry:
 
     def test_entry_required_fields(self) -> None:
         """Test that required fields are enforced."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError):
             JournalEntry(
                 space_id="space-456",
@@ -156,7 +156,7 @@ class TestJournalEntry:
 
     def test_path_optional_for_flat_backends(self) -> None:
         """Test path is optional for backends without hierarchy."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         entry = JournalEntry(
             id="entry-123",
             space_id="space-456",
@@ -169,7 +169,7 @@ class TestJournalEntry:
 
     def test_markdown_content(self) -> None:
         """Test entry can contain markdown content."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         markdown_content = """
 # Daily Notes
 

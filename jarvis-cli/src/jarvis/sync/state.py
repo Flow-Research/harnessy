@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ObjectKind = Literal["page", "collection"]
+ObjectKind = Literal["page", "collection", "file"]
 
 
 def get_state_dir() -> Path:
@@ -29,7 +29,7 @@ class ObjectRecord(BaseModel):
     """One synced source path's mapping to an Anytype object."""
 
     object_id: str = Field(description="Anytype object ID for this path.")
-    kind: ObjectKind = Field(description="page or collection.")
+    kind: ObjectKind = Field(description="page, collection, or file.")
     content_sha256: str | None = Field(
         default=None,
         description="Hex sha256 of last-synced body. None for collections.",

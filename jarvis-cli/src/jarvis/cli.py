@@ -1,6 +1,7 @@
 """CLI interface for Jarvis task scheduler."""
 
-from datetime import date, datetime, timedelta, timezone
+import os
+from datetime import UTC, date, datetime, timedelta
 
 import click
 from rich.console import Console
@@ -11,9 +12,10 @@ from jarvis.adapters import AdapterRegistry
 from jarvis.adapters.base import KnowledgeBaseAdapter
 from jarvis.adapters.exceptions import (
     AuthError,
-    ConnectionError as AdapterConnectionError,
-    NotFoundError,
     NotSupportedError,
+)
+from jarvis.adapters.exceptions import (
+    ConnectionError as AdapterConnectionError,
 )
 from jarvis.analyzer import analyze_workload
 from jarvis.calendar.providers import GWSProvider
@@ -102,7 +104,6 @@ def require_capability(
 
 def _suggest_alternatives(capability: str) -> None:
     """Suggest alternative backends that support a capability."""
-    from jarvis.config import VALID_BACKENDS
 
     alternatives = []
 
@@ -203,7 +204,7 @@ cli.add_command(task_cli, name="task")
 cli.add_command(create_task, name="t")
 
 # Register plan commands
-from jarvis.plan.cli import plan_command, plan_alias  # noqa: E402
+from jarvis.plan.cli import plan_alias, plan_command  # noqa: E402
 
 cli.add_command(plan_command, name="plan")
 
@@ -252,6 +253,11 @@ from jarvis.wiki.cli import wiki_cli  # noqa: E402
 
 cli.add_command(wiki_cli, name="wiki")
 cli.add_command(wiki_cli, name="w")
+
+# Register meeting ingestion commands
+from jarvis.meetings.cli import meeting_cli  # noqa: E402
+
+cli.add_command(meeting_cli, name="meeting")
 
 # Sync command group — local folder/file → Anytype Space sync, with presets.
 from jarvis.sync.cli import sync_group  # noqa: E402
@@ -570,7 +576,7 @@ def context_edit(file: str | None, global_: bool) -> None:
         location = "folder"
 
     if not base_dir.exists():
-        console.print(f"[yellow]Context directory not initialized. Run 'jarvis init'.[/yellow]")
+        console.print("[yellow]Context directory not initialized. Run 'jarvis init'.[/yellow]")
         return
 
     if file is None:
@@ -629,9 +635,9 @@ def config_show() -> None:
     from jarvis.config import (
         get_backend_token,
         get_config_path,
+        get_fathom_api_key,
         load_config,
         redact_token,
-        validate_config,
     )
 
     config_path = get_config_path()
@@ -680,6 +686,26 @@ def config_show() -> None:
     else:
         console.print("    [dim](not configured)[/dim]")
 
+    console.print("  [cyan]fathom[/cyan]")
+    if cfg.fathom.accounts:
+        if cfg.fathom.default_account:
+            console.print(f"    default_account: {cfg.fathom.default_account}")
+        for name, account in cfg.fathom.accounts.items():
+            email = account.email or "(no email set)"
+            console.print(f"    {name}: {email}")
+            try:
+                token = get_fathom_api_key(name)
+                console.print(f"      token: {redact_token(token)} [green]✓[/green]")
+            except Exception:
+                console.print(f"      token env {account.api_key_env_var}: [red]not set[/red]")
+            secret_set = bool(os.environ.get(account.webhook_secret_env_var))
+            secret_status = "[green]set[/green]" if secret_set else "[red]not set[/red]"
+            console.print(
+                f"      webhook secret env {account.webhook_secret_env_var}: {secret_status}"
+            )
+    else:
+        console.print("    [dim](using FATHOM_API_KEY or JARVIS_FATHOM_API_KEY)[/dim]")
+
     # Validation
     console.print()
     issues = validate_config()
@@ -727,11 +753,10 @@ def config_backend(name: str | None) -> None:
         jarvis config backend notion    # Switch to Notion
     """
     from jarvis.config import (
-        ConfigError,
         VALID_BACKENDS,
+        ConfigError,
         load_config,
         set_active_backend,
-        validate_config,
     )
 
     if name is None:
@@ -826,6 +851,123 @@ def config_path_cmd() -> None:
     from jarvis.config import get_config_path
 
     console.print(get_config_path())
+
+
+@config.command(name="fathom-setup")
+@click.option("--env-file", default=None, help="Managed env file path to write")
+@click.option("--shell-profile", default=None, help="Shell profile to source the env file from")
+@click.option("--no-shell-profile", is_flag=True, help="Do not modify a shell profile")
+def config_fathom_setup(
+    env_file: str | None,
+    shell_profile: str | None,
+    no_shell_profile: bool,
+) -> None:
+    """Interactively configure Fathom accounts, env vars, and shell activation."""
+    from pathlib import Path
+
+    from jarvis.config import (
+        default_env_file_path,
+        default_shell_profile_path,
+        ensure_default_accounts,
+        ensure_shell_profile_sources_env,
+        load_config,
+        render_fathom_env_file,
+        save_config,
+        write_env_file,
+    )
+
+    cfg = load_config(reload=True)
+    accounts = ensure_default_accounts(cfg)
+
+    console.print()
+    console.print("[bold]Fathom Setup[/bold]")
+    console.print("[dim]Press Enter to keep current values, or type new ones.[/dim]")
+    console.print()
+
+    default_account = click.prompt(
+        "Default account",
+        default=cfg.fathom.default_account or (accounts[0].name if accounts else "personal"),
+        show_default=True,
+    ).strip()
+    cfg.fathom.default_account = default_account
+
+    for account in accounts:
+        console.print()
+        console.print(f"[cyan]{account.name}[/cyan]")
+        email = click.prompt(
+            "  Email",
+            default=account.email or cfg.fathom.accounts[account.name].email or "",
+            show_default=bool(account.email or cfg.fathom.accounts[account.name].email),
+        ).strip()
+        account.email = email
+        cfg.fathom.accounts[account.name].email = email or None
+
+        api_env_var = click.prompt(
+            "  API key env var",
+            default=account.api_key_env_var,
+            show_default=True,
+        ).strip()
+        webhook_env_var = click.prompt(
+            "  Webhook secret env var",
+            default=account.webhook_secret_env_var,
+            show_default=True,
+        ).strip()
+        account.api_key_env_var = api_env_var
+        account.webhook_secret_env_var = webhook_env_var
+        cfg.fathom.accounts[account.name].api_key_env_var = api_env_var
+        cfg.fathom.accounts[account.name].webhook_secret_env_var = webhook_env_var
+
+        account.api_key = click.prompt(
+            "  API key (leave blank to skip writing)",
+            default="",
+            show_default=False,
+            hide_input=True,
+        ).strip()
+        account.webhook_secret = click.prompt(
+            "  Webhook secret (leave blank to skip writing)",
+            default="",
+            show_default=False,
+            hide_input=True,
+        ).strip()
+
+    save_config(cfg)
+
+    env_target = Path(env_file).expanduser() if env_file else default_env_file_path()
+    env_content = render_fathom_env_file(
+        [account for account in accounts if account.api_key or account.webhook_secret]
+    )
+    wrote_env = False
+    if env_content.strip() and click.confirm(
+        f"Write secrets to managed env file at {env_target}?",
+        default=True,
+    ):
+        write_env_file(env_target, env_content)
+        wrote_env = True
+        console.print(f"[green]✓[/green] Wrote env file: {env_target}")
+
+    if not no_shell_profile:
+        profile_target = (
+            Path(shell_profile).expanduser() if shell_profile else default_shell_profile_path()
+        )
+        if click.confirm(
+            f"Ensure {profile_target} sources the env file?",
+            default=wrote_env,
+        ):
+            changed = ensure_shell_profile_sources_env(profile_target, env_target)
+            if changed:
+                console.print(f"[green]✓[/green] Updated shell profile: {profile_target}")
+            else:
+                console.print(
+                    f"[dim]Shell profile already sources env file: {profile_target}[/dim]"
+                )
+
+    console.print()
+    console.print("[green]✓ Fathom config updated[/green]")
+    console.print("[dim]Run `jarvis config show` to verify account wiring.[/dim]")
+    if wrote_env:
+        console.print(
+            "[dim]Open a new shell or source your profile to activate the new env vars.[/dim]"
+        )
 
 
 # ============================================================================
@@ -1012,12 +1154,12 @@ def _run_diagnostics(backend: str, cfg) -> None:
         # Check database IDs
         if cfg.backends.notion:
             if cfg.backends.notion.task_database_id:
-                console.print(f"[green]✓[/green] Task database ID configured")
+                console.print("[green]✓[/green] Task database ID configured")
             else:
                 console.print("[red]✗[/red] Task database ID not set")
 
             if cfg.backends.notion.journal_database_id:
-                console.print(f"[green]✓[/green] Journal database ID configured")
+                console.print("[green]✓[/green] Journal database ID configured")
             else:
                 console.print("[yellow]⚠[/yellow] Journal database ID not set (optional)")
         else:
@@ -1151,6 +1293,21 @@ def _generate_docs() -> dict:
                         "description": "Show path to configuration file",
                         "examples": ["jarvis config path"],
                     },
+                    "fathom-setup": {
+                        "description": (
+                            "Interactively configure Fathom accounts, env vars, "
+                            "and shell activation"
+                        ),
+                        "options": {
+                            "--env-file": "Managed env file path to write",
+                            "--shell-profile": "Shell profile to source the env file from",
+                            "--no-shell-profile": "Do not modify a shell profile",
+                        },
+                        "examples": [
+                            "jarvis config fathom-setup",
+                            "jarvis config fathom-setup --shell-profile ~/.zshrc",
+                        ],
+                    },
                 },
             },
             "init": {
@@ -1254,6 +1411,336 @@ def _generate_docs() -> dict:
                     "jarvis j --file ./design.md",
                 ],
             },
+            "meeting": {
+                "description": "Ingest meeting transcripts and summaries into Jarvis destinations",
+                "subcommands": {
+                    "ingest": {
+                        "description": (
+                            "Normalize a meeting transcript-like source and "
+                            "route it to destinations"
+                        ),
+                        "options": {
+                            "SOURCE": (
+                                "File path, AnyType/Notion URL, generic URL, or '-' for stdin"
+                            ),
+                            "--resolver": (
+                                "Override source resolution (anytype, notion, file, url, stdin)"
+                            ),
+                            "--backend": "Backend override for object-based resolvers",
+                            "--title": "Override the inferred meeting title",
+                            "--project": "Attach a project slug or label",
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--tag": "Tags to attach (repeatable)",
+                            "--dest": "Destination(s): private-context, wiki, journal, memory",
+                            "--wiki-domain": "Wiki domain when using the wiki destination",
+                            "--enrich-ai / --no-enrich-ai": "Use AI to fill missing sections",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting ingest ./meeting.md",
+                            (
+                                "cat transcript.txt | jarvis meeting ingest - "
+                                "--resolver stdin --dest private-context"
+                            ),
+                            (
+                                "jarvis meeting ingest ./fathom-export.md "
+                                "--dest wiki --wiki-domain accelerate-africa"
+                            ),
+                        ],
+                    },
+                    "fathom list": {
+                        "description": "List recent Fathom meetings and recording IDs",
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--limit": "Number of meetings to list",
+                            "--created-after": "Filter meetings created after this ISO timestamp",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting fathom list",
+                            "jarvis meeting fathom list --limit 20",
+                        ],
+                    },
+                    "fathom ingest": {
+                        "description": (
+                            "Fetch a Fathom meeting by recording ID and ingest it into destinations"
+                        ),
+                        "options": {
+                            "RECORDING_ID": "Fathom recording ID from `jarvis meeting fathom list`",
+                            "--account": "Named Fathom account from config",
+                            "--project": "Attach a project slug or label",
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--tag": "Tags to attach (repeatable)",
+                            "--dest": "Destination(s): private-context, wiki, journal, memory",
+                            "--wiki-domain": "Wiki domain when using the wiki destination",
+                            "--created-after": (
+                                "Limit Fathom search to meetings after this ISO timestamp"
+                            ),
+                            "--backend": "Backend override for the journal destination",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting fathom ingest 123456789",
+                            (
+                                "jarvis meeting fathom ingest 123456789 "
+                                "--dest wiki --wiki-domain accelerate-africa"
+                            ),
+                        ],
+                    },
+                    "fathom ingest-today": {
+                        "description": (
+                            "Ingest today's or recent Fathom recordings as a webhook safety poll"
+                        ),
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--date": "Local date to ingest (YYYY-MM-DD)",
+                            "--lookback-hours": (
+                                "Use a rolling lookback window instead of local midnight/date"
+                            ),
+                            "--all-unpulled": (
+                                "Scan Fathom pages without a date cutoff and ingest "
+                                "recordings not yet present in private context"
+                            ),
+                            "--limit": "Meetings to fetch per Fathom page",
+                            "--max-pages": "Maximum Fathom result pages to scan",
+                            "--project": "Attach a project slug or label",
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--tag": "Tags to attach (repeatable)",
+                            "--dest": "Destination(s): private-context, wiki, journal, memory",
+                            "--wiki-domain": "Wiki domain when using the wiki destination",
+                            "--backend": "Backend override for the journal destination",
+                            "--skip-existing / --no-skip-existing": (
+                                "Skip recordings already present in private meeting context"
+                            ),
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting fathom ingest-today --account personal",
+                            (
+                                "jarvis meeting fathom ingest-today "
+                                "--account personal --dest private-context "
+                                "--lookback-hours 36 --json"
+                            ),
+                            (
+                                "jarvis meeting fathom ingest-today "
+                                "--account personal --dest private-context "
+                                "--all-unpulled --max-pages 50 --json"
+                            ),
+                        ],
+                    },
+                    "fathom poll": {
+                        "description": (
+                            "Incrementally poll configured Fathom accounts for unpulled recordings"
+                        ),
+                        "options": {
+                            "--account": (
+                                "Specific Fathom account to poll (repeatable); "
+                                "defaults to all configured accounts"
+                            ),
+                            "--initial-lookback-hours": (
+                                "Lookback window for accounts with no prior successful poll"
+                            ),
+                            "--overlap-hours": (
+                                "Safety overlap subtracted from the previous successful "
+                                "poll watermark"
+                            ),
+                            "--limit": "Meetings to fetch per Fathom page",
+                            "--max-pages": "Maximum Fathom result pages to scan per account",
+                            "--project": "Attach a project slug or label",
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--tag": "Tags to attach (repeatable)",
+                            "--dest": "Destination(s): private-context, wiki, journal, memory",
+                            "--wiki-domain": "Wiki domain when using the wiki destination",
+                            "--backend": "Backend override for the journal destination",
+                            "--skip-existing / --no-skip-existing": (
+                                "Skip recordings already present in private meeting context"
+                            ),
+                            "--state-file": "Override the local poll state file path",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            (
+                                "jarvis meeting fathom poll --auto-route "
+                                "--dest private-context --dest memory --json"
+                            ),
+                            (
+                                "jarvis meeting fathom poll --account personal "
+                                "--account work --dest private-context --json"
+                            ),
+                        ],
+                    },
+                    "fathom webhook create": {
+                        "description": (
+                            "Create a Fathom webhook via API and save its local signing secret"
+                        ),
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--destination-url": "Public URL Fathom should POST to",
+                            "--triggered-for": (
+                                "Recording scope that should trigger the webhook (repeatable)"
+                            ),
+                            "--include-transcript / --no-include-transcript": (
+                                "Include transcripts in webhook payloads"
+                            ),
+                            "--include-summary / --no-include-summary": (
+                                "Include summaries in webhook payloads"
+                            ),
+                            "--include-action-items / --no-include-action-items": (
+                                "Include action items in webhook payloads"
+                            ),
+                            "--include-crm-matches / --no-include-crm-matches": (
+                                "Include CRM matches in webhook payloads"
+                            ),
+                            "--save / --no-save": "Persist webhook metadata and secret locally",
+                            "--env-file": "Managed env file path for saved secret",
+                            "--show-secret": "Print the webhook signing secret",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            (
+                                "jarvis meeting fathom webhook create --account personal "
+                                "--destination-url https://fathom.example.com"
+                            )
+                        ],
+                    },
+                    "fathom webhook delete": {
+                        "description": "Delete a Fathom webhook via API",
+                        "options": {
+                            "WEBHOOK_ID": "Fathom webhook ID (uses saved account ID if omitted)",
+                            "--account": "Named Fathom account from config",
+                            "--clear-saved / --no-clear-saved": (
+                                "Clear saved webhook ID after deletion"
+                            ),
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting fathom webhook delete --account personal",
+                            "jarvis meeting fathom webhook delete wh_123 --account personal",
+                        ],
+                    },
+                    "fathom webhook status": {
+                        "description": "Show local Fathom webhook config and inbox health",
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--check-url / --no-check-url": (
+                                "Attempt an HTTP reachability check for the saved URL"
+                            ),
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting fathom webhook status --account personal --json"
+                        ],
+                    },
+                    "fathom webhook serve": {
+                        "description": (
+                            "Run a local webhook receiver and archive Fathom payloads into an inbox"
+                        ),
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--port": "Local port to bind",
+                            "--verify-signatures / --no-verify-signatures": (
+                                "Verify webhook signatures before accepting payloads"
+                            ),
+                            "--tolerance-seconds": "Maximum allowed webhook timestamp skew",
+                            "--auto-ingest / --no-auto-ingest": (
+                                "Automatically ingest verified payloads into destinations"
+                            ),
+                            "--project": "Attach a project slug or label during auto-ingest",
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--tag": "Tags to attach during auto-ingest",
+                            "--dest": "Destination for auto-ingest: private-context, wiki, journal, memory",
+                            "--wiki-domain": (
+                                "Wiki domain when auto-ingesting to the wiki destination"
+                            ),
+                            "--backend": (
+                                "Backend override when auto-ingesting to the journal destination"
+                            ),
+                        },
+                        "examples": [
+                            "jarvis meeting fathom webhook serve --account work --port 8765",
+                            (
+                                "jarvis meeting fathom webhook serve --account "
+                                "work --auto-ingest --auto-route --dest private-context "
+                                "--dest memory"
+                            ),
+                        ],
+                    },
+                    "fathom start": {
+                        "description": (
+                            "Launch the Fathom webhook receiver and Cloudflare tunnel in tmux"
+                        ),
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--port": "Local port to bind",
+                            "--auto-ingest / --no-auto-ingest": (
+                                "Automatically ingest verified payloads"
+                            ),
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--dest": "Destination for auto-ingest",
+                            "--layout": "Tmux layout: windows or panes",
+                            "--tunnel-name": (
+                                "Cloudflare named tunnel to run instead of a quick tunnel"
+                            ),
+                            "--session-name": "Tmux session name to create",
+                            "--attach / --no-attach": "Attach after launching",
+                            "--dry-run": "Print the launch plan without creating sessions",
+                            "--json": "Emit the launch plan as JSON",
+                        },
+                        "examples": [
+                            (
+                                "jarvis meeting fathom start --account personal "
+                                "--tunnel-name jarvis-fathom --no-attach"
+                            )
+                        ],
+                    },
+                    "fathom webhook ingest-inbox": {
+                        "description": (
+                            "Ingest archived webhook payloads from the local Fathom inbox"
+                        ),
+                        "options": {
+                            "--account": "Named Fathom account from config",
+                            "--project": "Attach a project slug or label",
+                            "--auto-route / --no-auto-route": (
+                                "Infer project from private meeting route rules "
+                                "when --project is omitted"
+                            ),
+                            "--tag": "Tags to attach (repeatable)",
+                            "--dest": "Destination(s): private-context, wiki, journal, memory",
+                            "--wiki-domain": "Wiki domain when using the wiki destination",
+                            "--backend": "Backend override for the journal destination",
+                            "--limit": "Maximum inbox items to ingest",
+                            "--keep": "Keep inbox files in pending after ingestion",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis meeting fathom webhook ingest-inbox --account work",
+                            (
+                                "jarvis meeting fathom webhook ingest-inbox "
+                                "--account work --dest wiki "
+                                "--wiki-domain accelerate-africa"
+                            ),
+                        ],
+                    },
+                },
+            },
             "task": {
                 "description": "Manage tasks in AnyType",
                 "subcommands": {
@@ -1289,14 +1776,112 @@ def _generate_docs() -> dict:
                     'jarvis t "Urgent task" -p high -t urgent',
                 ],
             },
+            "sync": {
+                "description": (
+                    "Sync local folders into an Anytype Collection; directories "
+                    "become Collections, text files become Pages, and other "
+                    "files upload as native Anytype file objects by default"
+                ),
+                "subcommands": {
+                    "run": {
+                        "description": "Run an incremental source folder/file sync to Anytype",
+                        "options": {
+                            "--preset": "Use a saved sync preset",
+                            "--source": "Source path, either a file or directory",
+                            "--destination": (
+                                "Anytype object link for the target Collection, "
+                                "or raw object_id:space_id"
+                            ),
+                            "--prune": (
+                                "Delete Anytype objects that were previously synced "
+                                "but no longer exist locally"
+                            ),
+                            "--dry-run": (
+                                "Show the planned create/update/prune operations "
+                                "without connecting to Anytype or writing state"
+                            ),
+                            "--yes": "Skip confirmation prompts for writes",
+                            "--include-extension": (
+                                "Additional text file extension to include; repeat "
+                                "to extend the preset/default extension list. Other "
+                                "extensions follow --unsupported-mode"
+                            ),
+                            "--ignore": ("Additional ignore glob for traversal; repeatable"),
+                            "--skip-destination-check": (
+                                "Do not verify that the destination object is a "
+                                "Collection before writing"
+                            ),
+                            "--unsupported-mode": (
+                                "Non-text file behavior: upload native file objects "
+                                "(default), warn and skip, create metadata stub "
+                                "pages, or fail the run"
+                            ),
+                        },
+                        "examples": [
+                            (
+                                "jarvis sync run --source ./notes --destination "
+                                "'anytype://object?objectId=...&spaceId=...' --dry-run"
+                            ),
+                            (
+                                "jarvis sync run --source ./notes --destination "
+                                "root_obj:space_1 --yes"
+                            ),
+                            (
+                                "jarvis sync run --source ./repo --destination "
+                                "root_obj:space_1 --include-extension py --dry-run"
+                            ),
+                            (
+                                "jarvis sync run --source ./notes --destination "
+                                "root_obj:space_1 --unsupported-mode upload --yes"
+                            ),
+                            (
+                                "jarvis sync run --source ./notes --destination "
+                                "root_obj:space_1 --unsupported-mode stub --yes"
+                            ),
+                            "jarvis sync run --preset flow-context --prune --yes",
+                        ],
+                    },
+                    "preset add": {
+                        "description": "Interactively create or update a named sync preset",
+                        "examples": ["jarvis sync preset add"],
+                    },
+                    "preset list": {
+                        "description": "List saved sync presets",
+                        "examples": ["jarvis sync preset list"],
+                    },
+                    "preset show": {
+                        "description": (
+                            "Show one preset's source, destination, ignore rules, and options"
+                        ),
+                        "options": {"NAME": "Preset name"},
+                        "examples": ["jarvis sync preset show flow-context"],
+                    },
+                    "preset edit": {
+                        "description": "Interactively edit a saved sync preset",
+                        "options": {"NAME": "Preset name"},
+                        "examples": ["jarvis sync preset edit flow-context"],
+                    },
+                    "preset delete": {
+                        "description": "Delete a saved sync preset",
+                        "options": {"NAME": "Preset name"},
+                        "examples": ["jarvis sync preset delete flow-context"],
+                    },
+                },
+            },
             "reading-list": {
-                "description": "Organize and prioritize a reading list against current project context",
+                "description": (
+                    "Organize and prioritize a reading list against current project context"
+                ),
                 "subcommands": {
                     "organize": {
                         "description": "Deep research and prioritize a reading list",
                         "options": {
-                            "TARGET": "AnyType URL, Notion URL, file path, generic URL, or '-' for stdin",
-                            "--resolver": "Override source resolution (anytype, notion, file, url, stdin)",
+                            "TARGET": (
+                                "AnyType URL, Notion URL, file path, generic URL, or '-' for stdin"
+                            ),
+                            "--resolver": (
+                                "Override source resolution (anytype, notion, file, url, stdin)"
+                            ),
                             "--backend": "Backend override for object-based resolvers",
                             "--output": "Save markdown output to file",
                             "--format": "Output format: table, json, markdown",
@@ -1308,26 +1893,28 @@ def _generate_docs() -> dict:
                         },
                         "examples": [
                             'jarvis reading-list organize "https://object.any.coop/..."',
-                            'jarvis reading-list organize ./reading-list.md --format markdown',
-                            'cat reading-list.md | jarvis reading-list organize - --resolver stdin',
+                            "jarvis reading-list organize ./reading-list.md --format markdown",
+                            "cat reading-list.md | jarvis reading-list organize - --resolver stdin",
                         ],
                     },
                     "list": {
                         "description": "Extract and display links from a reading list source",
                         "options": {
-                            "TARGET": "AnyType URL, Notion URL, file path, generic URL, or '-' for stdin",
+                            "TARGET": (
+                                "AnyType URL, Notion URL, file path, generic URL, or '-' for stdin"
+                            ),
                             "--resolver": "Override source resolution",
                             "--backend": "Backend override for object-based resolvers",
                         },
                         "examples": [
                             'jarvis reading-list list "https://object.any.coop/..."',
-                            'jarvis reading-list list ./reading-list.md',
+                            "jarvis reading-list list ./reading-list.md",
                         ],
                     },
                     "cache-clear": {
                         "description": "Clear reading list caches",
                         "options": {},
-                        "examples": ['jarvis reading-list cache-clear'],
+                        "examples": ["jarvis reading-list cache-clear"],
                     },
                 },
             },
@@ -1347,14 +1934,16 @@ def _generate_docs() -> dict:
                 },
                 "examples": [
                     'jarvis rl "https://object.any.coop/..."',
-                    'jarvis rl ./reading-list.md --tier read_now',
+                    "jarvis rl ./reading-list.md --tier read_now",
                 ],
             },
             "android": {
                 "description": "Run Android emulator and APK workflows",
                 "subcommands": {
                     "run": {
-                        "description": "Install an APK on an Android emulator and optionally launch it",
+                        "description": (
+                            "Install an APK on an Android emulator and optionally launch it"
+                        ),
                         "options": {
                             "APK_PATH": "Path to the .apk file",
                             "--avd": "AVD name to boot if no emulator is running",
@@ -1408,10 +1997,18 @@ def _generate_docs() -> dict:
                 "delegation.md",
                 "decisions.md",
             ],
-            "merge_behavior": "Folder overrides global. Use {{global}} placeholder to include global content.",
+            "merge_behavior": (
+                "Folder overrides global. Use {{global}} placeholder to include global content."
+            ),
         },
         "environment": {
             "ANTHROPIC_API_KEY": "Required for AI features",
+            "FATHOM_API_KEY": "Required for Fathom meeting pull commands",
+            "JARVIS_FATHOM_API_KEY": "Fallback env var for a single Fathom account",
+            "FATHOM_WEBHOOK_SECRET": "Required for verifying a single-account Fathom webhook",
+            "JARVIS_FATHOM_WEBHOOK_SECRET": (
+                "Fallback env var for a single-account Fathom webhook secret"
+            ),
             "EDITOR": "Editor for context/journal editing (default: vim)",
         },
         "requirements": [
@@ -1838,9 +2435,9 @@ def rebalance(space: str | None, dry_run: bool, yes: bool, backend: str | None) 
                 weekdays.append(current)
             current += timedelta(days=1)
 
-        console.print(
-            f"[dim]Target window: {target_start.strftime('%b %d')} - {spillover_end.strftime('%b %d, %Y')}[/dim]"
-        )
+        target_start_label = target_start.strftime("%b %d")
+        spillover_end_label = spillover_end.strftime("%b %d, %Y")
+        console.print(f"[dim]Target window: {target_start_label} - {spillover_end_label}[/dim]")
         console.print(f"[dim]Available weekdays: {len(weekdays)}[/dim]")
 
         if not weekdays:
@@ -2125,10 +2722,9 @@ def calendar_plan(
         console.print(f"[yellow]Unplaced:[/yellow] {len(plan.unplaced)}")
         console.print()
         for block in plan.blocks[:12]:
-            console.print(
-                f"[cyan]{block.start.strftime('%a %b %d %H:%M')}[/cyan] - {block.end.strftime('%H:%M')}"
-                f"  {block.task_title}"
-            )
+            start_label = block.start.strftime("%a %b %d %H:%M")
+            end_label = block.end.strftime("%H:%M")
+            console.print(f"[cyan]{start_label}[/cyan] - {end_label}  {block.task_title}")
         if len(plan.blocks) > 12:
             console.print(f"[dim]... and {len(plan.blocks) - 12} more blocks[/dim]")
         if plan.unplaced:
@@ -2140,9 +2736,7 @@ def calendar_plan(
             return
 
         console.print(
-            "\n[dim]Run jarvis calendar apply --plan {plan_id} to write events.[/dim]".format(
-                plan_id=plan.plan_id
-            )
+            f"\n[dim]Run jarvis calendar apply --plan {plan.plan_id} to write events.[/dim]"
         )
     except AdapterConnectionError as e:
         console.print(f"[red]Connection error: {e}[/red]")
@@ -2222,7 +2816,7 @@ def calendar_apply(plan_id: str | None, assume_yes: bool) -> None:
 
         result = PlanApplyResult(
             plan_id=target,
-            applied_at=datetime.now(timezone.utc),
+            applied_at=datetime.now(UTC),
             results=results,
         )
         path = save_plan_apply(result)

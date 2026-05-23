@@ -32,7 +32,9 @@ def _git_root() -> Path | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return Path(result.stdout.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -83,6 +85,7 @@ def get_target_space(client: AnyTypeClient) -> tuple[str, str]:
                 return space_id, space_name
 
     from jarvis.journal.cli import get_space_selection
+
     return get_space_selection(client)
 
 
@@ -112,9 +115,7 @@ def resolve_content_root() -> Path:
                 candidate = base / configured
                 if candidate.exists():
                     return candidate
-        console.print(
-            f"[red]Configured content root not found: {cfg.content.root_path}[/red]"
-        )
+        console.print(f"[red]Configured content root not found: {cfg.content.root_path}[/red]")
         raise SystemExit(1)
 
     for base in search_bases:
@@ -136,7 +137,11 @@ def content_cli() -> None:
 
 
 @content_cli.command(name="list")
-@click.option("--status", "-s", type=click.Choice(["draft", "review", "approved", "published", "rejected"]))
+@click.option(
+    "--status",
+    "-s",
+    type=click.Choice(["draft", "review", "approved", "published", "rejected"]),
+)
 def list_pieces(status: str | None) -> None:
     """List content pieces with status."""
     from jarvis.content.publisher import ContentPublisher

@@ -1,6 +1,7 @@
 """Configuration loading from YAML files and environment variables."""
 
 import os
+import shlex
 from pathlib import Path
 
 import yaml
@@ -10,7 +11,8 @@ from .defaults import (
     ENV_NOTION_TOKEN,
     ENV_NOTION_TOKEN_FALLBACK,
 )
-from .schema import JarvisConfig, NotionConfig, get_config_path
+from .fathom_setup import default_env_file_path
+from .schema import JarvisConfig, get_config_path
 
 
 class ConfigError(Exception):
@@ -120,6 +122,113 @@ def get_backend_token(backend: str) -> str:
         f"Set {specific_var} or {generic_var} environment variable.",
         backend=backend,
     )
+
+
+def get_fathom_api_key(account: str | None = None) -> str:
+    """Resolve a Fathom API key from named-account config or fallback env vars."""
+
+    cfg = get_config()
+    target_account = account or cfg.fathom.default_account
+
+    if target_account:
+        acct = cfg.fathom.accounts.get(target_account)
+        if acct is None:
+            raise ConfigError(
+                f"Unknown Fathom account: {target_account}. "
+                f"Add it under fathom.accounts in ~/.jarvis/config.yaml",
+                backend="fathom",
+            )
+        token = os.environ.get(acct.api_key_env_var)
+        if not token:
+            token = _load_managed_env_var(acct.api_key_env_var)
+        if token:
+            return token
+        raise ConfigError(
+            f"Fathom API key not found for account '{target_account}'. "
+            f"Set {acct.api_key_env_var} environment variable.",
+            backend="fathom",
+        )
+
+    token = os.environ.get("FATHOM_API_KEY") or os.environ.get("JARVIS_FATHOM_API_KEY")
+    if not token:
+        token = _load_managed_env_var("FATHOM_API_KEY") or _load_managed_env_var(
+            "JARVIS_FATHOM_API_KEY"
+        )
+    if token:
+        return token
+    raise ConfigError(
+        "No Fathom API key found. Set FATHOM_API_KEY, JARVIS_FATHOM_API_KEY, "
+        "or configure fathom.accounts in ~/.jarvis/config.yaml.",
+        backend="fathom",
+    )
+
+
+def get_fathom_webhook_secret(account: str | None = None) -> str:
+    """Resolve a Fathom webhook secret from named-account config or fallback env vars."""
+
+    cfg = get_config()
+    target_account = account or cfg.fathom.default_account
+
+    if target_account:
+        acct = cfg.fathom.accounts.get(target_account)
+        if acct is None:
+            raise ConfigError(
+                f"Unknown Fathom account: {target_account}. "
+                f"Add it under fathom.accounts in ~/.jarvis/config.yaml",
+                backend="fathom",
+            )
+        secret = os.environ.get(acct.webhook_secret_env_var)
+        if not secret:
+            secret = _load_managed_env_var(acct.webhook_secret_env_var)
+        if secret:
+            return secret
+        raise ConfigError(
+            f"Fathom webhook secret not found for account '{target_account}'. "
+            f"Set {acct.webhook_secret_env_var} environment variable.",
+            backend="fathom",
+        )
+
+    secret = os.environ.get("FATHOM_WEBHOOK_SECRET") or os.environ.get(
+        "JARVIS_FATHOM_WEBHOOK_SECRET"
+    )
+    if not secret:
+        secret = _load_managed_env_var("FATHOM_WEBHOOK_SECRET") or _load_managed_env_var(
+            "JARVIS_FATHOM_WEBHOOK_SECRET"
+        )
+    if secret:
+        return secret
+    raise ConfigError(
+        "No Fathom webhook secret found. Set FATHOM_WEBHOOK_SECRET, "
+        "JARVIS_FATHOM_WEBHOOK_SECRET, or configure fathom.accounts in ~/.jarvis/config.yaml.",
+        backend="fathom",
+    )
+
+
+def _load_managed_env_var(name: str) -> str | None:
+    """Read a single exported variable from the managed Fathom env file."""
+
+    if not name:
+        return None
+    env_file = default_env_file_path()
+    if not env_file.exists():
+        return None
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("export "):
+            continue
+        try:
+            tokens = shlex.split(line)
+        except ValueError:
+            continue
+        if len(tokens) < 2:
+            continue
+        assignment = tokens[1]
+        if "=" not in assignment:
+            continue
+        key, value = assignment.split("=", 1)
+        if key == name:
+            return value
+    return None
 
 
 def redact_token(token: str) -> str:

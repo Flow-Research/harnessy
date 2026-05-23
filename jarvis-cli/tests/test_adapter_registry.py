@@ -3,7 +3,6 @@
 import pytest
 
 from jarvis.adapters import AdapterRegistry, get_adapter
-from jarvis.adapters.base import KnowledgeBaseAdapter
 from jarvis.adapters.exceptions import AdapterNotFoundError
 
 

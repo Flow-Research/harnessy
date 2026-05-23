@@ -2,8 +2,6 @@
 
 from datetime import date, timedelta
 
-import pytest
-
 from jarvis.task.date_parser import is_past_date, parse_due_date
 
 

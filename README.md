@@ -13,7 +13,7 @@ Harnessy gives a repository:
 - shared Harnessy skills installed globally in `~/.agents/skills/`
 - optional project-local skills in `.agents/skills/`
 - generated lifecycle scripts for registration, validation, sync, and verification
-- global command shims in the user-local bin directory such as `jarvis`, `flow-qa`, and `flow-deps`
+- global command shims in the user-local bin directory such as `jarvis`, `qa`, and `flow-deps`
 - registration parity across OpenCode, Claude Code, and Codex
 - installation verification harnesses for local and remote-style bootstrap flows
 - Meta-Harness capabilities for feedback capture, skill improvement, promotion, validation, publishing, and bounded autoresearch loops
@@ -29,7 +29,8 @@ Harnessy gives a repository:
 - Optional Autoflow GitHub Actions setup during install
 - Pipeline hooks and helper script installation
 - Explicit dependency management for skill runtimes via `flow-deps`
-- Deterministic QA runtime via `flow-qa`
+- Deterministic QA runtime via `qa`
+- Repo-agnostic QA orchestration through `/qa-sweep`, `/qa-feature-catalog`, and `/qa-security-sweep`
 - Meta-Harness skill auto-improvement workflows across `skill-feedback`, `skill-improve`, `skill-promote`, `skill-validate`, and `skill-publish`
 - Knowledge-management workflows for AnyType object operations, Jarvis Wiki/Obsidian compilation, and multi-backend Jarvis integrations including Notion
 
@@ -212,10 +213,49 @@ node tools/flow-install/index.mjs --yes --target "/path/to/project"
 | Command | Purpose |
 |---|---|
 | `jarvis` | User-facing CLI for planning, journaling, context operations, reading lists, Android tooling, and more |
-| `flow-qa` | Deterministic QA runtime for spec parsing, test scanning, drift detection, and coverage from a repo-local profile |
+| `qa` | Deterministic QA runtime for spec parsing, test scanning, drift detection, and coverage from a repo-local profile |
 | `flow-deps` | Plan, check, and explicitly install runtime dependencies declared in skill manifests |
 
 Harnessy's shared QA contract is documented in `.jarvis/context/docs/standards/qa-process.md`.
+`flow-qa` remains installed as a backward-compatible alias for older projects.
+
+## QA Support
+
+Harnessy QA is repo-agnostic. Target repositories provide their own
+`.harnessy/qa-profile.json`, `.flow/qa-profile.json`, or `qa/qa-profile.json`
+to describe spec paths, app IDs, test roots, output paths, and optional
+repo-local execution or result-sync commands.
+
+### Runtime Commands
+
+| Command | Purpose |
+|---|---|
+| `qa ids` | Parse configured regression specs and emit canonical scenario records |
+| `qa tests` | Scan configured test roots and extract scenario IDs plus QA headers |
+| `qa drift` | Detect spec/test drift, missing headers, missing tests, and orphan test IDs |
+| `qa coverage` | Generate a profile-driven QA coverage report |
+
+### QA Skills
+
+| Skill | Purpose |
+|---|---|
+| `/qa-sweep` | Full-cycle coverage sweep: discover, browser-walk, map scenarios, coordinate codegen, execute/plan, and report |
+| `/qa-feature-catalog` | Maintain semantic feature catalogs, stable prefixes, generated catalogs, overrides, result snapshots, and optional result sinks |
+| `/qa-security-sweep` | Convert adversarial security findings into canonical `Layer: security` regression scenarios |
+| `/spec-to-regression` | Generate browser/API regression scenarios from approved specs |
+| `/browser-integration-codegen` | Generate browser integration suites from canonical regression specs and adapter metadata |
+| `/api-integration-codegen` | Generate API integration suites from canonical regression specs and adapter metadata |
+| `/browser-qa` | Run Playwright-based walkthroughs, auth handoffs, scripted checks, and artifact summaries |
+| `/test-quality-validator` | Validate coverage completeness, correctness, false-green risk, selectors, DB assertions, and drift |
+
+The shared QA process covers scenario IDs, spec fields, feature catalogs,
+run-result snapshots, result sinks, Playwright walkthroughs, DB assertions,
+security scenarios, codegen, validator expectations, and project extension
+points:
+
+```text
+.jarvis/context/docs/standards/qa-process.md
+```
 
 ## Command Examples
 
@@ -236,10 +276,10 @@ flow-deps check --manifest "tools/flow-install/skills/goal-agent/manifest.yaml"
 flow-deps check --skills-root "$HOME/.agents/skills"
 
 # Parse QA specs from a repo-local profile
-flow-qa ids --profile .harnessy/qa-profile.json
+qa ids --profile .harnessy/qa-profile.json
 
 # Run a QA drift check
-flow-qa drift --profile .harnessy/qa-profile.json
+qa drift --profile .harnessy/qa-profile.json
 ```
 
 ## Architecture
@@ -456,7 +496,7 @@ node tools/flow-install/index.mjs --update-context-agents
 uv tool install --force "git+https://github.com/Flow-Research/harnessy.git#subdirectory=jarvis-cli"
 ```
 
-### `flow-qa` or `flow-deps` not found
+### `qa` or `flow-deps` not found
 
 Reinstall shared skills and ensure your user-local bin directory is on `PATH`:
 
@@ -465,6 +505,7 @@ node tools/flow-install/index.mjs --skills --yes
 ```
 
 Harnessy uses `$XDG_BIN_HOME` when set, otherwise `~/.local/bin`.
+`flow-qa` is still available as a compatibility alias for older project scripts.
 
 ### Missing skill runtime dependencies
 

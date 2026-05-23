@@ -18,7 +18,7 @@ argument-hint: "[--suite <NN>] [--qa-profile .harnessy/qa-profile.json] [--profi
 2. Run a deterministic preflight:
 
 ```bash
-flow-qa ids --profile <qa-profile> --json
+qa ids --profile <qa-profile> --json
 ```
 
 3. Load the optional delivery profile when fixture imports, route helpers, or DOM inspection adapters are needed.
@@ -36,6 +36,9 @@ pnpm exec tsx ${AGENTS_SKILLS_ROOT}/browser-integration-codegen/scripts/resolve-
 ```
 
 7. Read the real page or component source for the routes under test.
+   If selectors, redirects, auth state, or responsive behavior are uncertain,
+   run or request a Playwright walkthrough through `/browser-qa` before writing
+   assertions.
 8. Generate suite content with:
 
 ```bash
@@ -47,9 +50,10 @@ pnpm exec tsx ${AGENTS_SKILLS_ROOT}/browser-integration-codegen/scripts/generate
 ## Completion criteria
 
 - generated suite uses QA-profile paths and only delivery-profile-configured imports and fixture mappings
-- selector strategy is source-verified or explicitly marked with TODOs
+- selector strategy is walkthrough-verified, source-verified, or explicitly marked with TODOs
 - destructive/read-only gating matches the regression spec semantics
 - generated scenarios preserve canonical ID references from the regression spec
+- `DB Assert:` expectations are preserved as assertions or explicit environment limitations
 
 ## Decision Trace Protocol
 

@@ -1,0 +1,28 @@
+name: qa-sweep
+type: opencode
+version: 0.2.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Full-cycle QA orchestrator for Harnessy-compatible repositories: discovery, browser walkthroughs, scenario mapping, codegen coordination, execution planning, and coverage reporting."
+permissions: [read-source, read-regression-spec, write-regression-specs, write-test-suites, execute-tests, write-reports]
+data_categories: [source_code, test_metadata, credentials]
+egress: []
+invoke: /qa-sweep
+location: tools/flow-install/skills/qa-sweep
+autoresearch:
+  enabled: true
+  metric_layer: 1
+  time_budget_seconds: 1200
+  evaluation_window: 3
+  constraints:
+    max_regression_rate: 0.1
+    max_human_intervention: 0.5
+traces:
+  enabled: true
+  gates:
+    quality:
+      - discovery_completeness
+      - walkthrough_confidence
+      - scenario_map_coverage
+      - execution_report

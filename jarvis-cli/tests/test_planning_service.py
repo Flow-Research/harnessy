@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from jarvis.models import CalendarBusySlot, Priority, Task, UserContext
 from jarvis.services.planning_service import (
@@ -15,7 +15,7 @@ def make_task(
     tags: list[str] | None = None,
     priority: Priority | None = None,
 ) -> Task:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return Task(
         id=f"task_{title.replace(' ', '_')}",
         space_id="space_1",
@@ -70,8 +70,8 @@ def test_build_calendar_plan_places_blocks() -> None:
     ]
     busy = [
         CalendarBusySlot(
-            start=datetime.combine(start, time(9, 0), tzinfo=timezone.utc),
-            end=datetime.combine(start, time(10, 0), tzinfo=timezone.utc),
+            start=datetime.combine(start, time(9, 0), tzinfo=UTC),
+            end=datetime.combine(start, time(10, 0), tzinfo=UTC),
             source="test",
         )
     ]
@@ -84,7 +84,7 @@ def test_build_calendar_plan_places_blocks() -> None:
         backend="anytype",
         space_id="space_1",
         min_block_minutes=30,
-        now_dt=datetime.combine(start, time(8, 0), tzinfo=timezone.utc),
+        now_dt=datetime.combine(start, time(8, 0), tzinfo=UTC),
     )
 
     assert plan.plan_id.startswith("plan_")
@@ -98,8 +98,8 @@ def test_build_calendar_plan_marks_unplaced_when_fully_busy() -> None:
     tasks = [make_task("Implement architecture")]
     busy = [
         CalendarBusySlot(
-            start=datetime.combine(start, time(9, 0), tzinfo=timezone.utc),
-            end=datetime.combine(start, time(17, 0), tzinfo=timezone.utc),
+            start=datetime.combine(start, time(9, 0), tzinfo=UTC),
+            end=datetime.combine(start, time(17, 0), tzinfo=UTC),
             source="test",
         )
     ]
@@ -120,7 +120,7 @@ def test_build_calendar_plan_marks_unplaced_when_fully_busy() -> None:
 
 def test_build_calendar_plan_never_schedules_in_past_today() -> None:
     today = date(2026, 3, 2)
-    now_local = datetime(2026, 3, 2, 15, 30, tzinfo=timezone.utc)
+    now_local = datetime(2026, 3, 2, 15, 30, tzinfo=UTC)
     tasks = [make_task("Review docs")]
 
     plan = build_calendar_plan(
@@ -142,7 +142,7 @@ def test_build_calendar_plan_never_schedules_in_past_today() -> None:
 
 def test_build_calendar_plan_prioritizes_high_priority_task() -> None:
     start = date(2026, 3, 2)
-    now_local = datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc)
+    now_local = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
     tasks = [
         make_task("Low priority admin", priority=Priority.LOW),
         make_task("High priority architecture", priority=Priority.HIGH),

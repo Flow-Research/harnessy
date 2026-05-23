@@ -269,6 +269,66 @@ updated: 2026-03-16
 ---
 
 ---
+name: qa-sweep
+type: opencode
+version: 0.2.0
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Full-cycle QA orchestrator for Harnessy-compatible repositories: discovery, browser walkthroughs, scenario mapping, codegen coordination, execution planning, and coverage reporting."
+location: tools/flow-install/skills/qa-sweep
+invoke: "/qa-sweep"
+permissions: [read-source, read-regression-spec, write-regression-specs, write-test-suites, execute-tests, write-reports]
+data_categories: [source_code, test_metadata, credentials]
+egress: []
+phase: P5
+tags: [qa, testing, orchestration]
+depends_on: [qa-runtime, browser-qa, browser-integration-codegen, api-integration-codegen, test-quality-validator]
+created: 2026-05-15
+updated: 2026-05-15
+---
+
+---
+name: qa-feature-catalog
+type: opencode
+version: 0.2.0
+status: experimental
+owner: julian
+blast_radius: low
+description: "Semantic QA feature catalog maintenance for Harnessy-compatible repositories: prefixes, slugs, generated catalogs, overrides, run-result snapshots, and optional result sinks."
+location: tools/flow-install/skills/qa-feature-catalog
+invoke: "/qa-feature-catalog"
+permissions: [read-regression-spec, read-test-files, write-qa-metadata]
+data_categories: [source_code, test_metadata]
+egress: []
+phase: P5
+tags: [qa, testing, catalog]
+depends_on: [qa-runtime]
+created: 2026-05-15
+updated: 2026-05-15
+---
+
+---
+name: qa-security-sweep
+type: opencode
+version: 0.2.0
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Adversarial security QA audit that proposes canonical Layer:security regression scenarios and archives threat-model findings for Harnessy-compatible repositories."
+location: tools/flow-install/skills/qa-security-sweep
+invoke: "/qa-security-sweep"
+permissions: [read-source, read-regression-spec, write-regression-specs, write-reports]
+data_categories: [source_code, api_schemas, auth_flows]
+egress: []
+phase: P5
+tags: [qa, testing, security]
+depends_on: [qa-runtime, security-audit, test-quality-validator]
+created: 2026-05-15
+updated: 2026-05-15
+---
+
+---
 name: build-e2e
 type: opencode
 version: 0.2.2
@@ -426,7 +486,7 @@ phase: P5
 tags: [qa, browser, playwright]
 depends_on: [qa]
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-05-15
 ---
 
 ---
@@ -446,7 +506,7 @@ phase: P5
 tags: [ci, github, logs]
 depends_on: []
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-05-15
 ---
 
 ---
@@ -632,7 +692,7 @@ updated: 2026-03-23
 ---
 name: browser-integration-codegen
 type: opencode
-version: 0.2.1
+version: 0.2.2
 status: experimental
 owner: julian
 blast_radius: medium
@@ -646,13 +706,13 @@ phase: P4
 tags: [testing, codegen, browser]
 depends_on: [spec-to-regression, browser-qa]
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-05-15
 ---
 
 ---
 name: test-quality-validator
 type: opencode
-version: 0.2.1
+version: 0.2.3
 status: experimental
 owner: julian
 blast_radius: low
@@ -666,17 +726,17 @@ phase: P5
 tags: [testing, validation, qa]
 depends_on: [spec-to-regression, api-integration-codegen, browser-integration-codegen]
 created: 2026-03-23
-updated: 2026-03-23
+updated: 2026-05-15
 ---
 ---
 name: qa-runtime
 type: opencode
-version: 0.1.0
+version: 0.3.0
 install_scope: global
 status: experimental
 owner: julian
 blast_radius: medium
-description: "Deterministic QA runtime for profile-driven spec parsing, test scanning, drift detection, and coverage generation."
+description: "Deterministic qa CLI for profile-driven spec parsing, test scanning, drift detection, and coverage generation."
 location: tools/flow-install/skills/qa-runtime
 invoke: "/qa-runtime"
 permissions: [read, write, execute]
@@ -686,7 +746,7 @@ phase: P2
 tags: [qa, testing, runtime]
 depends_on: [qa]
 created: 2026-05-14
-updated: 2026-05-14
+updated: 2026-05-15
 ---
 
 ---

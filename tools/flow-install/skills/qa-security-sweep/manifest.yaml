@@ -1,0 +1,27 @@
+name: qa-security-sweep
+type: opencode
+version: 0.2.0
+owner: julian
+status: experimental
+blast_radius: medium
+description: "Adversarial security QA audit that proposes canonical Layer:security regression scenarios and archives threat-model findings for Harnessy-compatible repositories."
+permissions: [read-source, read-regression-spec, write-regression-specs, write-reports]
+data_categories: [source_code, api_schemas, auth_flows]
+egress: []
+invoke: /qa-security-sweep
+location: tools/flow-install/skills/qa-security-sweep
+autoresearch:
+  enabled: true
+  metric_layer: 1
+  time_budget_seconds: 1200
+  evaluation_window: 3
+  constraints:
+    max_regression_rate: 0.1
+    max_human_intervention: 0.5
+traces:
+  enabled: true
+  gates:
+    quality:
+      - threat_model_completeness
+      - regression_scenario_quality
+      - no_secret_leakage

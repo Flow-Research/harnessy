@@ -1,6 +1,6 @@
 name: test-quality-validator
 type: opencode
-version: 0.2.2
+version: 0.2.3
 owner: julian
 status: experimental
 blast_radius: low

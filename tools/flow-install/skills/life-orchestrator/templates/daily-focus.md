@@ -4,25 +4,25 @@
 
 ---
 
-## What Moved Yesterday
+## What Changed
 
 {{what_moved_yesterday}}
 
 ---
 
-## What Needs You Today
+## Decisions For You
 
 {{what_needs_you_today}}
 
 ---
 
-## Strategic Picture
+## How I Read It
 
 {{strategic_picture}}
 
 ---
 
-## Background Work (Agents)
+## In The Background
 
 {{background_agents}}
 

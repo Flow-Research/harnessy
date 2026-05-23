@@ -762,7 +762,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     print_json({"ok": True, "action": "status", **state})
 
 
-GOALS_ROOT = Path.home() / ".agents" / "goals"
+GOALS_ROOT = (Path.home() / ".agents" / "goals").resolve()
 
 
 def cmd_list(args: argparse.Namespace) -> None:

@@ -7,7 +7,8 @@ due to transient issues like rate limits or temporary connectivity problems.
 import functools
 import logging
 import time
-from typing import Callable, ParamSpec, TypeVar
+from collections.abc import Callable
+from typing import ParamSpec, TypeVar
 
 from .exceptions import AuthError, ConnectionError, RateLimitError
 

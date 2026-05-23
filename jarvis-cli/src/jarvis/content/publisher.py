@@ -52,16 +52,21 @@ class ContentPublisher:
         fm, _ = parse_frontmatter(index_path)
 
         if fm.get("anytype_id"):
-            console.print(f"[yellow]Already pushed: {piece_dir.name} (id: {fm['anytype_id']})[/yellow]")
+            console.print(
+                f"[yellow]Already pushed: {piece_dir.name} (id: {fm['anytype_id']})[/yellow]"
+            )
             return fm["anytype_id"]
 
         console.print(f"[blue]Pushing: {piece_dir.name}[/blue]")
         anytype_id = self.hierarchy.push_piece(piece_dir)
 
-        update_frontmatter(index_path, {
-            "status": "approved",
-            "anytype_id": anytype_id,
-        })
+        update_frontmatter(
+            index_path,
+            {
+                "status": "approved",
+                "anytype_id": anytype_id,
+            },
+        )
 
         console.print(f"[green]Approved and pushed: {piece_dir.name} → {anytype_id}[/green]")
         return anytype_id
@@ -127,17 +132,19 @@ class ContentPublisher:
             index_path = piece_dir / "index.md"
             fm, _ = parse_frontmatter(index_path)
             platform_files = [f.stem for f in piece_dir.glob("*.md") if f.name != "index.md"]
-            pieces.append({
-                "path": piece_dir,
-                "name": piece_dir.name,
-                "title": fm.get("title", "Untitled"),
-                "status": fm.get("status", "unknown"),
-                "platform": fm.get("platform", ""),
-                "audience": fm.get("audience", ""),
-                "scheduled": fm.get("scheduled", ""),
-                "anytype_id": fm.get("anytype_id"),
-                "platforms": platform_files,
-            })
+            pieces.append(
+                {
+                    "path": piece_dir,
+                    "name": piece_dir.name,
+                    "title": fm.get("title", "Untitled"),
+                    "status": fm.get("status", "unknown"),
+                    "platform": fm.get("platform", ""),
+                    "audience": fm.get("audience", ""),
+                    "scheduled": fm.get("scheduled", ""),
+                    "anytype_id": fm.get("anytype_id"),
+                    "platforms": platform_files,
+                }
+            )
 
         return pieces
 
