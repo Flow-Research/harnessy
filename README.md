@@ -2,7 +2,7 @@
 
 Harnessy is a reusable agent harness for software projects.
 
-It installs a shared AI operating layer into a repo so supported coding agents can discover the same skills, context, commands, and verification surfaces.
+It installs a shared AI operating layer into a runtime, so supported agents can discover the same skills, context, commands, and verification surfaces.
 
 ## Overview
 
