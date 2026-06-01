@@ -360,7 +360,7 @@ def command_gates(args: argparse.Namespace) -> int:
         status = "PASSED" if result["all_passed"] else "FAILED"
         print(f"=== Hard Constraint Gates: {status} ===")
         for name, gate in result["gates"].items():
-            icon = "✓" if gate["passed"] else "✗"
+            icon = "\u2713" if gate["passed"] else "\u2717"
             print(f"  {icon} {name}: {gate['value']:.2f} (threshold: {gate['threshold']})")
 
     return 0
@@ -485,7 +485,7 @@ def command_evaluate(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        arrow = "↑" if delta > 0 else "↓" if delta < 0 else "="
+        arrow = "\u2191" if delta > 0 else "\u2193" if delta < 0 else "="
         print(f"=== {skill} Ratchet Evaluation ===")
         print(f"  Baseline:  {baseline_score:.4f}")
         print(f"  Candidate: {candidate_score:.4f}")
@@ -500,10 +500,10 @@ def command_decide(args: argparse.Namespace) -> int:
     """Make binary keep/revert decision.
 
     Decision logic:
-      1. If any hard constraint gate fails → REVERT
-      2. If ΔS > ε → KEEP
-      3. If ΔS < -ε → REVERT
-      4. If |ΔS| ≤ ε → KEEP (no regression, within noise)
+      1. If any hard constraint gate fails \u2192 REVERT
+      2. If \u0394S > \u03b5 \u2192 KEEP
+      3. If \u0394S < -\u03b5 \u2192 REVERT
+      4. If |\u0394S| \u2264 \u03b5 \u2192 KEEP (no regression, within noise)
     """
     skill = args.skill
 
@@ -570,7 +570,7 @@ def command_decide(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        icon = "✓ KEEP" if decision == "keep" else "✗ REVERT"
+        icon = "\u2713 KEEP" if decision == "keep" else "\u2717 REVERT"
         print(f"=== {skill} Ratchet Decision: {icon} ===")
         print(f"  Reason: {reason}")
         print(f"  Baseline:  {state.get('baseline_score', '?')}")
@@ -617,40 +617,252 @@ def command_status(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Autoresearch ratchet: multiplicative composite metric with hard constraint gates"
+        prog="ratchet.py",
+        description=(
+            "Autoresearch ratchet \u2014 multiplicative composite metric with hard constraint gates.\n\n"
+            "Implements the ratchet mechanics for Autoflow's autoresearch loop:\n"
+            "snapshot skill state, evaluate improvement impact, and make binary\n"
+            "keep/revert decisions.\n\n"
+            "Metric layers:\n"
+            "  Layer 1: S = f^0.35 \u00b7 p^0.25 \u00b7 q^0.25 \u00b7 (1-r)^0.15\n"
+            "  Layer 2: S = f^0.35 \u00b7 p^0.20 \u00b7 q^0.20 \u00b7 (1-r)^0.10 \u00b7 (1-h)^0.10 \u00b7 (1-c)^0.05\n\n"
+            "Hard constraint gates (vetoes):\n"
+            "  - Catastrophic failure rate must be 0\n"
+            "  - Regression rate must be \u2264 configured max\n"
+            "  - Human intervention rate must be \u2264 configured max"
+        ),
+        epilog=(
+            "Typical ratchet cycle:\n"
+            "  1. python3 ratchet.py snapshot --skill issue-flow\n"
+            "  2. (run evaluation window)\n"
+            "  3. python3 ratchet.py evaluate --skill issue-flow --window 3\n"
+            "  4. python3 ratchet.py decide   --skill issue-flow\n\n"
+            "Use 'python3 ratchet.py <subcommand> --help' for per-command details."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar="<subcommand>",
+    )
 
-    # score
-    sc = subparsers.add_parser("score", help="Compute composite score")
-    sc.add_argument("--skill", required=True)
-    sc.add_argument("--layer", type=int, default=1, choices=[1, 2])
-    sc.add_argument("--json", action="store_true")
+    # ------------------------------------------------------------------ score
+    sc = subparsers.add_parser(
+        "score",
+        help="Compute the composite ratchet score for a skill",
+        description=(
+            "Compute the multiplicative composite score for a skill using run records\n"
+            "and execution traces. Scores range from 0.0 (worst) to 1.0 (perfect).\n\n"
+            "Variables used:\n"
+            "  f  final success rate\n"
+            "  p  first-pass success rate (from traces)\n"
+            "  q  output quality (tests_passed / tests_total)\n"
+            "  r  normalized refinement burden (avg loops / max_loops)\n"
+            "  h  human intervention rate  [Layer 2 only]\n"
+            "  c  normalized cost          [Layer 2 only]"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  # Layer-1 score, human-readable output\n"
+            "  python3 ratchet.py score --skill issue-flow\n\n"
+            "  # Layer-2 score (includes h and c variables)\n"
+            "  python3 ratchet.py score --skill issue-flow --layer 2\n\n"
+            "  # Emit JSON for downstream scripts\n"
+            "  python3 ratchet.py score --skill issue-flow --layer 2 --json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sc.add_argument(
+        "--skill",
+        required=True,
+        metavar="NAME",
+        help="Name of the skill to score (e.g. 'issue-flow').",
+    )
+    sc.add_argument(
+        "--layer",
+        type=int,
+        default=1,
+        choices=[1, 2],
+        help=(
+            "Metric layer to use (default: 1). "
+            "Layer 1 uses f/p/q/r. Layer 2 adds human-intervention (h) and cost (c)."
+        ),
+    )
+    sc.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result as JSON instead of human-readable text.",
+    )
 
-    # gates
-    gt = subparsers.add_parser("gates", help="Check hard constraint gates")
-    gt.add_argument("--skill", required=True)
-    gt.add_argument("--json", action="store_true")
+    # ------------------------------------------------------------------ gates
+    gt = subparsers.add_parser(
+        "gates",
+        help="Check hard constraint gates (vetoes) for a skill",
+        description=(
+            "Evaluate the three hard constraint gates that act as vetoes regardless\n"
+            "of the composite score:\n"
+            "  catastrophic_failure  rate must equal 0.0\n"
+            "  regression            rate must be \u2264 max_regression_rate (default 0.10)\n"
+            "  human_intervention    rate must be \u2264 max_human_intervention (default 0.50)\n\n"
+            "If any gate fails the candidate change should be reverted."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  # Human-readable gate check\n"
+            "  python3 ratchet.py gates --skill issue-flow\n\n"
+            "  # JSON output (useful in CI)\n"
+            "  python3 ratchet.py gates --skill issue-flow --json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    gt.add_argument(
+        "--skill",
+        required=True,
+        metavar="NAME",
+        help="Name of the skill whose gate compliance to check.",
+    )
+    gt.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result as JSON.",
+    )
 
-    # snapshot
-    sn = subparsers.add_parser("snapshot", help="Snapshot skill state before improvement")
-    sn.add_argument("--skill", required=True)
+    # --------------------------------------------------------------- snapshot
+    sn = subparsers.add_parser(
+        "snapshot",
+        help="Snapshot current skill state before an improvement attempt",
+        description=(
+            "Record the current skill state as the ratchet baseline.\n\n"
+            "Creates a git tag at 'ratchet/<skill>/<timestamp>' and writes the\n"
+            "baseline score to the ratchet state file. Always run this before\n"
+            "making changes to a skill so the 'decide' command has a valid\n"
+            "baseline to compare against.\n\n"
+            "Output is always JSON: {\"ok\": true, \"tag\": \"ratchet/...\", \"baseline_score\": ...}"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  # Snapshot before editing the issue-flow skill\n"
+            "  python3 ratchet.py snapshot --skill issue-flow\n\n"
+            "  # Snapshot a custom skill\n"
+            "  python3 ratchet.py snapshot --skill code-review"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sn.add_argument(
+        "--skill",
+        required=True,
+        metavar="NAME",
+        help=(
+            "Name of the skill to snapshot. The skill directory must exist under "
+            "$AGENTS_SKILLS_ROOT (default: ~/.agents/skills/<name>)."
+        ),
+    )
 
-    # evaluate
-    ev = subparsers.add_parser("evaluate", help="Evaluate improvement impact")
-    ev.add_argument("--skill", required=True)
-    ev.add_argument("--window", type=int, required=True, help="Number of post-improvement runs to evaluate")
-    ev.add_argument("--json", action="store_true")
+    # --------------------------------------------------------------- evaluate
+    ev = subparsers.add_parser(
+        "evaluate",
+        help="Evaluate the impact of a skill improvement over a run window",
+        description=(
+            "Compare the candidate (post-improvement) score against the baseline\n"
+            "captured by the last 'snapshot' command.\n\n"
+            "Reads the most recent N runs (--window) that occurred after the snapshot\n"
+            "and computes the candidate composite score and hard gate status. If fewer\n"
+            "than --window runs have completed, outputs status=\"waiting\" and exits 0."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  # Evaluate using a 3-run window, human-readable\n"
+            "  python3 ratchet.py evaluate --skill issue-flow --window 3\n\n"
+            "  # Evaluate and emit JSON for downstream scripts\n"
+            "  python3 ratchet.py evaluate --skill issue-flow --window 5 --json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ev.add_argument(
+        "--skill",
+        required=True,
+        metavar="NAME",
+        help="Name of the skill to evaluate.",
+    )
+    ev.add_argument(
+        "--window",
+        type=int,
+        required=True,
+        metavar="N",
+        help=(
+            "Number of post-snapshot runs to include in the evaluation window. "
+            "Recommended: match 'evaluation_window' from the skill's program.md config (default: 3)."
+        ),
+    )
+    ev.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result as JSON.",
+    )
 
-    # decide
-    dc = subparsers.add_parser("decide", help="Make keep/revert decision")
-    dc.add_argument("--skill", required=True)
-    dc.add_argument("--json", action="store_true")
+    # ----------------------------------------------------------------- decide
+    dc = subparsers.add_parser(
+        "decide",
+        help="Make the binary keep/revert decision after evaluation",
+        description=(
+            "Apply the ratchet decision rules to the evaluated candidate:\n\n"
+            "  1. Any hard constraint gate fails  \u2192 REVERT\n"
+            "  2. \u0394S > \u03b5                          \u2192 KEEP   (clear improvement)\n"
+            "  3. \u0394S < -\u03b5                         \u2192 REVERT (clear regression)\n"
+            "  4. |\u0394S| \u2264 \u03b5                        \u2192 KEEP   (within noise band)\n\n"
+            "When the decision is REVERT the skill directory is restored to the\n"
+            "git tag recorded during 'snapshot'. Requires 'snapshot' and 'evaluate'\n"
+            "to have been run first in this cycle."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  # Make the keep/revert call for issue-flow\n"
+            "  python3 ratchet.py decide --skill issue-flow\n\n"
+            "  # Output as JSON (useful in CI to gate merges)\n"
+            "  python3 ratchet.py decide --skill issue-flow --json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    dc.add_argument(
+        "--skill",
+        required=True,
+        metavar="NAME",
+        help="Name of the skill to decide on.",
+    )
+    dc.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result as JSON.",
+    )
 
-    # status
-    st = subparsers.add_parser("status", help="Show ratchet state")
-    st.add_argument("--skill", required=True)
-    st.add_argument("--json", action="store_true")
+    # ----------------------------------------------------------------- status
+    st = subparsers.add_parser(
+        "status",
+        help="Show the current ratchet cycle state for a skill",
+        description=(
+            "Display the persisted ratchet state for a skill: which snapshot tag\n"
+            "is active, the baseline and candidate scores, the delta, and the\n"
+            "final decision (if taken). Useful for inspecting a cycle mid-flight."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  python3 ratchet.py status --skill issue-flow\n"
+            "  python3 ratchet.py status --skill issue-flow --json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    st.add_argument(
+        "--skill",
+        required=True,
+        metavar="NAME",
+        help="Name of the skill whose ratchet status to display.",
+    )
+    st.add_argument(
+        "--json",
+        action="store_true",
+        help="Output result as JSON.",
+    )
 
     return parser.parse_args()
 
