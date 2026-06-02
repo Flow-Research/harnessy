@@ -2,7 +2,7 @@
 
 Harnessy is Flow's agent capability harness for software projects and agent runtimes.
 
-It packages context, skills, commands, QA surfaces, dependency contracts, runtime adapters, and project protocols so supported agents can do real work safely and consistently.
+It installs a shared AI operating layer into repos and runtimes, packaging context, skills, commands, QA surfaces, dependency contracts, runtime adapters, and project protocols so supported agents can do real work safely and consistently.
 
 Repo installation is the default mode, but not the whole identity. Harnessy also provides the capability, profile, adapter, and verification layer that Jarvis, Garden, Workstream, and compatible agent hosts can reuse.
 
