@@ -248,6 +248,11 @@ from jarvis.content.cli import content_cli  # noqa: E402
 
 cli.add_command(content_cli, name="content")
 
+# Register text hygiene commands
+from jarvis.text_hygiene import text_hygiene_cli  # noqa: E402
+
+cli.add_command(text_hygiene_cli, name="text-hygiene")
+
 # Register wiki knowledge domain commands
 from jarvis.wiki.cli import wiki_cli  # noqa: E402
 
@@ -258,6 +263,11 @@ cli.add_command(wiki_cli, name="w")
 from jarvis.meetings.cli import meeting_cli  # noqa: E402
 
 cli.add_command(meeting_cli, name="meeting")
+
+# Register WhatsApp channel commands
+from jarvis.whatsapp.cli import whatsapp_cli  # noqa: E402
+
+cli.add_command(whatsapp_cli, name="whatsapp")
 
 # Sync command group — local folder/file → Anytype Space sync, with presets.
 from jarvis.sync.cli import sync_group  # noqa: E402
@@ -1744,6 +1754,163 @@ def _generate_docs() -> dict:
                     },
                 },
             },
+            "whatsapp": {
+                "description": (
+                    "Capture WhatsApp Cloud API webhooks, manage local-first "
+                    "threads, and send replies/templates"
+                ),
+                "subcommands": {
+                    "setup": {
+                        "description": (
+                            "Show Meta WhatsApp Cloud API config and setup checklist"
+                        ),
+                        "options": {
+                            "--account": "Named WhatsApp account to show setup for",
+                            "--json": "Emit setup guidance as JSON",
+                        },
+                        "examples": [
+                            "jarvis whatsapp setup --account personal",
+                            "jarvis whatsapp setup --account personal --json",
+                        ],
+                    },
+                    "webhook serve": {
+                        "description": (
+                            "Run a local Meta webhook receiver and archive payloads "
+                            "into the WhatsApp inbox"
+                        ),
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--port": "Local port to bind",
+                            "--verify-signatures / --no-verify-signatures": (
+                                "Verify X-Hub-Signature-256 before accepting payloads"
+                            ),
+                            "--auto-ingest / --no-auto-ingest": (
+                                "Automatically ingest verified payloads"
+                            ),
+                            "--dest": (
+                                "Destination for auto-ingest: team-inbox, "
+                                "private-context, journal, memory"
+                            ),
+                            "--backend": (
+                                "Backend override when auto-ingesting to journal"
+                            ),
+                        },
+                        "examples": [
+                            "jarvis whatsapp webhook serve --account personal --port 8787",
+                            (
+                                "jarvis whatsapp webhook serve --account personal "
+                                "--auto-ingest --dest team-inbox --dest memory"
+                            ),
+                        ],
+                    },
+                    "webhook status": {
+                        "description": "Show local WhatsApp webhook config and inbox health",
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--json": "Emit status as JSON",
+                        },
+                        "examples": [
+                            "jarvis whatsapp webhook status --account personal --json"
+                        ],
+                    },
+                    "webhook ingest-inbox": {
+                        "description": (
+                            "Ingest archived webhook payloads from the local "
+                            "WhatsApp inbox"
+                        ),
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--dest": (
+                                "Destination(s): team-inbox, private-context, "
+                                "journal, memory"
+                            ),
+                            "--backend": "Backend override for the journal destination",
+                            "--limit": "Maximum inbox items to ingest",
+                            "--keep": "Keep inbox files in pending after ingestion",
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            "jarvis whatsapp webhook ingest-inbox --account personal",
+                            (
+                                "jarvis whatsapp webhook ingest-inbox --account personal "
+                                "--dest journal --dest memory --json"
+                            ),
+                        ],
+                    },
+                    "send": {
+                        "description": (
+                            "Send a free-form WhatsApp text reply through Meta Cloud API"
+                        ),
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--to": "Recipient phone number in E.164 form",
+                            "--text": "Message text",
+                            "--preview-url / --no-preview-url": "Enable link previews",
+                            "--window-check / --no-window-check": (
+                                "Require a local inbound message inside the "
+                                "customer-service window"
+                            ),
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            (
+                                "jarvis whatsapp send --account personal "
+                                "--to +234... --text 'Got it'"
+                            )
+                        ],
+                    },
+                    "send-template": {
+                        "description": "Send an approved WhatsApp template",
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--to": "Recipient phone number in E.164 form",
+                            "--template": "Approved WhatsApp template name",
+                            "--language": "Template language code",
+                            "--components-json": (
+                                "Optional JSON array of template components"
+                            ),
+                            "--json": "Emit the result as JSON",
+                        },
+                        "examples": [
+                            (
+                                "jarvis whatsapp send-template --account personal "
+                                "--to +234... --template daily_brief"
+                            )
+                        ],
+                    },
+                    "threads list": {
+                        "description": "List local WhatsApp conversation threads",
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--status": "Filter by new, triaged, waiting, or done",
+                            "--limit": "Maximum threads to show",
+                            "--json": "Emit threads as JSON",
+                        },
+                        "examples": ["jarvis whatsapp threads list --account personal"],
+                    },
+                    "threads read": {
+                        "description": "Read one local WhatsApp conversation thread",
+                        "options": {
+                            "THREAD_ID": "Thread ID from `jarvis whatsapp threads list`",
+                            "--account": "Named WhatsApp account from config",
+                            "--json": "Emit thread as JSON",
+                        },
+                        "examples": ["jarvis whatsapp threads read wa-123"],
+                    },
+                    "threads set-status": {
+                        "description": "Update the review status for one thread",
+                        "options": {
+                            "THREAD_ID": "Thread ID from `jarvis whatsapp threads list`",
+                            "--account": "Named WhatsApp account from config",
+                            "--status": "new, triaged, waiting, or done",
+                            "--json": "Emit updated thread as JSON",
+                        },
+                        "examples": [
+                            "jarvis whatsapp threads set-status wa-123 --status done"
+                        ],
+                    },
+                },
+            },
             "task": {
                 "description": "Manage tasks in AnyType",
                 "subcommands": {
@@ -1778,6 +1945,157 @@ def _generate_docs() -> dict:
                     'jarvis t "Quick note" --due tomorrow',
                     'jarvis t "Urgent task" -p high -t urgent',
                 ],
+            },
+            "content": {
+                "description": "Manage the content publishing pipeline",
+                "subcommands": {
+                    "package": {
+                        "description": "Build a journal-ready package file for a content piece",
+                        "options": {
+                            "PATH": "Content piece folder or index.md path",
+                            "--output": "Output filename inside the content piece folder",
+                        },
+                        "examples": [
+                            "jarvis content package drafts/2026/Jun/01-harnessy",
+                            (
+                                "jarvis content package drafts/2026/Jun/01-harnessy "
+                                "--output journal.md"
+                            ),
+                        ],
+                    },
+                    "verify": {
+                        "description": "Verify required files and canonical wording before publish",
+                        "options": {
+                            "PATH": "Content piece folder or index.md path",
+                            "--require-file": "File that must exist; repeatable",
+                            "--require": "Text that must appear somewhere; repeatable",
+                            "--forbid": "Text that must not appear anywhere; repeatable",
+                            "--hygiene / --no-hygiene": (
+                                "Check configured AI-speak patterns during verification"
+                            ),
+                            "--hygiene-config": "Text hygiene pattern registry YAML",
+                        },
+                        "examples": [
+                            (
+                                "jarvis content verify drafts/2026/Jun/01-harnessy "
+                                "--require 'agent capability harness' "
+                                "--forbid 'software project harness'"
+                            )
+                        ],
+                    },
+                    "audit-anytype": {
+                        "description": (
+                            "Audit a synced Anytype content Collection for duplicate links"
+                        ),
+                        "options": {
+                            "PATH": "Content piece folder or index.md path",
+                            "--sync-preset": "Sync preset/state name to audit",
+                            "--sync-source": "Sync source root for ad-hoc sync state",
+                            "--sync-destination": "Anytype destination object_id:space_id",
+                        },
+                        "examples": [
+                            (
+                                "jarvis content audit-anytype drafts/2026/Jun/01-harnessy "
+                                "--sync-source .jarvis/context/private/julian/flow-content/drafts "
+                                "--sync-destination root_obj:space_1"
+                            )
+                        ],
+                    },
+                    "publish-draft": {
+                        "description": (
+                            "Package, verify, optionally journal, sync, and dedupe a draft"
+                        ),
+                        "options": {
+                            "PATH": "Content piece folder or index.md path",
+                            "--journal": "Write journal.md to Anytype Journal",
+                            "--no-journal": "Skip Journal write",
+                            "--space": "Journal space name or ID; repeatable",
+                            "--sync": "Run Anytype content sync",
+                            "--no-sync": "Skip Anytype content sync",
+                            "--dedupe": "Remove duplicate Collection links after sync",
+                            "--no-dedupe": "Skip duplicate Collection-link cleanup",
+                            "--sync-preset": "Sync preset/state name to use",
+                            "--sync-source": "Sync source root for ad-hoc sync state",
+                            "--sync-destination": "Anytype destination object_id:space_id",
+                            "--require": "Text that must appear before publish; repeatable",
+                            "--forbid": "Text that must not appear before publish; repeatable",
+                            "--hygiene / --no-hygiene": (
+                                "Clean configured AI-speak patterns before publishing"
+                            ),
+                            "--hygiene-config": "Text hygiene pattern registry YAML",
+                        },
+                        "examples": [
+                            (
+                                "jarvis content publish-draft drafts/2026/Jun/01-harnessy "
+                                "--require 'agent capability harness' "
+                                "--forbid 'software project harness'"
+                            )
+                        ],
+                    },
+                    "list": {
+                        "description": "List content pieces with status",
+                        "options": {
+                            "--status": "Filter by draft/review/approved/published/rejected"
+                        },
+                        "examples": ["jarvis content list --status draft"],
+                    },
+                    "approve": {
+                        "description": "Approve content and push to Anytype",
+                        "options": {
+                            "PATH": "Content piece folder",
+                            "--all": "Approve all pieces in review status",
+                        },
+                        "examples": ["jarvis content approve drafts/2026/Jun/01-harnessy"],
+                    },
+                    "push": {
+                        "description": "Push all approved content pieces to Anytype",
+                        "options": {"--force": "Re-push even if already pushed"},
+                        "examples": ["jarvis content push --force"],
+                    },
+                    "status": {
+                        "description": "Show content pipeline status summary",
+                        "examples": ["jarvis content status"],
+                    },
+                    "strategy": {
+                        "description": "Push the content strategy document to Anytype",
+                        "examples": ["jarvis content strategy"],
+                    },
+                },
+            },
+            "text-hygiene": {
+                "description": "Check and clean AI-speak patterns from generated text",
+                "subcommands": {
+                    "check": {
+                        "description": "Report configured AI-speak patterns without changing files",
+                        "options": {
+                            "PATHS": "Markdown/text files or directories to scan",
+                            "--config": "Pattern registry YAML to load after built-in defaults",
+                            "--json": "Emit the report as JSON",
+                        },
+                        "examples": [
+                            "jarvis text-hygiene check README.md docs/",
+                            (
+                                "jarvis text-hygiene check product_spec.md "
+                                "--config .jarvis/context/private/julian/style/"
+                                "ai-speak-patterns.yaml"
+                            ),
+                        ],
+                    },
+                    "clean": {
+                        "description": "Remove configured AI-speak patterns from files in place",
+                        "options": {
+                            "PATHS": "Markdown/text files or directories to clean",
+                            "--config": "Pattern registry YAML to load after built-in defaults",
+                            "--report": "Print a cleanup report",
+                            "--no-report": "Suppress the cleanup report",
+                            "--json": "Emit the report as JSON",
+                        },
+                        "examples": [
+                            "jarvis text-hygiene clean README.md --report",
+                            "jarvis text-hygiene clean product_spec.md technical_spec.md",
+                        ],
+                    },
+                },
             },
             "sync": {
                 "description": (
@@ -1842,6 +2160,29 @@ def _generate_docs() -> dict:
                                 "root_obj:space_1 --unsupported-mode stub --yes"
                             ),
                             "jarvis sync run --preset flow-context --prune --yes",
+                        ],
+                    },
+                    "dedupe": {
+                        "description": (
+                            "Remove duplicate Anytype Collection links by keeping "
+                            "the object IDs recorded in sync state"
+                        ),
+                        "options": {
+                            "--preset": "Use a saved sync preset/state",
+                            "--source": "Source path for ad-hoc sync state lookup",
+                            "--destination": (
+                                "Anytype target Collection link for ad-hoc state lookup"
+                            ),
+                            "--path": "Limit cleanup to one synced Collection relpath",
+                            "--dry-run": "Show stale links without removing them",
+                            "--yes": "Skip confirmation prompts for removals",
+                        },
+                        "examples": [
+                            "jarvis sync dedupe --preset flow-content --dry-run",
+                            (
+                                "jarvis sync dedupe --source ./drafts --destination "
+                                "root_obj:space_1 --path 2026/Jun/01-harnessy --yes"
+                            ),
                         ],
                     },
                     "preset add": {
@@ -2011,6 +2352,18 @@ def _generate_docs() -> dict:
             "FATHOM_WEBHOOK_SECRET": "Required for verifying a single-account Fathom webhook",
             "JARVIS_FATHOM_WEBHOOK_SECRET": (
                 "Fallback env var for a single-account Fathom webhook secret"
+            ),
+            "JARVIS_WHATSAPP_META_TOKEN": (
+                "Fallback Meta WhatsApp Cloud API access token"
+            ),
+            "JARVIS_WHATSAPP_META_APP_SECRET": (
+                "Fallback Meta app secret for WhatsApp webhook signatures"
+            ),
+            "JARVIS_WHATSAPP_VERIFY_TOKEN": (
+                "Fallback Meta webhook verification token for WhatsApp"
+            ),
+            "JARVIS_WHATSAPP_PHONE_NUMBER_ID": (
+                "Fallback Meta WhatsApp phone number ID for outbound sends"
             ),
             "EDITOR": "Editor for context/journal editing (default: vim)",
         },

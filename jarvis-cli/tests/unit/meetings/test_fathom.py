@@ -11,6 +11,7 @@ from jarvis.meetings.fathom import (
     parse_fathom_json_text,
     parse_fathom_payload,
 )
+from jarvis.meetings.parser import render_meeting_markdown
 
 
 def _payload() -> dict:
@@ -86,6 +87,10 @@ class TestFathomNormalization:
         assert "Alice Johnson: Let's revisit the budget allocations." in meeting.transcript
         assert "Let's revisit the budget allocations." not in meeting.raw_markdown
 
+        rendered = render_meeting_markdown(meeting)
+        assert "## Next Steps" in rendered
+        assert "## Action Items" not in rendered
+
     def test_parse_payload_uses_summary_headings_and_action_fallbacks(self) -> None:
         payload = _payload()
         payload["default_summary"] = {
@@ -103,6 +108,11 @@ class TestFathomNormalization:
 
         assert "narrower launch scope" in meeting.summary
         assert meeting.action_items == ["Bob to update the launch budget"]
+
+        rendered = render_meeting_markdown(meeting)
+        assert "### Next Steps" in rendered
+        assert "## Action Items" not in rendered
+        assert rendered.count("Bob to update the launch budget") == 1
 
     def test_parse_json_text(self) -> None:
         meeting = parse_fathom_json_text(json.dumps({"items": [_payload()]}))

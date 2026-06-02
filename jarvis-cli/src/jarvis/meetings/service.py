@@ -558,7 +558,7 @@ def _render_meeting_event_memory(meeting: MeetingRecord) -> str:
     if meeting.decisions:
         sections.extend(["### Decisions", _markdown_list(meeting.decisions)])
     if meeting.action_items:
-        sections.extend(["### Action Items", _markdown_list(meeting.action_items)])
+        sections.extend(["### Next Steps", _markdown_list(meeting.action_items)])
     if meeting.open_questions:
         sections.extend(["### Open Questions", _markdown_list(meeting.open_questions)])
     source_lines = [f"- Source Ref: {meeting.source_ref}"]

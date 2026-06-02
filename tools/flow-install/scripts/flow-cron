@@ -98,6 +98,7 @@ def find_all_schedules() -> list[dict[str, Any]]:
                     "description": entry.get("description", ""),
                     "enabled": entry.get("enabled", False),
                     "attempts": entry.get("attempts", ""),
+                    "timeout": entry.get("timeout", ""),
                     "source": f"skill:{skill_name}",
                     "source_path": str(manifest_path),
                 })
@@ -122,6 +123,7 @@ def find_all_schedules() -> list[dict[str, Any]]:
                     "description": entry.get("description", ""),
                     "enabled": entry.get("enabled", False),
                     "attempts": entry.get("attempts", ""),
+                    "timeout": entry.get("timeout", ""),
                     "source": "project",
                     "source_path": str(project_cron),
                 })
@@ -192,7 +194,7 @@ def collect_path_dirs() -> str:
 
 def build_cron_environment(path: str | None = None) -> dict[str, str]:
     """Environment shared by launchd and crontab installs."""
-    provider = os.environ.get("FLOW_CRON_AI_PROVIDER", "auto")
+    provider = os.environ.get("FLOW_CRON_AI_PROVIDER", "codex")
     provider_order = os.environ.get("FLOW_CRON_AI_PROVIDER_ORDER")
     if provider_order is None:
         provider_order = "codex,claude,opencode" if provider == "auto" else provider
@@ -229,6 +231,8 @@ def build_shell_command(schedule: dict, project_dir: str) -> str:
     exec_script = os.path.join(project_dir, "tools", "flow-install", "scripts", "flow-cron-exec")
     attempts = schedule.get("attempts", "")
     attempts_flag = f' --attempts {attempts}' if attempts else ""
+    timeout = schedule.get("timeout", "")
+    timeout_flag = f' --timeout {timeout}' if timeout else ""
 
     if entry_type == "shell":
         inner_cmd = command
@@ -237,7 +241,7 @@ def build_shell_command(schedule: dict, project_dir: str) -> str:
 
     return (
         f'cd "{project_dir}" && '
-        f'python3 "{exec_script}" --task "{task_id}"{attempts_flag} -- '
+        f'python3 "{exec_script}" --task "{task_id}"{attempts_flag}{timeout_flag} -- '
         f'/bin/zsh -c {shlex.quote(inner_cmd)}'
     )
 

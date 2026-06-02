@@ -1286,6 +1286,25 @@ class AnyTypeAdapter:
         except Exception as e:
             raise ConnectionError(str(e), backend="anytype")
 
+    def list_collection_objects(self, space_id: str, collection_id: str) -> list[BackendObject]:
+        """List objects currently linked inside a Collection/List."""
+        self._ensure_connected()
+        try:
+            raw_objects = self._client.list_collection_objects(space_id, collection_id)
+            return [self._raw_object_to_backend_object(raw, space_id) for raw in raw_objects]
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def remove_from_collection(
+        self, space_id: str, collection_id: str, object_id: str
+    ) -> bool:
+        """Remove an object from a Collection/List without deleting it."""
+        self._ensure_connected()
+        try:
+            return bool(self._client.remove_from_collection(space_id, collection_id, object_id))
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
     def validate_collection(self, space_id: str, object_id: str) -> None:
         """Ensure a sync destination is a Collection/list-like object."""
         obj = self.get_object(space_id, object_id)
@@ -1442,6 +1461,22 @@ class AnyTypeAdapter:
             updated_at=updated_at,
             backend="anytype",
             raw=raw_json,
+        )
+
+    def _raw_object_to_backend_object(self, raw: dict[str, Any], space_id: str) -> BackendObject:
+        """Convert a raw Anytype REST object dict to a lightweight BackendObject."""
+        raw_type = raw.get("type") if isinstance(raw.get("type"), dict) else {}
+        return BackendObject(
+            id=str(raw.get("id") or raw.get("object_id") or ""),
+            space_id=space_id,
+            name=str(raw.get("name") or "Untitled"),
+            object_type=str(raw_type.get("name") or raw.get("object_type") or "Unknown"),
+            type_key=str(raw_type.get("key") or raw.get("type_key") or ""),
+            description=str(raw.get("description") or ""),
+            snippet=str(raw.get("snippet") or ""),
+            content=str(raw.get("markdown") or raw.get("body") or ""),
+            backend="anytype",
+            raw=raw,
         )
 
     @staticmethod

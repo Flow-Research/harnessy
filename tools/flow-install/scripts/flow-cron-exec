@@ -6,7 +6,7 @@ Wraps any command with retry logic, structured logging, and failure
 notifications. Sits between launchd and the actual task command.
 
 Usage:
-    flow-cron-exec --task <skill/name> [--attempts N] -- <command...>
+    flow-cron-exec --task <skill/name> [--attempts N] [--timeout seconds] -- <command...>
 
 Exit code convention:
     0 = success (stop)
@@ -27,6 +27,7 @@ from pathlib import Path
 # ── Config ────────────────────────────────────────────────────────────────
 
 DEFAULT_MAX_ATTEMPTS = 5
+DEFAULT_TIMEOUT_SECONDS = 600
 BACKOFF_SECONDS = [30, 60, 120, 300]  # delay after attempt 1, 2, 3, 4
 TASK_LOG_MAX_BYTES = 50_000  # 50KB per-task log cap
 PERMANENT_EXIT = 2           # exit code meaning "don't retry"
@@ -110,7 +111,7 @@ def notify_failure(task: str, exit_code: int, attempts: int) -> None:
 
 # ── Execution ─────────────────────────────────────────────────────────────
 
-def run_command(cmd: list[str], task: str, attempt: int, task_log: Path) -> int:
+def run_command(cmd: list[str], task: str, attempt: int, task_log: Path, timeout_s: int) -> int:
     """Run a command, capturing output to the per-task log. Returns exit code."""
     env = os.environ.copy()
     env["FLOW_CRON_ATTEMPT"] = str(attempt)
@@ -127,20 +128,24 @@ def run_command(cmd: list[str], task: str, attempt: int, task_log: Path) -> int:
                 stdout=log_f,
                 stderr=subprocess.STDOUT,
                 env=env,
-                timeout=600,  # 10-minute hard cap per attempt
+                timeout=timeout_s,
             )
             return result.returncode
         except subprocess.TimeoutExpired:
-            log_f.write("\n[flow-cron-exec] command timed out after 600s\n")
+            log_f.write(f"\n[flow-cron-exec] command timed out after {timeout_s}s\n")
             return 124  # standard timeout exit code
 
 
 def main() -> None:
-    # Parse args: --task <name> [--attempts N] -- <command...>
+    # Parse args: --task <name> [--attempts N] [--timeout seconds] -- <command...>
     args = sys.argv[1:]
 
     if "--task" not in args or "--" not in args:
-        print("Usage: flow-cron-exec --task <skill/name> [--attempts N] -- <command...>", file=sys.stderr)
+        print(
+            "Usage: flow-cron-exec --task <skill/name> [--attempts N] "
+            "[--timeout seconds] -- <command...>",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     task_idx = args.index("--task")
@@ -155,6 +160,15 @@ def main() -> None:
             max_attempts = max(1, int(args[att_idx + 1]))
         except (IndexError, ValueError):
             print("Error: --attempts requires an integer", file=sys.stderr)
+            sys.exit(2)
+
+    timeout_s = int(os.environ.get("FLOW_CRON_TASK_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
+    if "--timeout" in args:
+        timeout_idx = args.index("--timeout")
+        try:
+            timeout_s = max(1, int(args[timeout_idx + 1]))
+        except (IndexError, ValueError):
+            print("Error: --timeout requires an integer number of seconds", file=sys.stderr)
             sys.exit(2)
 
     if not cmd:
@@ -173,7 +187,7 @@ def main() -> None:
         log_event(task, "start", attempt)
         t0 = time.monotonic()
 
-        last_exit = run_command(cmd, task, attempt, task_log)
+        last_exit = run_command(cmd, task, attempt, task_log, timeout_s)
         duration = time.monotonic() - t0
 
         if last_exit == 0:

@@ -671,6 +671,73 @@ class TestErrorRecovery:
         assert any("skip_blocked sub/x.md" in w for w in result.warnings)
         assert "sub/x.md" not in result.state.objects
 
+    def test_failed_page_update_preserves_prior_mapping(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"note.md": "new"})
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "note.md": ObjectRecord(
+                    object_id="page_old",
+                    kind="page",
+                    content_sha256=_sha("old"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter(raise_on="update_page_content")
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert any("update_page note.md" in e for e in result.errors)
+        assert result.state.objects["note.md"].object_id == "page_old"
+        assert result.state.objects["note.md"].content_sha256 == _sha("old")
+
+    def test_failed_file_update_preserves_prior_mapping(self, tmp_path: Path) -> None:
+        image = tmp_path / "image.png"
+        image.write_bytes(b"new")
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "image.png": ObjectRecord(
+                    object_id="file_old",
+                    kind="file",
+                    content_sha256=_sha("old"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter(raise_on="upload_file_in")
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert any("update_file image.png" in e for e in result.errors)
+        assert result.state.objects["image.png"].object_id == "file_old"
+        assert result.state.objects["image.png"].content_sha256 == _sha("old")
+
 
 def _sha(s: str) -> str:
     from jarvis.sync.state import compute_content_sha256

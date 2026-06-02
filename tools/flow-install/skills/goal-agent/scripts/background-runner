@@ -2,12 +2,12 @@
 """
 background-runner — Deterministic supervisor for goal-agent background orchestration.
 
-Runs inside tmux. Drives a Claude Code session via sequential `claude -p --resume`
+Runs inside tmux. Drives an agent CLI session via provider-specific non-interactive
 calls. Owns the durable control loop: phase tracking, retries, budget, verification,
 state commits, and recovery.
 
-Claude owns reasoning (decompose, dispatch workers, decide next action).
-This runner owns state (commits to state.json, runs verification, manages retries).
+The configured agent provider owns reasoning and phase work. This runner owns
+state (commits to state.json, runs verification, manages retries).
 
 Usage:
     background-runner --run-id <id> [--repo-root <path>]
@@ -18,8 +18,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -39,9 +41,12 @@ STEP_SCHEMA = SCHEMAS_DIR / "step.schema.json"
 # ── Constants ────────────────────────────────────────────────────────────
 
 MAX_PHASE_ATTEMPTS = 3
-MAX_TOTAL_STEPS = 50       # safety cap on total Claude calls
-CLAUDE_TIMEOUT = 600       # 10 minutes per step
+MAX_TOTAL_STEPS = 50       # safety cap on total agent calls
+AGENT_TIMEOUT = 600        # 10 minutes per step
 DEFAULT_BUDGET = 5.0
+DEFAULT_PROVIDER = "codex"
+CLAUDE_MODEL_ALIASES = {"claude", "sonnet", "haiku", "opus"}
+GENERIC_MODEL_ALIASES = {"auto", "default", "provider-default", "provider_default"}
 
 
 # ── State helpers ────────────────────────────────────────────────────────
@@ -107,7 +112,11 @@ def record_step(state: dict, step_result: dict, response: dict, prompt: str) -> 
         "step_number": sv["total_steps"],
         "prompt_hash": "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()[:16],
         "structured_output": step_result,
-        "claude_exit_code": response.get("claude_exit_code", 0),
+        "agent_provider": response.get("provider"),
+        "agent_exit_code": response.get("agent_exit_code", response.get("claude_exit_code", 0)),
+        "agent_session_id": response.get("session_id"),
+        # Backward-compatible fields for older reports/post-mortems.
+        "claude_exit_code": response.get("claude_exit_code", response.get("agent_exit_code", 0)),
         "claude_session_id": response.get("session_id"),
         "cost_usd": round(cost_usd, 4),
         "duration_s": round(duration_s, 1),
@@ -117,14 +126,232 @@ def record_step(state: dict, step_result: dict, response: dict, prompt: str) -> 
     return state
 
 
-# Tool scoping per orchestrator step
+# Capability scoping per orchestrator step. Claude receives these as --tools.
+# Codex maps write-capable scopes to workspace-write and read-only scopes to
+# read-only. OpenCode receives the prompt contract and runs in the project dir.
 TOOLS_DECOMPOSE = "Read,Grep,Glob"                          # analyze only
 TOOLS_DISPATCH = "Read,Write,Edit,Grep,Glob,Bash,Agent"     # full capability
 TOOLS_VERIFY = "Read,Bash"                                   # read + run checks
 TOOLS_FINALIZE = "Read,Write"                                # write report only
 
 
-# ── Claude interaction ───────────────────────────────────────────────────
+# ── Agent interaction ────────────────────────────────────────────────────
+
+def _env(name: str, default: str | None = None) -> str | None:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    return value
+
+
+def _strip_ansi(text: str) -> str:
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text or "")
+
+
+def _is_claude_model_alias(model: str | None) -> bool:
+    if not model:
+        return False
+    lowered = model.strip().lower()
+    return lowered in CLAUDE_MODEL_ALIASES or lowered.startswith("claude")
+
+
+def _is_generic_model_alias(model: str | None) -> bool:
+    if not model:
+        return False
+    return model.strip().lower() in GENERIC_MODEL_ALIASES
+
+
+def resolve_agent_provider(state: dict) -> str:
+    """Resolve the current provider. `auto` intentionally means Codex today."""
+
+    candidates = (
+        _env("GOAL_AGENT_PROVIDER"),
+        _env("HARNESSY_GOAL_AGENT_PROVIDER"),
+        _env("FLOW_GOAL_AGENT_PROVIDER"),
+        state.get("agent_provider"),
+        _env("HARNESSY_AI_PROVIDER"),
+        _env("FLOW_AI_PROVIDER"),
+        DEFAULT_PROVIDER,
+    )
+    for candidate in candidates:
+        if not candidate:
+            continue
+        provider = str(candidate).strip().lower()
+        if provider == "auto":
+            return DEFAULT_PROVIDER
+        if provider in {"claude", "codex", "opencode"}:
+            return provider
+    return DEFAULT_PROVIDER
+
+
+def resolve_agent_model(provider: str, state_model: str | None) -> str | None:
+    """Pick a provider-compatible model, avoiding Claude aliases on Codex/OpenCode."""
+
+    if provider == "claude":
+        if _is_generic_model_alias(state_model):
+            state_model = None
+        return _env("GOAL_AGENT_CLAUDE_MODEL") or _env("HARNESSY_AI_CLAUDE_MODEL") or state_model
+    if provider == "codex":
+        configured = (
+            _env("GOAL_AGENT_CODEX_MODEL")
+            or _env("HARNESSY_AI_CODEX_MODEL")
+            or _env("FLOW_CRON_CODEX_MODEL")
+        )
+        if configured:
+            return configured
+        if not state_model or _is_generic_model_alias(state_model) or _is_claude_model_alias(state_model):
+            return _env("GOAL_AGENT_CODEX_DEFAULT_MODEL")
+        return state_model
+    if provider == "opencode":
+        configured = _env("GOAL_AGENT_OPENCODE_MODEL") or _env("HARNESSY_AI_OPENCODE_MODEL")
+        if configured:
+            return configured
+        if not state_model or _is_generic_model_alias(state_model) or _is_claude_model_alias(state_model):
+            return None
+        return state_model
+    return state_model
+
+
+def _write_capable(tools: str) -> bool:
+    return any(name in tools.split(",") for name in ("Write", "Edit", "Agent"))
+
+
+def _provider_prompt(prompt: str, *, provider: str, state_dir: Path, tools: str) -> str:
+    """Inline the orchestration contract for providers without session/system support."""
+
+    system_text = ""
+    system_prompt_file = state_dir / "orchestrator-system.md"
+    if system_prompt_file.exists():
+        system_text = system_prompt_file.read_text()
+
+    direct_mode = ""
+    if provider != "claude":
+        direct_mode = f"""
+## Provider Mode
+
+You are running as `{provider}`, not as Claude Code with an Agent subagent tool.
+Preserve the goal-agent protocol, but execute phase work directly in this process
+when the prompt says to dispatch a worker. After direct phase execution, return
+`action=dispatch_worker` with `worker_result_summary`, `verification_commands`,
+and `file_checks` exactly as the supervisor expects. `file_checks` must be an
+array of path strings; do not return objects in `file_checks`.
+
+Current capability scope: `{tools}`. Respect read-only phases. Use writes only
+when the scope includes Write/Edit/Agent or the prompt is explicitly executing a
+phase. Always return a single JSON object and no markdown fences.
+"""
+
+    return f"""{system_text}
+{direct_mode}
+
+## Current Step
+
+{prompt}
+
+Return only the JSON object for this step. Do not include prose outside JSON.
+"""
+
+
+def _failure_response(
+    provider: str,
+    *,
+    session_id: str,
+    duration: float,
+    message: str,
+    exit_code: int | None = None,
+    raw_output: str = "",
+    retryable: bool = True,
+) -> dict:
+    return {
+        "provider": provider,
+        "result": {"action": "fail", "summary": message, "error": message, "retryable": retryable},
+        "session_id": session_id,
+        "cost_usd": 0,
+        "duration_s": duration,
+        "agent_exit_code": exit_code,
+        "claude_exit_code": exit_code if provider == "claude" else 0,
+        "raw_output": raw_output,
+    }
+
+
+def _success_response(
+    provider: str,
+    *,
+    session_id: str,
+    duration: float,
+    output: dict,
+    raw_output: str,
+    exit_code: int = 0,
+) -> dict:
+    step_result = extract_step_result(output)
+    if step_result is None:
+        return _failure_response(
+            provider,
+            session_id=session_id,
+            duration=duration,
+            message=f"Could not extract structured step result from {provider} response",
+            exit_code=exit_code,
+            raw_output=raw_output,
+        )
+    return {
+        "provider": provider,
+        "result": step_result,
+        "session_id": output.get("session_id", output.get("sessionId", session_id)),
+        "cost_usd": output.get("cost_usd", output.get("costUSD", 0)) or 0,
+        "duration_s": duration,
+        "agent_exit_code": exit_code,
+        "claude_exit_code": exit_code if provider == "claude" else 0,
+        "raw_output": raw_output,
+    }
+
+
+def call_agent(
+    prompt: str,
+    session_id: str,
+    state_dir: Path,
+    remaining_budget: float,
+    *,
+    provider: str,
+    model: str | None,
+    repo_root: str,
+    is_first_call: bool = False,
+    tools: str = "Read,Write,Edit,Grep,Glob,Bash,Agent",
+) -> dict:
+    if provider == "claude":
+        return call_claude(
+            prompt=prompt,
+            session_id=session_id,
+            state_dir=state_dir,
+            remaining_budget=remaining_budget,
+            is_first_call=is_first_call,
+            tools=tools,
+            model=model,
+        )
+    if provider == "codex":
+        return call_codex(
+            _provider_prompt(prompt, provider=provider, state_dir=state_dir, tools=tools),
+            session_id=session_id,
+            repo_root=repo_root,
+            model=model,
+            tools=tools,
+        )
+    if provider == "opencode":
+        return call_opencode(
+            _provider_prompt(prompt, provider=provider, state_dir=state_dir, tools=tools),
+            session_id=session_id,
+            repo_root=repo_root,
+            model=model,
+        )
+    return _failure_response(
+        provider,
+        session_id=session_id,
+        duration=0,
+        message=f"Unsupported goal-agent provider: {provider}",
+        retryable=False,
+    )
+
 
 def call_claude(
     prompt: str,
@@ -133,23 +360,15 @@ def call_claude(
     remaining_budget: float,
     is_first_call: bool = False,
     tools: str = "Read,Write,Edit,Grep,Glob,Bash,Agent",
-    use_bare: bool = False,
+    model: str | None = None,
 ) -> dict:
-    """Make a single claude -p call and return parsed JSON response.
+    """Make a single claude -p call and return parsed JSON response."""
 
-    First call uses --session-id to create the session.
-    Subsequent calls use --resume to continue it.
-    Uses --tools for hard tool restriction (not --allowedTools which only auto-approves).
-    --bare mode: explicit context, requires ANTHROPIC_API_KEY.
-    Non-bare mode: uses existing Claude login, ambient skills/hooks active.
-
-    Returns dict with keys: result (parsed step JSON), session_id, cost_usd, duration_s
-    """
-    cmd = ["claude", "-p"]
+    use_bare = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    cmd = [_env("GOAL_AGENT_CLAUDE_CMD", "claude") or "claude", "-p"]
     if use_bare:
         cmd.append("--bare")
 
-    # First call creates session; subsequent calls resume it
     if is_first_call:
         cmd += ["--session-id", session_id]
     else:
@@ -159,97 +378,210 @@ def call_claude(
     cmd += [
         "--output-format", "json",
         "--permission-mode", "dontAsk",
-        "--tools", tools,               # hard restriction (not --allowedTools)
-        "--max-turns", "25",             # safety guardrail per step
+        "--tools", tools,
+        "--max-turns", "25",
         "--max-budget-usd", str(step_budget),
     ]
+    if model:
+        cmd += ["--model", model]
 
-    # Append orchestrator system prompt on first call
     system_prompt_file = state_dir / "orchestrator-system.md"
     if is_first_call and system_prompt_file.exists():
         cmd += ["--append-system-prompt-file", str(system_prompt_file)]
 
-    # Schema for structured output
     if STEP_SCHEMA.exists():
         schema = json.loads(STEP_SCHEMA.read_text())
         cmd += ["--json-schema", json.dumps(schema)]
 
-    # Settings file for permissions.allow/deny rules
     settings_file = state_dir / "claude-settings.json"
     if settings_file.exists():
         cmd += ["--settings", str(settings_file)]
 
     cmd.append(prompt)
 
-    log(f"Calling claude (first={is_first_call}, tools={tools}, budget_cap={step_budget:.2f})")
+    mode = "--bare" if use_bare else "ambient"
+    log(f"Calling claude ({mode}, first={is_first_call}, tools={tools}, budget_cap={step_budget:.2f})")
 
     t0 = time.monotonic()
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=CLAUDE_TIMEOUT,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=AGENT_TIMEOUT)
     except subprocess.TimeoutExpired:
         duration = time.monotonic() - t0
-        return {
-            "result": {"action": "fail", "summary": f"Claude call timed out after {CLAUDE_TIMEOUT}s", "retryable": True},
-            "session_id": session_id,
-            "cost_usd": 0,
-            "duration_s": duration,
-            "raw_output": "",
-        }
+        return _failure_response(
+            "claude",
+            session_id=session_id,
+            duration=duration,
+            message=f"Claude call timed out after {AGENT_TIMEOUT}s",
+        )
 
     duration = time.monotonic() - t0
+    stdout = _strip_ansi(result.stdout)
+    stderr = _strip_ansi(result.stderr)
 
     if result.returncode != 0:
-        log(f"Claude returned exit code {result.returncode}: {result.stderr[:200]}")
-        return {
-            "result": {"action": "fail", "summary": f"Claude exit {result.returncode}: {result.stderr[:200]}", "retryable": True},
-            "session_id": session_id,
-            "cost_usd": 0,
-            "duration_s": duration,
-            "raw_output": result.stdout,
-        }
+        log(f"Claude returned exit code {result.returncode}: {stderr[:200]}")
+        return _failure_response(
+            "claude",
+            session_id=session_id,
+            duration=duration,
+            message=f"Claude exit {result.returncode}: {stderr[:200] or stdout[:200]}",
+            exit_code=result.returncode,
+            raw_output=stdout,
+        )
 
-    # Parse JSON output
     try:
-        output = json.loads(result.stdout)
+        output = json.loads(stdout)
     except json.JSONDecodeError:
-        log(f"Failed to parse Claude JSON output: {result.stdout[:300]}")
-        return {
-            "result": {"action": "fail", "summary": "Failed to parse Claude JSON response", "retryable": True},
-            "session_id": session_id,
-            "cost_usd": 0,
-            "duration_s": duration,
-            "raw_output": result.stdout,
-        }
+        log(f"Failed to parse Claude JSON output: {stdout[:300]}")
+        return _failure_response(
+            "claude",
+            session_id=session_id,
+            duration=duration,
+            message="Failed to parse Claude JSON response",
+            raw_output=stdout,
+        )
 
-    # Extract structured result and metadata from Claude's JSON output format.
-    # With --output-format json + --json-schema, Claude returns metadata wrapper
-    # with the validated object in "structured_output" or "result".
-    cost_usd = output.get("cost_usd", output.get("costUSD", 0)) or 0
-    actual_session_id = output.get("session_id", output.get("sessionId", session_id))
-    exit_code = result.returncode
+    return _success_response(
+        "claude",
+        session_id=session_id,
+        duration=duration,
+        output=output,
+        raw_output=stdout,
+        exit_code=result.returncode,
+    )
 
-    step_result = extract_step_result(output)
 
-    if step_result is None:
-        step_result = {
-            "action": "fail",
-            "summary": "Could not extract structured step result from Claude response",
-            "retryable": True,
-        }
+def call_codex(
+    prompt: str,
+    *,
+    session_id: str,
+    repo_root: str,
+    model: str | None,
+    tools: str,
+) -> dict:
+    codex_cmd = _env("GOAL_AGENT_CODEX_CMD", _env("HARNESSY_AI_CODEX_CMD", "codex")) or "codex"
+    if not shutil.which(codex_cmd):
+        return _failure_response("codex", session_id=session_id, duration=0, message="`codex` CLI not found.", retryable=False)
 
-    return {
-        "result": step_result,
-        "session_id": actual_session_id,
-        "cost_usd": cost_usd,
-        "duration_s": duration,
-        "claude_exit_code": exit_code,
-        "raw_output": result.stdout,
-    }
+    with tempfile.NamedTemporaryFile(prefix="goal-agent-codex-output-", suffix=".json", delete=False) as tmp:
+        output_path = tmp.name
+
+    sandbox = "workspace-write" if _write_capable(tools) else "read-only"
+    cmd = [
+        codex_cmd,
+        "exec",
+        "-C",
+        repo_root,
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--color",
+        "never",
+        "--output-last-message",
+        output_path,
+    ]
+    if _env("GOAL_AGENT_CODEX_BYPASS_SANDBOX", "0") in {"1", "true", "True"}:
+        cmd.append("--dangerously-bypass-approvals-and-sandbox")
+    else:
+        cmd.extend(["-s", _env("GOAL_AGENT_CODEX_SANDBOX", sandbox) or sandbox])
+    if model:
+        cmd.extend(["--model", model])
+    cmd.append("-")
+
+    log(f"Calling codex (sandbox={sandbox}, tools={tools})")
+    t0 = time.monotonic()
+    try:
+        result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=AGENT_TIMEOUT, cwd=repo_root)
+    except subprocess.TimeoutExpired:
+        duration = time.monotonic() - t0
+        Path(output_path).unlink(missing_ok=True)
+        return _failure_response("codex", session_id=session_id, duration=duration, message=f"Codex call timed out after {AGENT_TIMEOUT}s")
+
+    duration = time.monotonic() - t0
+    stdout = _strip_ansi(result.stdout)
+    stderr = _strip_ansi(result.stderr)
+    try:
+        final_text = Path(output_path).read_text(encoding="utf-8")
+    except OSError:
+        final_text = ""
+    finally:
+        Path(output_path).unlink(missing_ok=True)
+
+    raw_output = final_text.strip() or stdout.strip()
+    if result.returncode != 0:
+        log(f"Codex returned exit code {result.returncode}: {stderr[:200]}")
+        return _failure_response(
+            "codex",
+            session_id=session_id,
+            duration=duration,
+            message=f"Codex exit {result.returncode}: {stderr[:200] or stdout[:200]}",
+            exit_code=result.returncode,
+            raw_output=raw_output,
+        )
+
+    return _success_response(
+        "codex",
+        session_id=session_id,
+        duration=duration,
+        output={"result": raw_output, "session_id": session_id},
+        raw_output=raw_output,
+        exit_code=result.returncode,
+    )
+
+
+def call_opencode(
+    prompt: str,
+    *,
+    session_id: str,
+    repo_root: str,
+    model: str | None,
+) -> dict:
+    opencode_cmd = _env("GOAL_AGENT_OPENCODE_CMD", _env("HARNESSY_AI_OPENCODE_CMD", "opencode")) or "opencode"
+    if not shutil.which(opencode_cmd):
+        return _failure_response("opencode", session_id=session_id, duration=0, message="`opencode` CLI not found.", retryable=False)
+
+    cmd = [
+        opencode_cmd,
+        "run",
+        "--pure",
+        "--log-level",
+        _env("GOAL_AGENT_OPENCODE_LOG_LEVEL", _env("HARNESSY_AI_OPENCODE_LOG_LEVEL", "WARN")) or "WARN",
+        "--dir",
+        repo_root,
+    ]
+    if model:
+        cmd.extend(["--model", model])
+    cmd.append(prompt)
+
+    log("Calling opencode")
+    t0 = time.monotonic()
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=AGENT_TIMEOUT, cwd=repo_root)
+    except subprocess.TimeoutExpired:
+        duration = time.monotonic() - t0
+        return _failure_response("opencode", session_id=session_id, duration=duration, message=f"OpenCode call timed out after {AGENT_TIMEOUT}s")
+
+    duration = time.monotonic() - t0
+    stdout = _strip_ansi(result.stdout)
+    stderr = _strip_ansi(result.stderr)
+    if result.returncode != 0:
+        log(f"OpenCode returned exit code {result.returncode}: {stderr[:200]}")
+        return _failure_response(
+            "opencode",
+            session_id=session_id,
+            duration=duration,
+            message=f"OpenCode exit {result.returncode}: {stderr[:200] or stdout[:200]}",
+            exit_code=result.returncode,
+            raw_output=stdout,
+        )
+
+    return _success_response(
+        "opencode",
+        session_id=session_id,
+        duration=duration,
+        output={"result": stdout, "session_id": session_id},
+        raw_output=stdout,
+        exit_code=result.returncode,
+    )
 
 
 # ── Verification ─────────────────────────────────────────────────────────
@@ -291,7 +623,19 @@ def run_verification(commands: list[str], file_checks: list[str]) -> dict:
             })
             all_passed = False
 
-    for file_path in file_checks:
+    for file_check in file_checks:
+        file_path = file_check
+        if isinstance(file_check, dict):
+            file_path = file_check.get("path") or file_check.get("file") or file_check.get("name")
+        if not isinstance(file_path, (str, bytes, os.PathLike)):
+            results.append({
+                "type": "file_check",
+                "path": str(file_check),
+                "passed": False,
+                "error": "file check must be a path string or an object with a path field",
+            })
+            all_passed = False
+            continue
         exists = os.path.exists(file_path)
         results.append({
             "type": "file_check",
@@ -306,16 +650,25 @@ def run_verification(commands: list[str], file_checks: list[str]) -> dict:
 
 # ── Orchestrator system prompt ───────────────────────────────────────────
 
-def generate_orchestrator_system(state_dir: Path, goal_file: str) -> None:
+def generate_orchestrator_system(state_dir: Path, goal_file: str, provider: str) -> None:
     """Generate the orchestrator system prompt file from goal context."""
     identity = read_json(state_dir / "identity.json")
+
+    if provider == "claude":
+        execution_contract = """- You do NOT implement directly. Use the Agent tool to dispatch worker subagents for implementation.
+- Workers receive focused, phase-specific prompts and return results."""
+        dispatch_contract = "When action=dispatch_worker, you should have already called the Agent tool in this turn to dispatch the worker. Include \"worker_result_summary\" with what the worker accomplished."
+    else:
+        execution_contract = f"""- Provider `{provider}` does not have the Claude Agent subagent tool in this runner.
+- Preserve the two-role protocol conceptually, but execute phase work directly when a phase is assigned to you.
+- Treat direct phase execution as the worker step, then return action=dispatch_worker with the result summary."""
+        dispatch_contract = "When action=dispatch_worker, you should have completed the phase work directly. Include \"worker_result_summary\" with what was changed or produced."
 
     prompt = f"""You are the orchestrator for a goal-agent run. You drive a multi-phase goal to completion.
 
 ## Your Role
 - You are the ORCHESTRATOR. You plan, decompose, dispatch workers, and evaluate.
-- You do NOT implement directly. Use the Agent tool to dispatch worker subagents for implementation.
-- Workers receive focused, phase-specific prompts and return results.
+{execution_contract}
 - You evaluate worker output and decide: advance, retry, replan, or fail.
 
 ## Identity
@@ -337,7 +690,7 @@ When action=decompose, include "phases" array with the plan. Each phase object M
   - "worker_prompt": the prompt the worker subagent will receive for this phase
 The phases together MUST cover every deliverable required by the goal. Do not produce
 a plan whose combined phases leave any required output ungenerated.
-When action=dispatch_worker, you should have already called the Agent tool in this turn to dispatch the worker. Include "worker_result_summary" with what the worker accomplished.
+{dispatch_contract}
 When action=advance_phase or retry_phase, include "verification_commands" for the supervisor to run.
 When action=finalize, include "report" with the final completion report.
 When action=fail, include "error" and "retryable".
@@ -346,8 +699,8 @@ When action=fail, include "error" and "retryable".
 - Re-read {state_dir}/identity.json before each phase to reinforce your role.
 - Decompose into 2-7 phases. Each phase has clear deliverables.
 - Max 3 retry attempts per phase before escalating to replan.
-- Workers get focused prompts — ONE phase at a time, never the full goal.
-- Workers do NOT get Agent tool access (no sub-sub-agents).
+- Phase work gets focused prompts — ONE phase at a time, never the full goal.
+- Do not spawn nested agents unless the active provider explicitly supports that and the current prompt asks for it.
 - After each phase, return verification_commands for the supervisor to run deterministically.
 """
 
@@ -356,16 +709,38 @@ When action=fail, include "error" and "retryable".
 
 # ── Main loop ────────────────────────────────────────────────────────────
 
+def build_phase_execution_prompt(
+    *,
+    provider: str,
+    state_dir: Path,
+    phase: dict,
+    phase_number: int,
+    retry_context: str | None = None,
+) -> str:
+    phase_prompt = phase.get("worker_prompt") or phase.get("description") or phase.get("name", "")
+    prefix = (
+        f"Phase {phase_number}: '{phase.get('name', phase.get('id', 'phase'))}'. "
+        f"Re-read {state_dir}/identity.json to reinforce your role."
+    )
+    if retry_context:
+        prefix += f" Retry context: {retry_context}"
+    if provider == "claude":
+        return (
+            f"{prefix} Dispatch a worker via the Agent tool for this phase. "
+            f"The worker should NOT use the Agent tool (no sub-sub-agents).\n\n"
+            f"Worker prompt:\n{phase_prompt}\n\n"
+            f"Return action=dispatch_worker with worker_result_summary and verification_commands."
+        )
+    return (
+        f"{prefix} Execute this phase directly using the available provider tools.\n\n"
+        f"Phase prompt:\n{phase_prompt}\n\n"
+        f"After completing the phase, return action=dispatch_worker with "
+        f"worker_result_summary, verification_commands, and file_checks."
+    )
+
+
 def run(run_id: str, repo_root: str) -> int:
     """Main supervisor loop. Returns exit code."""
-    # Check auth — --bare mode requires ANTHROPIC_API_KEY (skips OAuth/keychain).
-    # Without --bare, Claude uses existing login (OAuth/keychain).
-    use_bare = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if use_bare:
-        log("ANTHROPIC_API_KEY found — using --bare mode (explicit context, no ambient discovery)")
-    else:
-        log("No ANTHROPIC_API_KEY — using ambient mode (existing Claude login, local skills/hooks active)")
-
     os.chdir(repo_root)
     state_dir = STATE_ROOT / run_id
     state_path = state_dir / "state.json"
@@ -377,6 +752,11 @@ def run(run_id: str, repo_root: str) -> int:
     state = read_json(state_path)
     goal_file = state.get("goal_file", "")
     budget_limit = state.get("budget_limit", DEFAULT_BUDGET)
+    provider = resolve_agent_provider(state)
+    model = resolve_agent_model(provider, state.get("model"))
+    state["agent_provider"] = provider
+    state["agent_model"] = model
+    log(f"Using goal-agent provider={provider} model={model or '<provider-default>'}")
 
     # Generate or resume session
     is_resume = "supervisor" in state and state.get("status") == "running"
@@ -386,7 +766,7 @@ def run(run_id: str, repo_root: str) -> int:
     else:
         session_id = str(uuid.uuid4())
         state = init_supervisor_state(state, session_id)
-        generate_orchestrator_system(state_dir, goal_file)
+        generate_orchestrator_system(state_dir, goal_file, provider)
         write_json(state_path, state)
         log(f"Starting run {run_id}, session {session_id}")
 
@@ -420,15 +800,17 @@ def run(run_id: str, repo_root: str) -> int:
             write_json(state_path, state)
             return 1
 
-        # Call Claude with step-appropriate tool scoping
-        response = call_claude(
+        # Call the configured agent provider with step-appropriate capability scope.
+        response = call_agent(
             prompt=prompt,
             session_id=session_id,
             state_dir=state_dir,
             remaining_budget=remaining_budget,
+            provider=provider,
+            model=model,
+            repo_root=repo_root,
             is_first_call=is_first_call,
             tools=current_tools,
-            use_bare=use_bare,
         )
         is_first_call = False
         step_result = response["result"]
@@ -456,6 +838,7 @@ def run(run_id: str, repo_root: str) -> int:
                     "id": p.get("id") or f"phase-{idx + 1}",
                     "name": p.get("name") or p.get("id") or f"phase-{idx + 1}",
                     "description": p.get("description", p.get("summary", "")),
+                    "worker_prompt": p.get("worker_prompt", ""),
                     "status": "pending",
                     "attempts": 0,
                     "verification_results": [],
@@ -468,23 +851,22 @@ def run(run_id: str, repo_root: str) -> int:
 
             if not phases:
                 state["status"] = "failed"
-                state["error"] = "Claude returned empty phase decomposition"
+                state["error"] = f"{provider} returned empty phase decomposition"
                 write_json(state_path, state)
                 return 1
 
             # Prompt for first phase — switch to full tools for worker dispatch
             p = phases[0]
             current_tools = TOOLS_DISPATCH
-            prompt = (
-                f"Phase plan stored. Begin executing phase 1: '{p['name']}'. "
-                f"Re-read {state_dir}/identity.json to reinforce your role. "
-                f"Dispatch a worker via the Agent tool for this phase. "
-                f"The worker should NOT use the Agent tool (no sub-sub-agents). "
-                f"Return action=dispatch_worker with the worker_result_summary and verification_commands."
+            prompt = build_phase_execution_prompt(
+                provider=provider,
+                state_dir=state_dir,
+                phase=state["phases"][0],
+                phase_number=1,
             )
 
         elif action == "dispatch_worker":
-            # Worker was dispatched within the Claude call via Agent tool.
+            # Claude dispatches a subagent; other providers execute the phase directly.
             # Now run verification deterministically.
             v_commands = step_result.get("verification_commands", [])
             f_checks = step_result.get("file_checks", [])
@@ -499,7 +881,7 @@ def run(run_id: str, repo_root: str) -> int:
 
                 write_json(state_path, state)
 
-                # Feed results back to Claude
+                # Feed results back to the active provider.
                 v_summary = json.dumps(v_result, indent=2)
                 if v_result["passed"]:
                     prompt = (
@@ -520,7 +902,7 @@ def run(run_id: str, repo_root: str) -> int:
                         prompt = (
                             f"Verification FAILED for phase '{step_result.get('phase_name', '')}' "
                             f"(attempt {attempts}/{MAX_PHASE_ATTEMPTS}). Results: {v_summary}\n"
-                            f"Dispatch a worker to fix the issues with action=retry_phase or dispatch_worker."
+                            f"Fix the issues for the current phase with action=retry_phase or dispatch_worker."
                         )
             else:
                 # No verification specified — trust and advance
@@ -551,12 +933,11 @@ def run(run_id: str, repo_root: str) -> int:
                 # Next phase — full tools for worker dispatch
                 current_tools = TOOLS_DISPATCH
                 next_phase = phases[state["current_phase"]]
-                prompt = (
-                    f"Phase {phase_idx + 1} passed. Moving to phase {state['current_phase'] + 1}: "
-                    f"'{next_phase['name']}'. "
-                    f"Re-read {state_dir}/identity.json to reinforce your role. "
-                    f"Dispatch a worker via the Agent tool for this phase. "
-                    f"The worker should NOT use the Agent tool."
+                prompt = build_phase_execution_prompt(
+                    provider=provider,
+                    state_dir=state_dir,
+                    phase=next_phase,
+                    phase_number=state["current_phase"] + 1,
                 )
 
         elif action == "retry_phase":
@@ -567,14 +948,17 @@ def run(run_id: str, repo_root: str) -> int:
             write_json(state_path, state)
 
             current_tools = TOOLS_DISPATCH  # full tools for retry
-            prompt = (
-                f"Retrying phase '{step_result.get('phase_name', '')}'. "
-                f"Error context: {step_result.get('error', 'see previous step')}. "
-                f"Dispatch a corrective worker via the Agent tool."
+            phase = state.get("phases", [])[phase_idx] if phase_idx < len(state.get("phases", [])) else {}
+            prompt = build_phase_execution_prompt(
+                provider=provider,
+                state_dir=state_dir,
+                phase=phase,
+                phase_number=phase_idx + 1,
+                retry_context=step_result.get("error", "see previous step"),
             )
 
         elif action == "replan":
-            log("Claude requested replan — re-decomposing")
+            log(f"{provider} requested replan — re-decomposing")
             state["current_phase"] = 0
             write_json(state_path, state)
 
@@ -591,6 +975,8 @@ def run(run_id: str, repo_root: str) -> int:
 
         elif action == "finalize":
             report = step_result.get("report", step_result.get("summary", "Goal completed."))
+            if not isinstance(report, str):
+                report = json.dumps(report, indent=2)
             report_path = state_dir / "report.md"
             report_path.write_text(report)
 
@@ -621,7 +1007,7 @@ def run(run_id: str, repo_root: str) -> int:
         else:
             log(f"Unknown action: {action}")
             state["status"] = "failed"
-            state["error"] = f"Unknown action from Claude: {action}"
+            state["error"] = f"Unknown action from {provider}: {action}"
             write_json(state_path, state)
             return 1
 

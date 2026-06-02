@@ -831,6 +831,27 @@ created: 2026-04-02
 updated: 2026-04-02
 ---
 
+---
+name: content-review
+type: opencode
+version: 0.1.1
+install_scope: global
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Reusable article and content review workflow for fact-checking, audience clarity, editorial quality, and strategy-profile alignment."
+location: tools/flow-install/skills/content-review
+invoke: "/content-review"
+permissions: [read, write, network]
+data_categories: [pii]
+egress: [public-web]
+phase: P2
+tags: [content, editorial, fact-checking, review]
+depends_on: []
+created: 2026-06-01
+updated: 2026-06-01
+---
+
 ## Notes
 
 - **Owner is required**. If unowned, default to the project's primary maintainer.

@@ -27,6 +27,7 @@ _DETAILED_SUMMARY_HEADINGS = {"detailed summary", "full summary"}
 _PARTICIPANT_HEADINGS = {"participants", "attendees", "people", "guests"}
 _DECISION_HEADINGS = {"decisions", "key decisions"}
 _ACTION_HEADINGS = {"action items", "actions", "next steps", "follow ups", "follow-up"}
+_VISIBLE_ACTION_HEADINGS = _ACTION_HEADINGS
 _QUESTION_HEADINGS = {"open questions", "questions", "risks", "parking lot"}
 _TRANSCRIPT_HEADINGS = {"transcript", "conversation transcript", "notes transcript"}
 
@@ -271,9 +272,19 @@ def render_meeting_markdown(meeting: MeetingRecord) -> str:
     add_section("Executive Summary", meeting.summary)
     add_section("Detailed Summary", demote_markdown_headings(meeting.detailed_summary))
     add_section("Key Decisions", meeting.decisions)
-    add_section("Action Items", meeting.action_items)
+    if not has_visible_action_heading(meeting.detailed_summary):
+        add_section("Next Steps", meeting.action_items)
     add_section("Open Questions", meeting.open_questions)
     return "\n".join(lines).strip() + "\n"
+
+
+def has_visible_action_heading(markdown: str) -> bool:
+    """Return True when rendered markdown already includes an action-style section."""
+
+    if not markdown:
+        return False
+    sections, _, _ = split_markdown_sections(markdown)
+    return any(heading in sections for heading in _VISIBLE_ACTION_HEADINGS)
 
 
 def demote_markdown_headings(markdown: str) -> str:
