@@ -491,6 +491,64 @@ class AnyTypeClient:
                 continue
         return None
 
+    def list_collection_objects(
+        self, space_id: str, collection_id: str, *, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        """List objects currently visible in a Collection/List.
+
+        Uses the first list view exposed by the REST API. If the list-view
+        endpoint is unavailable for a legacy object, falls back to the object's
+        links property.
+        """
+        if not self._authenticated:
+            raise RuntimeError("Not authenticated. Call connect() first.")
+        if self._client is None or self._client._apiEndpoints is None:
+            raise RuntimeError("AnyType client is not connected.")
+
+        api = self._client._apiEndpoints
+        page_limit = min(max(limit, 1), 100)
+        try:
+            views_payload = api.getListViews(space_id, collection_id, 0, 10)
+            views = views_payload.get("data", []) if isinstance(views_payload, dict) else []
+            if views:
+                view_id = str(views[0].get("id") or "")
+                if view_id:
+                    objects: list[dict[str, Any]] = []
+                    offset = 0
+                    while len(objects) < limit:
+                        payload = api.getObjectsInList(
+                            space_id, collection_id, view_id, offset, page_limit
+                        )
+                        data = payload.get("data", []) if isinstance(payload, dict) else []
+                        objects.extend([obj for obj in data if isinstance(obj, dict)])
+                        if len(data) < page_limit:
+                            break
+                        offset += page_limit
+                    return objects[:limit]
+        except Exception:
+            pass
+
+        objects = []
+        for object_id in self._get_object_links(space_id, collection_id)[:limit]:
+            try:
+                payload = api.getObject(space_id, object_id)
+                data = payload.get("data", payload) if isinstance(payload, dict) else payload
+                if isinstance(data, dict):
+                    objects.append(data)
+            except Exception:
+                continue
+        return objects
+
+    def remove_from_collection(self, space_id: str, collection_id: str, object_id: str) -> bool:
+        """Remove an object link from a Collection/List without deleting the object."""
+        if not self._authenticated:
+            raise RuntimeError("Not authenticated. Call connect() first.")
+        if self._client is None or self._client._apiEndpoints is None:
+            raise RuntimeError("AnyType client is not connected.")
+
+        self._client._apiEndpoints.deleteObjectsFromList(space_id, collection_id, object_id)
+        return True
+
     def get_or_create_collection(self, space_id: str, name: str) -> str:
         """Get or create a collection (top-level container) by name.
 

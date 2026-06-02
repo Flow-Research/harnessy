@@ -1,12 +1,14 @@
 # Harnessy
 
-Harnessy is a reusable agent harness for software projects.
+Harnessy is Flow's agent capability harness for software projects and agent runtimes.
 
-It installs a shared AI operating layer into a repo so supported coding agents can discover the same skills, context, commands, and verification surfaces.
+It packages context, skills, commands, QA surfaces, dependency contracts, runtime adapters, and project protocols so supported agents can do real work safely and consistently.
+
+Repo installation is the default mode, but not the whole identity. Harnessy also provides the capability, profile, adapter, and verification layer that Jarvis, Garden, Workstream, and compatible agent hosts can reuse.
 
 ## Overview
 
-Harnessy gives a repository:
+In its default repo mode, Harnessy gives a repository:
 
 - a minimal root `AGENTS.md` pointer plus a full protocol in `.jarvis/context/AGENTS.md`
 - a shared context vault and memory system under `.jarvis/context/`
@@ -18,6 +20,24 @@ Harnessy gives a repository:
 - installation verification harnesses for local and remote-style bootstrap flows
 - Meta-Harness capabilities for feedback capture, skill improvement, promotion, validation, publishing, and bounded autoresearch loops
 - knowledge-management integrations and workflows for AnyType, Obsidian/wiki compilation, and Notion-backed Jarvis usage
+
+## Positioning
+
+Harnessy answers: **what can this agent do here, and is the environment ready for it?**
+
+That means Harnessy owns the capability packaging and verification surface:
+
+- capability packs: skills, scripts, command shims, context templates, hooks, cron jobs, QA profiles, permissions, and dependency checks
+- install profiles: repo, user, agent host, runtime, and CI shapes
+- runtime adapters: Claude Code, Codex, OpenCode, Jarvis, Garden, MCP, and future hosts
+- verification harnesses: inventory, dependencies, auth, context, host registration, execution probes, QA contracts, and capability-specific health
+
+Harnessy is useful by itself in a software repo, and it also gives higher layers a consistent way to prepare agent-operated work:
+
+- **Jarvis** governs human-agent work sessions, policy, memory, review, and evidence.
+- **Garden** presents the product workspace, enterprise controls, inboxes, issues, connectors, and UI.
+- **Workstream** supplies tasks, rubrics, reviewers, evaluations, contribution records, and evidence needs.
+- **Harnessy** packages and verifies the project, host, and runtime capabilities those layers rely on when work touches software systems.
 
 ## Key Features
 

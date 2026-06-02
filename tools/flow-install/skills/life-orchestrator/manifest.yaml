@@ -35,6 +35,7 @@ schedule:
     type: shell
     command: 'python3 "${AGENTS_SKILLS_ROOT:-$HOME/.agents/skills}/life-orchestrator/scripts/daily-brief"'
     description: "Daily focus brief at 05:30 (chief-of-staff synthesis)"
+    timeout: 900
     enabled: false
   - name: weekly-plan
     cron: "0 18 * * 0"

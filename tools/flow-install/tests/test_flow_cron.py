@@ -28,7 +28,7 @@ def test_prompt_entries_default_to_codex(monkeypatch) -> None:
     assert "claude -p" not in command
 
 
-def test_launchd_environment_defaults_to_auto_with_codex_first(monkeypatch) -> None:
+def test_launchd_environment_defaults_to_codex(monkeypatch) -> None:
     monkeypatch.delenv("FLOW_CRON_AI_PROVIDER", raising=False)
     monkeypatch.delenv("FLOW_CRON_AI_PROVIDER_ORDER", raising=False)
     monkeypatch.delenv("FLOW_CRON_PROMPT_RUNNER", raising=False)
@@ -47,10 +47,10 @@ def test_launchd_environment_defaults_to_auto_with_codex_first(monkeypatch) -> N
 
     env = plist["EnvironmentVariables"]
     assert env["FLOW_CRON_PROMPT_RUNNER"] == "codex"
-    assert env["HARNESSY_AI_PROVIDER"] == "auto"
-    assert env["FLOW_AI_PROVIDER"] == "auto"
-    assert env["HARNESSY_AI_PROVIDER_ORDER"] == "codex,claude,opencode"
-    assert env["FLOW_AI_PROVIDER_ORDER"] == "codex,claude,opencode"
+    assert env["HARNESSY_AI_PROVIDER"] == "codex"
+    assert env["FLOW_AI_PROVIDER"] == "codex"
+    assert env["HARNESSY_AI_PROVIDER_ORDER"] == "codex"
+    assert env["FLOW_AI_PROVIDER_ORDER"] == "codex"
 
 
 def test_cron_environment_includes_fathom_env_vars(monkeypatch) -> None:

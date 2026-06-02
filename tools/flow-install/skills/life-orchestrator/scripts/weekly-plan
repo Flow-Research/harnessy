@@ -34,12 +34,25 @@ OUTPUT_FILE="$OUTPUT_DIR/week-$WEEK-plan.md"
 STATUS_FILE="$PROJECT_ROOT/.jarvis/context/status.md"
 ROADMAP_FILE="$PROJECT_ROOT/.jarvis/context/roadmap.md"
 
-# Priorities are user-private. The path is configurable so the script never
-# hardcodes a path into a specific user's tree.
-#   1. $LIFE_PRIORITIES_FILE if set
-#   2. ~/.agents/life/priorities.md (life-orchestrator convention)
-#   3. otherwise, run without priorities
-PRIORITIES_FILE="${LIFE_PRIORITIES_FILE:-$HOME/.agents/life/priorities.md}"
+# Priorities are user-private. Prefer the repo-private context file so weekly
+# planning uses the same source as collect-state; keep the historical
+# ~/.agents/life/priorities.md path as a fallback for older installs.
+FLOW_CONTEXT_USER="${FLOW_USER:-}"
+if [ -z "$FLOW_CONTEXT_USER" ]; then
+    FLOW_CONTEXT_USER="${USER:-}"
+fi
+if [ -z "$FLOW_CONTEXT_USER" ]; then
+    FLOW_CONTEXT_USER="default"
+fi
+PRIVATE_PRIORITIES_FILE="$PROJECT_ROOT/.jarvis/context/private/$FLOW_CONTEXT_USER/priorities.md"
+LEGACY_PRIORITIES_FILE="$HOME/.agents/life/priorities.md"
+if [ -n "${LIFE_PRIORITIES_FILE:-}" ]; then
+    PRIORITIES_FILE="$LIFE_PRIORITIES_FILE"
+elif [ -f "$PRIVATE_PRIORITIES_FILE" ]; then
+    PRIORITIES_FILE="$PRIVATE_PRIORITIES_FILE"
+else
+    PRIORITIES_FILE="$LEGACY_PRIORITIES_FILE"
+fi
 
 MONTHLY_REVIEW_FILE="$OUTPUT_DIR/monthly-review.md"
 TEMPLATE_FILE="$SKILL_DIR/templates/weekly-plan.md"
@@ -82,7 +95,7 @@ fi
 TEMPLATE=$(cat "$TEMPLATE_FILE")
 
 # Step 3: build prompt
-PROMPT=$(cat <<EOF
+IFS= read -r -d '' PROMPT <<EOF
 You are writing the user's weekly planning note. Output ONLY the plan in markdown - no preamble, no commentary, no questions.
 
 Voice and style:
@@ -119,7 +132,6 @@ $STATE_JSON
 Produce the weekly plan for Week $WEEK of $YEAR ($MONTH). Use the template structure, but keep
 the language direct and natural. Output the markdown plan only.
 EOF
-)
 
 # Step 4: invoke the provider-agnostic AI runner
 AI_RUNNER="$SKILL_DIR/../_shared/ai_runner.py"
@@ -155,6 +167,18 @@ fi
 
 # Step 5: write the plan
 echo "$PLAN" > "$OUTPUT_FILE"
+if command -v jarvis >/dev/null 2>&1; then
+    echo "Running text hygiene cleanup..." >&2
+    HYGIENE_OUTPUT=$(jarvis text-hygiene clean "$OUTPUT_FILE" --report 2>&1)
+    HYGIENE_EXIT=$?
+    echo "$HYGIENE_OUTPUT" | sed 's/^/  /' >&2
+    if [ $HYGIENE_EXIT -ne 0 ]; then
+        echo "ERROR: text hygiene cleanup failed (exit $HYGIENE_EXIT)" >&2
+        exit 1
+    fi
+else
+    echo "WARN: jarvis CLI not on PATH — skipping text hygiene cleanup" >&2
+fi
 echo "Weekly plan written to $OUTPUT_FILE ($(wc -c < "$OUTPUT_FILE") bytes)" >&2
 
 # Step 6: push to Jarvis journal (Anytype). Logs failures explicitly so they're

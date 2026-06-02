@@ -52,6 +52,8 @@ class TestWriteMeetingMemory:
         events_text = events.read_text(encoding="utf-8")
         decisions_text = decisions.read_text(encoding="utf-8")
         assert "SEAS Partnership Sync" in events_text
+        assert "### Next Steps" in events_text
+        assert "### Action Items" not in events_text
         assert "Julian: Revise the proposal." in events_text
         assert "right of first refusal" in decisions_text
         assert events_text.count("memory_id:") == 1
@@ -85,6 +87,8 @@ class TestWriteMeetingMemory:
         assert list(note.parent.glob("23-seas-partnership-sync*.md")) == [note]
         note_text = note.read_text(encoding="utf-8")
         assert "Aligned on a sustainable Enugu innovation hub structure." in note_text
+        assert "## Next Steps" in note_text
+        assert "## Action Items" not in note_text
         assert "Julian: Revise the proposal." in note_text
         assert "## Transcript" not in note_text
         assert "Let's revise the proposal" not in note_text

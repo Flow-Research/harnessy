@@ -23,10 +23,11 @@ For development work, also read:
 
 For specialized maintenance tasks, read as needed:
 
-9. `docs/personal-context-protocol.md`
-10. `docs/reusable-script-standard.md`
-11. `docs/skill-promotion-maintainer-playbook.md`
-12. `docs/autoflow-autoresearch-system.md`
+9. `docs/harnessy-positioning.md`
+10. `docs/personal-context-protocol.md`
+11. `docs/reusable-script-standard.md`
+12. `docs/skill-promotion-maintainer-playbook.md`
+13. `docs/autoflow-autoresearch-system.md`
 
 ## Canonical Root Files
 
@@ -41,6 +42,7 @@ For specialized maintenance tasks, read as needed:
 
 | File | Role |
 |------|------|
+| `docs/harnessy-positioning.md` | Canonical Harnessy capability-harness positioning |
 | `docs/standards/development-guidance.md` | Workspace engineering workflow guidance |
 | `docs/standards/worktree-protocol.md` | Canonical gitignored project-container layout and `dev` branch standard |
 | `docs/standards/qa-process.md` | Shared QA contract for profiles, specs, tests, drift, and validator expectations |

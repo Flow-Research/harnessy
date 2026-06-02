@@ -174,6 +174,53 @@ class TestRenderMeetingMarkdown:
         assert "## Executive Summary" in rendered
         assert "## Transcript" not in rendered
 
+    def test_render_uses_next_steps_for_extracted_actions(self) -> None:
+        source = SourceDocument(
+            source_type=SourceType.FILE,
+            source_ref="/tmp/meeting.md",
+            title="Founder Sync",
+            markdown=(
+                "# Founder Sync\n\n"
+                "## Summary\n\nWe agreed on launch work.\n\n"
+                "## Action Items\n\n"
+                "- Alice to send deck\n"
+            ),
+            last_modified="1",
+        )
+        meeting = parse_meeting_document(source)
+
+        rendered = render_meeting_markdown(meeting)
+
+        assert "## Next Steps" in rendered
+        assert "## Action Items" not in rendered
+        assert "- Alice to send deck" in rendered
+
+    def test_render_suppresses_extracted_actions_when_detail_has_next_steps(self) -> None:
+        source = SourceDocument(
+            source_type=SourceType.FILE,
+            source_ref="/tmp/meeting.md",
+            title="Fathom Sync",
+            markdown="# Fathom Sync\n\n## Summary\n\nShort summary.\n",
+            last_modified="1",
+        )
+        meeting = parse_meeting_document(source).model_copy(
+            update={
+                "detailed_summary": (
+                    "## Key Takeaways\n\n"
+                    "- Team aligned on launch scope.\n\n"
+                    "## Next Steps\n\n"
+                    "- Alice to send deck\n"
+                ),
+                "action_items": ["Alice to send deck"],
+            }
+        )
+
+        rendered = render_meeting_markdown(meeting)
+
+        assert "### Next Steps" in rendered
+        assert "## Action Items" not in rendered
+        assert rendered.count("Alice to send deck") == 1
+
     def test_render_omits_transcript_discussion(self) -> None:
         source = SourceDocument(
             source_type=SourceType.FILE,

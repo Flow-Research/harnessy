@@ -56,7 +56,7 @@ Daily and weekly synthesis use `${AGENTS_SKILLS_ROOT}/_shared/ai_runner.py`.
 ## Inputs
 
 - Subcommand and arguments: `$ARGUMENTS`
-- Priorities file: `~/.agents/life/priorities.md`
+- Priorities file: `.jarvis/context/private/$USER/priorities.md` in the active project root, with `~/.agents/life/priorities.md` retained as a legacy fallback for weekly planning
 - Templates: `${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/`
 - Scripts: `${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/`
 
