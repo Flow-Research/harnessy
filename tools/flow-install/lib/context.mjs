@@ -27,28 +27,26 @@ const CONTEXT_DIRS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Scaffold .jarvis/context/
+// Scaffold .jarvis/context/ — private sub-steps
 // ---------------------------------------------------------------------------
 
-export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirRel = ".jarvis/context" } = {}) => {
-  const contextDir = path.join(projectRoot, contextDirRel);
-
-  // Create directory structure
+const _scaffoldDirs = async (contextDir, contextDirRel, dryRun) => {
   for (const dir of CONTEXT_DIRS) {
-    const full = path.join(contextDir, dir);
-    if (await pathExists(full)) {
+    const dirPath = path.join(contextDir, dir);
+    if (await pathExists(dirPath)) {
       log.skip(`${dir}/`);
       continue;
     }
     if (dryRun) {
-        log.dryRun(`Would create ${contextDirRel}/${dir}/`);
+      log.dryRun(`Would create ${contextDirRel}/${dir}/`);
     } else {
-      await ensureDir(full);
-        log.ok(`${contextDirRel}/${dir}/`);
+      await ensureDir(dirPath);
+      log.ok(`${contextDirRel}/${dir}/`);
     }
   }
+};
 
-  // Create private/<username>/
+const _scaffoldPrivateDir = async (contextDir, dryRun) => {
   const username = os.userInfo().username;
   const privateDir = path.join(contextDir, "private", username);
   if (await pathExists(privateDir)) {
@@ -59,9 +57,10 @@ export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirR
     await ensureDir(privateDir);
     log.ok(`private/${username}/`);
   }
+};
 
-  // Create stub content files (never overwrite existing)
-  const stubs = {
+const _scaffoldStubFiles = async (contextDir, dryRun) => {
+  const stubFiles = {
     "README.md": generateContextReadme(),
     "local.md.example": generateLocalMdExample(),
     "status.md": generateStatusTemplate(),
@@ -71,7 +70,7 @@ export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirR
     "docs/strategy/README.md": generateStrategyReadme(),
   };
 
-  for (const [filename, content] of Object.entries(stubs)) {
+  for (const [filename, content] of Object.entries(stubFiles)) {
     const filePath = path.join(contextDir, filename);
     if (await pathExists(filePath)) {
       log.skip(filename);
@@ -84,7 +83,17 @@ export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirR
       log.ok(filename);
     }
   }
+};
 
+// ---------------------------------------------------------------------------
+// Scaffold .jarvis/context/
+// ---------------------------------------------------------------------------
+
+export const scaffoldContext = async (projectRoot, { dryRun = false, contextDirRel = ".jarvis/context" } = {}) => {
+  const contextDir = path.join(projectRoot, contextDirRel);
+  await _scaffoldDirs(contextDir, contextDirRel, dryRun);
+  await _scaffoldPrivateDir(contextDir, dryRun);
+  await _scaffoldStubFiles(contextDir, dryRun);
   return { contextDir };
 };
 
@@ -111,28 +120,28 @@ export const mergeCatalog = async (projectRoot, newEntries, { dryRun = false } =
 
   // Merge: find existing names, add missing
   const existingNames = new Set();
-  const blocks = existing.split(/\n---\n/);
-  for (const block of blocks) {
+  const catalogBlocks = existing.split(/\n---\n/);
+  for (const block of catalogBlocks) {
     const nameMatch = block.match(/^name:\s*"?([^"\n]+)"?/m);
     if (nameMatch) existingNames.add(nameMatch[1].trim());
   }
 
-  const toAdd = newEntries.filter((entry) => {
+  const entriesToAdd = newEntries.filter((entry) => {
     const nameMatch = entry.match(/^name:\s*"?([^"\n]+)"?/m);
     return nameMatch && !existingNames.has(nameMatch[1].trim());
   });
 
-  if (toAdd.length === 0) {
+  if (entriesToAdd.length === 0) {
     log.skip("_catalog.md (no new entries)");
     return;
   }
 
   if (dryRun) {
-    log.dryRun(`Would add ${toAdd.length} entries to _catalog.md`);
+    log.dryRun(`Would add ${entriesToAdd.length} entries to _catalog.md`);
   } else {
-    const appended = existing.trimEnd() + "\n\n---\n\n" + toAdd.join("\n---\n\n") + "\n";
-    await fs.writeFile(catalogPath, appended, "utf8");
-    log.ok(`_catalog.md: ${toAdd.length} entries added`);
+    const updatedCatalog = existing.trimEnd() + "\n\n---\n\n" + entriesToAdd.join("\n---\n\n") + "\n";
+    await fs.writeFile(catalogPath, updatedCatalog, "utf8");
+    log.ok(`_catalog.md: ${entriesToAdd.length} entries added`);
   }
 };
 

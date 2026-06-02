@@ -39,47 +39,71 @@ const PATHS = {
 };
 
 // ---------------------------------------------------------------------------
-// Cleanup task registry
+// Migration task factory
 // ---------------------------------------------------------------------------
 
-/** @type {Array<{name: string, description: string, check: (ctx) => Promise<{stale: boolean, count?: number, details?: string}>, clean: (ctx) => Promise<{cleaned: number, details?: string}>}>} */
-export const CLEANUP_TASKS = [
-  {
-    name: "legacy-plugin-id-migration",
-    description: "Migrate from old flow-network plugin ID to harnessy (for existing installations)",
+/**
+ * Build a check/clean task for a renamed legacy plugin ID.
+ *
+ * @param {object}   opts
+ * @param {string}   opts.name             Task name
+ * @param {string}   opts.description      Human-readable description
+ * @param {string}   opts.hyphenId         Hyphenated legacy ID, e.g. "flow-network"
+ * @param {string}   opts.underscoreId     Underscore legacy ID, e.g. "flow_network"
+ * @param {string[]} [opts.extraCheckDirs] Extra dirs included in stale check but not cleaned
+ * @param {boolean}  [opts.cleanAllPluginKeys] Also remove all enabledPlugins keys with the suffix
+ * @param {string}   [opts.cleanDetails]   Custom details string for the clean result
+ */
+function makeLegacyMigrationTask({
+  name,
+  description,
+  hyphenId,
+  underscoreId,
+  extraCheckDirs = [],
+  cleanAllPluginKeys = false,
+  cleanDetails,
+}) {
+  const suffix = `@${underscoreId}`;
+  const pluginKey = `${hyphenId}${suffix}`;
+
+  return {
+    name,
+    description,
 
     check: async (ctx) => {
       let staleCount = 0;
-      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", "flow-network");
+      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", hyphenId);
       if (await pathExists(oldMarketplaceDir)) staleCount++;
-      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", "flow_network");
+      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", underscoreId);
       if (await pathExists(oldCacheDir)) staleCount++;
       const settings = await readJsonSafe(path.join(homeDir, ".claude", "settings.json"));
-      if (settings?.enabledPlugins?.["flow-network@flow_network"]) staleCount++;
-      if (settings?.extraKnownMarketplaces?.flow_network) staleCount++;
+      if (settings?.enabledPlugins?.[pluginKey]) staleCount++;
+      if (settings?.extraKnownMarketplaces?.[underscoreId]) staleCount++;
       const known = await readJsonSafe(path.join(homeDir, ".claude", "plugins", "known_marketplaces.json"));
-      if (known?.flow_network) staleCount++;
+      if (known?.[underscoreId]) staleCount++;
       const installed = await readJsonSafe(ctx.paths.installedPlugins);
       if (installed?.plugins) {
-        const oldKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_network"));
-        staleCount += oldKeys.length;
+        staleCount += Object.keys(installed.plugins).filter((key) => key.endsWith(suffix)).length;
+      }
+      for (const dir of extraCheckDirs) {
+        if (await pathExists(dir)) staleCount++;
       }
       if (staleCount === 0) return { stale: false };
-      return { stale: true, count: staleCount, details: `${staleCount} legacy flow-network artifact(s)` };
+      return { stale: true, count: staleCount, details: `${staleCount} legacy ${hyphenId} artifact(s)` };
     },
 
     clean: async (ctx) => {
       let cleaned = 0;
 
       // Remove old marketplace dir
-      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", "flow-network");
+      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", hyphenId);
       if (await pathExists(oldMarketplaceDir)) {
         await fs.rm(oldMarketplaceDir, { recursive: true, force: true });
         cleaned++;
       }
 
       // Remove old plugin cache
-      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", "flow_network");
+      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", underscoreId);
       if (await pathExists(oldCacheDir)) {
         await fs.rm(oldCacheDir, { recursive: true, force: true });
         cleaned++;
@@ -90,105 +114,20 @@ export const CLEANUP_TASKS = [
       const settings = await readJsonSafe(settingsPath);
       if (settings) {
         let changed = false;
-        if (settings.enabledPlugins?.["flow-network@flow_network"]) {
-          delete settings.enabledPlugins["flow-network@flow_network"];
+        if (settings.enabledPlugins?.[pluginKey]) {
+          delete settings.enabledPlugins[pluginKey];
           changed = true; cleaned++;
         }
-        if (settings.extraKnownMarketplaces?.flow_network) {
-          delete settings.extraKnownMarketplaces.flow_network;
-          changed = true; cleaned++;
-        }
-        if (changed) await writeJson(settingsPath, settings);
-      }
-
-      // Clean known_marketplaces.json
-      const knownPath = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
-      const known = await readJsonSafe(knownPath);
-      if (known?.flow_network) {
-        delete known.flow_network;
-        await writeJson(knownPath, known);
-        cleaned++;
-      }
-
-      // Clean installed_plugins.json
-      const installed = await readJsonSafe(ctx.paths.installedPlugins);
-      if (installed?.plugins) {
-        const oldKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_network"));
-        if (oldKeys.length > 0) {
-          for (const k of oldKeys) delete installed.plugins[k];
-          await writeJson(ctx.paths.installedPlugins, installed);
-          cleaned += oldKeys.length;
-        }
-      }
-
-      return { cleaned, details: "legacy flow-network artifacts removed" };
-    },
-  },
-
-  {
-    name: "legacy-flow-harness-migration",
-    description: "Migrate from old flow-harness plugin ID to harnessy (repo renamed)",
-
-    check: async (ctx) => {
-      let staleCount = 0;
-      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", "flow-harness");
-      if (await pathExists(oldMarketplaceDir)) staleCount++;
-      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", "flow_harness");
-      if (await pathExists(oldCacheDir)) staleCount++;
-      const settings = await readJsonSafe(path.join(homeDir, ".claude", "settings.json"));
-      if (settings?.enabledPlugins?.["flow-harness@flow_harness"]) staleCount++;
-      if (settings?.extraKnownMarketplaces?.flow_harness) staleCount++;
-      const known = await readJsonSafe(path.join(homeDir, ".claude", "plugins", "known_marketplaces.json"));
-      if (known?.flow_harness) staleCount++;
-      const installed = await readJsonSafe(ctx.paths.installedPlugins);
-      if (installed?.plugins) {
-        const oldKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_harness"));
-        staleCount += oldKeys.length;
-      }
-      // Check for old cache directory
-      const oldInstallCache = path.join(homeDir, ".cache", "flow-harness");
-      if (await pathExists(oldInstallCache)) staleCount++;
-      if (staleCount === 0) return { stale: false };
-      return { stale: true, count: staleCount, details: `${staleCount} legacy flow-harness artifact(s)` };
-    },
-
-    clean: async (ctx) => {
-      let cleaned = 0;
-
-      // Remove old marketplace dir
-      const oldMarketplaceDir = path.join(ctx.paths.marketplace, "..", "claude-marketplace", "flow-harness");
-      if (await pathExists(oldMarketplaceDir)) {
-        await fs.rm(oldMarketplaceDir, { recursive: true, force: true });
-        cleaned++;
-      }
-
-      // Remove old plugin cache
-      const oldCacheDir = path.join(homeDir, ".claude", "plugins", "cache", "flow_harness");
-      if (await pathExists(oldCacheDir)) {
-        await fs.rm(oldCacheDir, { recursive: true, force: true });
-        cleaned++;
-      }
-
-      // Clean settings.json
-      const settingsPath = path.join(homeDir, ".claude", "settings.json");
-      const settings = await readJsonSafe(settingsPath);
-      if (settings) {
-        let changed = false;
-        if (settings.enabledPlugins?.["flow-harness@flow_harness"]) {
-          delete settings.enabledPlugins["flow-harness@flow_harness"];
-          changed = true; cleaned++;
-        }
-        // Also clean any individual skill entries under the old marketplace
-        if (settings.enabledPlugins) {
+        if (cleanAllPluginKeys && settings.enabledPlugins) {
           for (const key of Object.keys(settings.enabledPlugins)) {
-            if (key.endsWith("@flow_harness")) {
+            if (key.endsWith(suffix)) {
               delete settings.enabledPlugins[key];
               changed = true; cleaned++;
             }
           }
         }
-        if (settings.extraKnownMarketplaces?.flow_harness) {
-          delete settings.extraKnownMarketplaces.flow_harness;
+        if (settings.extraKnownMarketplaces?.[underscoreId]) {
+          delete settings.extraKnownMarketplaces[underscoreId];
           changed = true; cleaned++;
         }
         if (changed) await writeJson(settingsPath, settings);
@@ -197,8 +136,8 @@ export const CLEANUP_TASKS = [
       // Clean known_marketplaces.json
       const knownPath = path.join(homeDir, ".claude", "plugins", "known_marketplaces.json");
       const known = await readJsonSafe(knownPath);
-      if (known?.flow_harness) {
-        delete known.flow_harness;
+      if (known?.[underscoreId]) {
+        delete known[underscoreId];
         await writeJson(knownPath, known);
         cleaned++;
       }
@@ -206,17 +145,41 @@ export const CLEANUP_TASKS = [
       // Clean installed_plugins.json
       const installed = await readJsonSafe(ctx.paths.installedPlugins);
       if (installed?.plugins) {
-        const oldKeys = Object.keys(installed.plugins).filter(k => k.endsWith("@flow_harness"));
+        const oldKeys = Object.keys(installed.plugins).filter((key) => key.endsWith(suffix));
         if (oldKeys.length > 0) {
-          for (const k of oldKeys) delete installed.plugins[k];
+          for (const key of oldKeys) delete installed.plugins[key];
           await writeJson(ctx.paths.installedPlugins, installed);
           cleaned += oldKeys.length;
         }
       }
 
-      return { cleaned, details: "legacy flow-harness artifacts removed (repo renamed to harnessy)" };
+      return { cleaned, details: cleanDetails ?? `legacy ${hyphenId} artifacts removed` };
     },
-  },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Cleanup task registry
+// ---------------------------------------------------------------------------
+
+/** @type {Array<{name: string, description: string, check: (ctx) => Promise<{stale: boolean, count?: number, details?: string}>, clean: (ctx) => Promise<{cleaned: number, details?: string}>}>} */
+export const CLEANUP_TASKS = [
+  makeLegacyMigrationTask({
+    name: "legacy-plugin-id-migration",
+    description: "Migrate from old flow-network plugin ID to harnessy (for existing installations)",
+    hyphenId: "flow-network",
+    underscoreId: "flow_network",
+  }),
+
+  makeLegacyMigrationTask({
+    name: "legacy-flow-harness-migration",
+    description: "Migrate from old flow-harness plugin ID to harnessy (repo renamed)",
+    hyphenId: "flow-harness",
+    underscoreId: "flow_harness",
+    extraCheckDirs: [path.join(homeDir, ".cache", "flow-harness")],
+    cleanAllPluginKeys: true,
+    cleanDetails: "legacy flow-harness artifacts removed (repo renamed to harnessy)",
+  }),
 
   {
     name: "installed-plugins",
@@ -227,7 +190,7 @@ export const CLEANUP_TASKS = [
       if (!installed?.plugins) return { stale: false };
       const bundledKey = `${ctx.pluginId}@harnessy`;
       const staleKeys = Object.keys(installed.plugins).filter(
-        (k) => k.endsWith("@harnessy") && k !== bundledKey,
+        (key) => key.endsWith("@harnessy") && key !== bundledKey,
       );
       if (staleKeys.length === 0) return { stale: false };
       return { stale: true, count: staleKeys.length, details: `${staleKeys.length} individual plugin entries` };
@@ -238,7 +201,7 @@ export const CLEANUP_TASKS = [
       if (!installed?.plugins) return { cleaned: 0 };
       const bundledKey = `${ctx.pluginId}@harnessy`;
       const staleKeys = Object.keys(installed.plugins).filter(
-        (k) => k.endsWith("@harnessy") && k !== bundledKey,
+        (key) => key.endsWith("@harnessy") && key !== bundledKey,
       );
       for (const key of staleKeys) delete installed.plugins[key];
       await writeJson(ctx.paths.installedPlugins, installed);
@@ -253,7 +216,7 @@ export const CLEANUP_TASKS = [
     check: async (ctx) => {
       if (!(await pathExists(ctx.paths.pluginCache))) return { stale: false };
       const entries = await fs.readdir(ctx.paths.pluginCache, { withFileTypes: true });
-      const stale = entries.filter((e) => e.isDirectory() && e.name !== ctx.pluginId);
+      const stale = entries.filter((entry) => entry.isDirectory() && entry.name !== ctx.pluginId);
       if (stale.length === 0) return { stale: false };
       return { stale: true, count: stale.length, details: `${stale.length} cache directories` };
     },
@@ -261,7 +224,7 @@ export const CLEANUP_TASKS = [
     clean: async (ctx) => {
       if (!(await pathExists(ctx.paths.pluginCache))) return { cleaned: 0 };
       const entries = await fs.readdir(ctx.paths.pluginCache, { withFileTypes: true });
-      const stale = entries.filter((e) => e.isDirectory() && e.name !== ctx.pluginId);
+      const stale = entries.filter((entry) => entry.isDirectory() && entry.name !== ctx.pluginId);
       for (const entry of stale) {
         await fs.rm(path.join(ctx.paths.pluginCache, entry.name), { recursive: true, force: true });
       }
@@ -385,8 +348,8 @@ export const runCleanup = async (ctx) => {
     results.push({ name: task.name, stale: true, ...cleanResult });
   }
 
-  const totalCleaned = results.reduce((sum, r) => sum + (r.cleaned || 0), 0);
-  const totalStale = results.filter((r) => r.stale).length;
+  const totalCleaned = results.reduce((sum, result) => sum + (result.cleaned || 0), 0);
+  const totalStale = results.filter((result) => result.stale).length;
 
   if (totalStale === 0) {
     ctx.log.skip("No stale artifacts found");
