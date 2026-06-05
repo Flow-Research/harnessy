@@ -571,3 +571,7 @@ This repository is the source repo for Harnessy.
 - installer source: `tools/flow-install/`
 - shared skill source: `tools/flow-install/skills/`
 - Jarvis package source: `jarvis-cli/`
+
+## License
+
+AGPL-3.0-only. See `LICENSE`.

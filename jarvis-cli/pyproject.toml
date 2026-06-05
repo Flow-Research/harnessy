@@ -3,7 +3,7 @@ name = "jarvis-scheduler"
 version = "0.1.0"
 description = "AI-powered personal agent CLI for task scheduling, journaling, reading list orchestration, and local Android tooling"
 readme = "README.md"
-license = { text = "MIT" }
+license = "AGPL-3.0-only"
 requires-python = ">=3.11"
 authors = [
     { name = "Julian", email = "julian@example.com" }
@@ -13,7 +13,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Scheduling",
