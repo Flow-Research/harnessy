@@ -3,7 +3,7 @@ name: dependency-manager
 description: Plan, verify, and explicitly install skill and script runtime dependencies from Harnessy manifests.
 disable-model-invocation: true
 allowed-tools: Read, Bash
-argument-hint: "[check|plan|install] [--manifest <path>|--skills-root <path>] [--json] [--dry-run]"
+argument-hint: "[check|plan|install] [--manifest <path>|--skills-root <path>] [--json] [--dry-run] [--include-optional]"
 ---
 
 # Dependency Manager
@@ -13,7 +13,7 @@ Provide an explicit dependency-management surface for Harnessy skills and script
 
 ## Inputs
 - Optional subcommand: `check`, `plan`, or `install`
-- Optional flags: `--manifest <path>`, `--skills-root <path>`, `--json`, `--dry-run`
+- Optional flags: `--manifest <path>`, `--skills-root <path>`, `--json`, `--dry-run`, `--include-optional`
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/dependency-manager/`.
 
@@ -22,6 +22,7 @@ Provide an explicit dependency-management surface for Harnessy skills and script
 2. Use the installed `flow-deps` command for deterministic dependency inspection.
 3. Ask the user before invoking `flow-deps install ...` unless they explicitly requested installation.
 4. Keep manifests as the source of truth for runtime requirements.
+5. Use `--include-optional` when the user explicitly asks to install provider/capability extras.
 
 ## Output
 - Dependency plans for one manifest or all installed skills.

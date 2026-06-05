@@ -2,8 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { installManifest } from "../../../lib/dependencies.mjs";
 
-const usage = `Usage:\n  flow-deps plan --manifest <path>\n  flow-deps check --manifest <path>\n  flow-deps install --manifest <path> [--dry-run]\n  flow-deps plan --skills-root <path>\n  flow-deps check --skills-root <path>\n  flow-deps install --skills-root <path> [--dry-run]\n`;
+const usage = `Usage:\n  flow-deps plan --manifest <path>\n  flow-deps check --manifest <path>\n  flow-deps install --manifest <path> [--dry-run] [--include-optional]\n  flow-deps plan --skills-root <path>\n  flow-deps check --skills-root <path>\n  flow-deps install --skills-root <path> [--dry-run] [--include-optional]\n`;
 
 const getPlatform = () => {
   const platform = os.platform();
@@ -156,18 +157,6 @@ const collectManifestPaths = ({ cwd, manifestPath, skillsRoot }) => {
     .filter((entry) => fs.existsSync(entry));
 };
 
-const installManifest = (manifestPath, { dryRun = false } = {}) => {
-  const check = checkManifest(manifestPath);
-  const attempted = check.requirements
-    .filter((requirement) => requirement.required && !requirement.available && requirement.installCommand)
-    .map((requirement) => {
-      if (dryRun) return { ...requirement, changed: false, ok: true, dryRun: true };
-      const result = spawnSync(requirement.installCommand, { shell: true, stdio: "inherit" });
-      return { ...requirement, changed: result.status === 0, ok: result.status === 0, exitCode: result.status };
-    });
-  return { manifestPath, attempted, ok: attempted.every((entry) => entry.ok) };
-};
-
 const writeJson = (stream, value) => stream.write(`${JSON.stringify(value, null, 2)}\n`);
 
 const renderCheck = (stream, checks) => {
@@ -213,7 +202,10 @@ export const runCli = async (argv, io = {}) => {
     }
 
     if (subcommand === "install") {
-      const results = manifests.map((manifestPath) => installManifest(manifestPath, { dryRun: Boolean(flags["dry-run"]) }));
+      const results = manifests.map((manifestPath) => installManifest(manifestPath, {
+        dryRun: Boolean(flags["dry-run"]),
+        includeOptional: Boolean(flags["include-optional"]),
+      }));
       if (flags.json) writeJson(stdout, results);
       else renderCheck(stdout, manifests.map((manifestPath) => checkManifest(manifestPath)));
       return results.every((entry) => entry.ok) ? 0 : 1;

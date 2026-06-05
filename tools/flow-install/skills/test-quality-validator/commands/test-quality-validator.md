@@ -1,6 +1,6 @@
 ---
-description: Validate tests against the canonical QA runtime, regression artifacts, and optional delivery-profile rules
-argument-hint: "[--epic <epic_name>] [--suite <X>] [--api-only] [--browser-only] [--qa-profile .harnessy/qa-profile.json] [--profile .flow/delivery-profile.json]"
+description: Validate tests against the canonical QA runtime, regression artifacts, and optional profile rules
+argument-hint: "[--epic <epic_name>] [--suite <X>] [--api-only] [--browser-only] [--qa-profile .jarvis/context/profiles/qa.json] [--profile .jarvis/context/profiles/qa.json]"
 ---
 
 # Test Quality Validator Command
@@ -8,14 +8,14 @@ argument-hint: "[--epic <epic_name>] [--suite <X>] [--api-only] [--browser-only]
 ## Inputs
 
 - canonical QA profile
-- optional delivery profile for role and validator adapter rules
+- optional profile for role inventory, validator adapter rules, and mock policy
 - optional epic or suite scoping
 
 See `.jarvis/context/docs/standards/qa-process.md` for the shared QA contract this validator is expected to enforce.
 
 ## Workflow
 
-1. Resolve the QA profile. Default to `.harnessy/qa-profile.json`, then `.flow/qa-profile.json`, then `qa/qa-profile.json`.
+1. Resolve the QA profile. Default to `.jarvis/context/profiles/qa.json`, then legacy `.harnessy/qa-profile.json`, `.flow/qa-profile.json`, then `qa/qa-profile.json`.
 2. Run the deterministic drift preflight:
 
 ```bash
@@ -29,6 +29,7 @@ qa drift --profile <qa-profile> --json
 - `Status: implemented` scenarios without matching tests
 - tests referencing nonexistent specs
 - persistence-sensitive browser scenarios with no `DB Assert:` coverage or explicit environment limitation
+- internal DB/client/auth/service mocks without documented mock-policy exception
 
 4. If acceptance-criteria coverage is part of the request, parse criteria with:
 
@@ -55,6 +56,10 @@ For browser suites, explicitly call out false-green risks from unverified
 selectors, missing Playwright walkthrough evidence, missing DB assertions, and
 assertions that only check navigation without verifying the user-visible or
 persisted outcome.
+
+For API and service suites, explicitly call out mock-heavy tests. Mocks for
+external providers are acceptable when the QA profile lists the boundary under
+`testEnvironment.mockPolicy.allowedExternalBoundaries` or `exceptions`.
 
 ## Completion criteria
 

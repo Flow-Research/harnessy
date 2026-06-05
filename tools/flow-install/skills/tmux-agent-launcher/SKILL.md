@@ -3,7 +3,7 @@ name: tmux-agent-launcher
 description: "Launch Claude, OpenCode, or Codex in a named tmux session from the command line or agent workflows."
 disable-model-invocation: true
 allowed-tools: Read, Bash
-argument-hint: "--runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]"
+argument-hint: "--runner <claude|opencode|codex> <session-name> [options] [--permission-mode bypass|default] [-- <runner-args>...]"
 ---
 
 # Tmux Agent Launcher
@@ -21,6 +21,8 @@ Launch `claude`, `opencode`, or `codex` inside a named tmux session, attach to a
 - optional `--cwd <path>`
 - optional `--attach`
 - optional `--dry-run`
+- optional `--permission-mode <bypass|default>`; defaults to the per-user Harnessy install config, then `bypass`
+- optional `--skip-permissions` / `--no-skip-permissions`
 - optional `-- <runner-args>...`: arguments passed directly to the selected agent CLI
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/tmux-agent-launcher/`.

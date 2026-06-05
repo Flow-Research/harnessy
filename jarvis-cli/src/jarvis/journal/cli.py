@@ -26,6 +26,7 @@ from jarvis.journal.prompts import (
     format_title_prompt,
 )
 from jarvis.journal.state import save_draft, save_entry_reference
+from jarvis.knowledge_body import strip_duplicate_title_heading
 
 console = Console()
 
@@ -417,14 +418,6 @@ def write_entry(
             console.print("[yellow]No content entered. Entry cancelled.[/yellow]")
             return
 
-        # For file mode: generate summary and compose combined content
-        if mode == CaptureMode.FILE:
-            content = _compose_file_entry(content, file_path)
-
-        # Save draft immediately for recovery
-        draft_path = save_draft(content)
-        console.print(f"[dim]Draft saved: {draft_path.name}[/dim]")
-
         # Generate or use provided title
         if title:
             entry_title = title
@@ -433,6 +426,16 @@ def write_entry(
             console.print("[dim]Generating title...[/dim]")
             entry_title = generate_title(content)
             console.print(f"[dim]Title: {entry_title}[/dim]")
+
+        content = strip_duplicate_title_heading(content, entry_title)
+
+        # For file mode: generate summary and compose combined content
+        if mode == CaptureMode.FILE:
+            content = _compose_file_entry(content, file_path)
+
+        # Save draft immediately for recovery
+        draft_path = save_draft(content)
+        console.print(f"[dim]Draft saved: {draft_path.name}[/dim]")
 
         # Connect to AnyType
         client = get_connected_client()

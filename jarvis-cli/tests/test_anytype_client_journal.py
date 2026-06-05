@@ -217,11 +217,16 @@ class TestCreatePage:
         mock_type = MagicMock()
         mock_obj = MagicMock()
         mock_obj.id = "page_123"
+        api = SimpleNamespace(
+            headers={"Anytype-Version": "old"},
+            updateObject=MagicMock(),
+            addObjectsToList=MagicMock(return_value={"success": True}),
+        )
 
         mock_space.get_type_byname.return_value = mock_type
         mock_space.create_object.return_value = mock_obj
         authenticated_client._client.get_space.return_value = mock_space
-        authenticated_client._client._apiEndpoints = MagicMock()
+        authenticated_client._client._apiEndpoints = api
 
         result = authenticated_client.create_page(
             "space_123",
@@ -233,6 +238,79 @@ class TestCreatePage:
         assert result == "page_123"
         # create_object is called with an Object instance
         mock_space.create_object.assert_called_once()
+        api.updateObject.assert_called_once_with(
+            "space_123",
+            "page_123",
+            {"name": "Test Page", "markdown": "Page content"},
+        )
+        assert api.headers["Anytype-Version"] == "old"
+
+    def test_create_page_updates_full_markdown_body(
+        self, authenticated_client: AnyTypeClient
+    ) -> None:
+        """Long meeting notes should not be truncated to the summary block."""
+        mock_space = MagicMock()
+        mock_type = MagicMock()
+        mock_obj = MagicMock()
+        mock_obj.id = "page_123"
+        api = SimpleNamespace(headers={}, updateObject=MagicMock())
+        content = "\n".join(
+            [
+                "# Meeting",
+                "",
+                "## Executive Summary",
+                "Summary",
+                "",
+                "## Detailed Summary",
+                "Details",
+                "",
+                "### Next Steps",
+                "Actions",
+            ]
+        )
+
+        mock_space.get_type_byname.return_value = mock_type
+        mock_space.create_object.return_value = mock_obj
+        authenticated_client._client.get_space.return_value = mock_space
+        authenticated_client._client._apiEndpoints = api
+
+        result = authenticated_client.create_page("space_123", "Test Page", content)
+
+        assert result == "page_123"
+        api.updateObject.assert_called_once_with(
+            "space_123",
+            "page_123",
+            {"name": "Test Page", "markdown": content},
+        )
+        assert "Anytype-Version" not in api.headers
+
+    def test_create_page_strips_duplicate_title_heading(
+        self, authenticated_client: AnyTypeClient
+    ) -> None:
+        """The page title should not be duplicated as the first body heading."""
+        mock_space = MagicMock()
+        mock_type = MagicMock()
+        mock_obj = MagicMock()
+        mock_obj.id = "page_123"
+        api = SimpleNamespace(headers={}, updateObject=MagicMock())
+
+        mock_space.get_type_byname.return_value = mock_type
+        mock_space.create_object.return_value = mock_obj
+        authenticated_client._client.get_space.return_value = mock_space
+        authenticated_client._client._apiEndpoints = api
+
+        result = authenticated_client.create_page(
+            "space_123",
+            "5 - Deep Research",
+            "# Deep Research\n\nActual body.",
+        )
+
+        assert result == "page_123"
+        api.updateObject.assert_called_once_with(
+            "space_123",
+            "page_123",
+            {"name": "5 - Deep Research", "markdown": "Actual body."},
+        )
 
     def test_create_page_handles_error(self, authenticated_client: AnyTypeClient) -> None:
         """Test error handling during page creation."""

@@ -50,7 +50,7 @@ Anytype journal (via Jarvis CLI)
 Daily and weekly synthesis use `${AGENTS_SKILLS_ROOT}/_shared/ai_runner.py`.
 
 - `HARNESSY_AI_PROVIDER=auto|claude|codex|opencode` controls the runtime.
-- `HARNESSY_AI_PROVIDER_ORDER=claude,codex,opencode` controls fallback order when provider is `auto`.
+- `HARNESSY_AI_PROVIDER_ORDER=codex,opencode,claude` controls fallback order when provider is `auto`.
 - `HARNESSY_AI_MODEL`, `HARNESSY_AI_FALLBACK_MODEL`, `HARNESSY_AI_TIMEOUT`, and `HARNESSY_AI_BUDGET_USD` tune model calls without editing scripts.
 
 ## Inputs

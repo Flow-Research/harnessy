@@ -4,8 +4,10 @@ from datetime import date
 
 from jarvis.meetings.models import MeetingRecord
 from jarvis.meetings.service import (
+    MEETING_JOURNAL_TITLE_PREFIX,
     apply_meeting_auto_route,
     infer_meeting_project,
+    meeting_journal_title,
     write_meeting_record,
 )
 
@@ -19,13 +21,13 @@ def _meeting_record() -> MeetingRecord:
         fingerprint="fathom:149059728:2026-05-23T19:25:04Z",
         project="seas",
         tags=["fathom"],
-        participants=["Julian Duru", "Eke Urum", "Alex Onyia"],
+        participants=["Project Lead", "Operations Lead", "Finance Lead"],
         summary="Aligned on a sustainable Enugu innovation hub structure.",
         detailed_summary="## Key Takeaways\n\n- Tenants should cover operating costs.",
         decisions=["Replace vague profit-sharing with a right of first refusal."],
-        action_items=["Julian: Revise the proposal."],
+        action_items=["Project Lead: Revise the proposal."],
         open_questions=["Will owners fund the vocational institute building?"],
-        transcript="Julian Duru: Let's revise the proposal.",
+        transcript="Project Lead: Let's revise the proposal.",
         raw_markdown="## Key Takeaways\n\n- Tenants should cover operating costs.",
     )
 
@@ -54,7 +56,7 @@ class TestWriteMeetingMemory:
         assert "SEAS Partnership Sync" in events_text
         assert "### Next Steps" in events_text
         assert "### Action Items" not in events_text
-        assert "Julian: Revise the proposal." in events_text
+        assert "Project Lead: Revise the proposal." in events_text
         assert "right of first refusal" in decisions_text
         assert events_text.count("memory_id:") == 1
         assert decisions_text.count("memory_id:") == 1
@@ -89,7 +91,7 @@ class TestWriteMeetingMemory:
         assert "Aligned on a sustainable Enugu innovation hub structure." in note_text
         assert "## Next Steps" in note_text
         assert "## Action Items" not in note_text
-        assert "Julian: Revise the proposal." in note_text
+        assert "Project Lead: Revise the proposal." in note_text
         assert "## Transcript" not in note_text
         assert "Let's revise the proposal" not in note_text
 
@@ -132,13 +134,13 @@ class TestMeetingAutoRoute:
             "  - project: seas\n"
             "    keywords:\n"
             "      - enugu innovation hub\n"
-            "      - alex onyia\n",
+            "      - hub financing model\n",
             encoding="utf-8",
         )
         meeting = _meeting_record().model_copy(
             update={
                 "project": "",
-                "summary": "Discussed Alex Onyia and the Enugu innovation hub model.",
+                "summary": "Discussed the hub financing model and the innovation hub.",
             }
         )
 
@@ -188,3 +190,41 @@ class TestMeetingAutoRoute:
         )
 
         assert infer_meeting_project(meeting) == ""
+
+
+class TestMeetingJournalTitle:
+    """The journal title used when syncing meetings to backends (Anytype Flow Space, Notion).
+
+    The JournalHierarchy already prepends the day number (``15 - <title>``),
+    so the helper here only needs to add the ``Meeting - `` marker so the
+    final rendered title in Flow Space reads ``dd - Meeting - <title>``.
+    """
+
+    def test_prepends_meeting_marker_to_plain_title(self) -> None:
+        meeting = _meeting_record()
+        title = meeting_journal_title(meeting)
+        assert title == "Meeting - SEAS Partnership Sync"
+        assert title.startswith(MEETING_JOURNAL_TITLE_PREFIX)
+
+    def test_idempotent_when_title_already_has_marker(self) -> None:
+        meeting = _meeting_record().model_copy(
+            update={"title": "Meeting - SEAS Partnership Sync"},
+        )
+        assert meeting_journal_title(meeting) == "Meeting - SEAS Partnership Sync"
+
+    def test_idempotent_marker_match_is_case_insensitive(self) -> None:
+        meeting = _meeting_record().model_copy(
+            update={"title": "meeting - already prefixed"},
+        )
+        # Preserve the user's casing rather than re-prefixing.
+        assert meeting_journal_title(meeting) == "meeting - already prefixed"
+
+    def test_handles_empty_title_with_fallback(self) -> None:
+        meeting = _meeting_record().model_copy(update={"title": ""})
+        assert meeting_journal_title(meeting) == "Meeting - Untitled Meeting"
+
+    def test_strips_surrounding_whitespace_before_prefixing(self) -> None:
+        meeting = _meeting_record().model_copy(
+            update={"title": "  SEAS Partnership Sync  "},
+        )
+        assert meeting_journal_title(meeting) == "Meeting - SEAS Partnership Sync"

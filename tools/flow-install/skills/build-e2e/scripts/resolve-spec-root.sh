@@ -6,6 +6,31 @@ if [ -n "${BUILD_E2E_SPEC_ROOT:-}" ]; then
   exit 0
 fi
 
+if [ -f "./.jarvis/context/profiles/ci.json" ]; then
+  PROFILE_SPEC_ROOT="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+profile = Path('.jarvis/context/profiles/ci.json')
+try:
+    data = json.loads(profile.read_text())
+except Exception:
+    data = {}
+
+project = data.get('project', {})
+value = project.get('specRoot', '') if isinstance(project, dict) else ''
+if isinstance(value, str):
+    print(value)
+else:
+    print('')
+PY
+)"
+  if [ -n "${PROFILE_SPEC_ROOT}" ]; then
+    printf '%s\n' "${PROFILE_SPEC_ROOT}"
+    exit 0
+  fi
+fi
+
 if [ -f "./.flow/delivery-profile.json" ]; then
   PROFILE_SPEC_ROOT="$(python3 - <<'PY'
 import json

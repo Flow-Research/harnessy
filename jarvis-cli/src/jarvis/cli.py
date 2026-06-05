@@ -227,13 +227,39 @@ cli.add_command(object_cli, name="object")
 # Create 'o' as a quick alias for object lookup/edit
 cli.add_command(quick_object, name="o")
 
-# Register reading list commands
-from jarvis.reading_list.cli import quick_reading_list, reading_list_cli  # noqa: E402
+def _unavailable_command(name: str, message: str) -> click.Command:
+    """Return a placeholder command for optional command groups that failed to load."""
 
-cli.add_command(reading_list_cli, name="reading-list")
+    @click.command(name=name, context_settings={"ignore_unknown_options": True})
+    @click.argument("args", nargs=-1, type=click.UNPROCESSED)
+    def unavailable(args: tuple[str, ...]) -> None:
+        raise click.ClickException(message)
 
-# Create 'rl' as a quick alias for reading-list organize
-cli.add_command(quick_reading_list, name="rl")
+    return unavailable
+
+
+def _unavailable_group(name: str, message: str) -> click.Group:
+    """Return a placeholder group for optional command groups that failed to load."""
+
+    @click.group(name=name, context_settings={"ignore_unknown_options": True})
+    def unavailable() -> None:
+        raise click.ClickException(message)
+
+    return unavailable
+
+
+# Register reading list commands. Keep this optional so a reading-list dependency
+# failure does not break unrelated commands such as meeting ingestion.
+try:
+    from jarvis.reading_list.cli import quick_reading_list, reading_list_cli  # noqa: E402
+except Exception as exc:  # pragma: no cover - depends on local optional deps
+    unavailable_message = f"Reading-list commands are unavailable: {exc}"
+    cli.add_command(_unavailable_group("reading-list", unavailable_message), name="reading-list")
+    cli.add_command(_unavailable_command("rl", unavailable_message), name="rl")
+else:
+    cli.add_command(reading_list_cli, name="reading-list")
+    # Create 'rl' as a quick alias for reading-list organize
+    cli.add_command(quick_reading_list, name="rl")
 
 # Register Android APK commands
 from jarvis.android.cli import android_cli, quick_apk  # noqa: E402

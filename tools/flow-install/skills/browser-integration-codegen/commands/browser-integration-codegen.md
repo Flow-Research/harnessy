@@ -1,6 +1,6 @@
 ---
 description: Generate browser integration suites from canonical QA regression specs using a QA profile plus optional delivery-profile adapters
-argument-hint: "[--suite <NN>] [--qa-profile .harnessy/qa-profile.json] [--profile .flow/delivery-profile.json] [--delta] [--inspect-first]"
+argument-hint: "[--suite <NN>] [--qa-profile .jarvis/context/profiles/qa.json] [--profile .flow/delivery-profile.json] [--delta] [--inspect-first]"
 ---
 
 # Browser Integration Codegen Command
@@ -9,12 +9,12 @@ argument-hint: "[--suite <NN>] [--qa-profile .harnessy/qa-profile.json] [--profi
 
 - browser regression spec from the active QA profile
 - optional `--suite <NN>` to scope generation
-- optional `--qa-profile .harnessy/qa-profile.json`
+- optional `--qa-profile .jarvis/context/profiles/qa.json`
 - optional `--profile .flow/delivery-profile.json`
 
 ## Workflow
 
-1. Resolve the QA profile. Default to `.harnessy/qa-profile.json`, then `.flow/qa-profile.json`, then `qa/qa-profile.json`.
+1. Resolve the QA profile. Default to `.jarvis/context/profiles/qa.json`, then legacy `.harnessy/qa-profile.json`, `.flow/qa-profile.json`, then `qa/qa-profile.json`.
 2. Run a deterministic preflight:
 
 ```bash
