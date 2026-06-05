@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { installManifest } from "../../../lib/dependencies.mjs";
 
 const usage = `Usage:\n  flow-deps plan --manifest <path>\n  flow-deps check --manifest <path>\n  flow-deps install --manifest <path> [--dry-run] [--include-optional]\n  flow-deps plan --skills-root <path>\n  flow-deps check --skills-root <path>\n  flow-deps install --skills-root <path> [--dry-run] [--include-optional]\n`;
 
@@ -154,30 +155,6 @@ const collectManifestPaths = ({ cwd, manifestPath, skillsRoot }) => {
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(absoluteRoot, entry.name, "manifest.yaml"))
     .filter((entry) => fs.existsSync(entry));
-};
-
-const installRequirement = (requirement, dryRun) => {
-  if (requirement.available) return { ...requirement, changed: false, ok: true, skipped: true };
-  if (!requirement.installCommand) {
-    return {
-      ...requirement,
-      changed: false,
-      ok: !requirement.required,
-      skipped: true,
-      reason: "no install command",
-    };
-  }
-  if (dryRun) return { ...requirement, changed: false, ok: true, dryRun: true };
-  const result = spawnSync(requirement.installCommand, { shell: true, stdio: "inherit" });
-  return { ...requirement, changed: result.status === 0, ok: result.status === 0, exitCode: result.status };
-};
-
-const installManifest = (manifestPath, { dryRun = false, includeOptional = false } = {}) => {
-  const check = checkManifest(manifestPath);
-  const attempted = check.requirements
-    .filter((requirement) => !requirement.available && (requirement.required || includeOptional))
-    .map((requirement) => installRequirement(requirement, dryRun));
-  return { manifestPath, attempted, ok: attempted.every((entry) => entry.ok) };
 };
 
 const writeJson = (stream, value) => stream.write(`${JSON.stringify(value, null, 2)}\n`);

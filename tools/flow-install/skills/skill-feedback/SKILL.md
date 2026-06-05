@@ -14,6 +14,8 @@ Record feedback about any skill's behavior as a decision trace. This feeds the s
 
 Use this when you have feedback that doesn't correspond to a specific gate interaction — general impressions, workflow complaints, meta-observations, or suggestions.
 
+Template paths are resolved from `${AGENTS_SKILLS_ROOT}/skill-feedback/`.
+
 Follow the Harnessy policy in `.jarvis/context/docs/standards/skill-feedback-protocol.md` when deciding whether feedback must be captured and which skill should receive the trace. The short rule is: capture reusable skill lessons, not empty retrospectives.
 
 ## Inputs

@@ -58,6 +58,24 @@ The profile must declare:
 Use `${AGENTS_SKILLS_ROOT}/qa-runtime/templates/qa-profile.json` as the starter
 template and save it to `.jarvis/context/profiles/qa.json` for new repos.
 
+Relative paths inside the profile are resolved against the runtime `rootDir`
+derived from the profile location:
+
+- Canonical profiles at `.jarvis/context/profiles/qa.json` use the project root
+  as `rootDir`, so paths should use project-root form such as
+  `qa/browser/scripts/app-full-regression.md`, `apps/web/tests/integration`, and
+  `qa/qa-coverage.md`.
+- Legacy profiles at `.harnessy/qa-profile.json`, `.flow/qa-profile.json`, or
+  `qa/qa-profile.json` use the profile file's directory as `rootDir`, so paths
+  that reference project-root files usually need `../` prefixes such as
+  `../qa/browser/scripts/app-full-regression.md`, `../apps/web/tests/integration`,
+  and `../qa/qa-coverage.md`.
+
+The affected properties are `specs[].path`, all `apps[].tests.*` entries, and
+`output.coverage`. This mirrors `profileRootDir` path handling in
+`qa-runtime-lib.mjs` and keeps canonical `.jarvis/context/profiles` migration
+explicit.
+
 Only `specs`, `apps`, and `output.coverage` are required by the deterministic
 runtime today. The other fields are shared conventions used by orchestration
 skills such as `/qa-sweep`, `/qa-feature-catalog`, and `/qa-security-sweep`.
