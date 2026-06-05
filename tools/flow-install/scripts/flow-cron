@@ -194,10 +194,10 @@ def collect_path_dirs() -> str:
 
 def build_cron_environment(path: str | None = None) -> dict[str, str]:
     """Environment shared by launchd and crontab installs."""
-    provider = os.environ.get("FLOW_CRON_AI_PROVIDER", "codex")
+    provider = os.environ.get("FLOW_CRON_AI_PROVIDER", "auto")
     provider_order = os.environ.get("FLOW_CRON_AI_PROVIDER_ORDER")
     if provider_order is None:
-        provider_order = "codex,claude,opencode" if provider == "auto" else provider
+        provider_order = "codex,opencode,claude" if provider == "auto" else provider
     prompt_runner = os.environ.get("FLOW_CRON_PROMPT_RUNNER", "codex")
     env = {
         "PATH": path or collect_path_dirs(),

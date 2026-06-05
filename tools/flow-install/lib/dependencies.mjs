@@ -150,16 +150,25 @@ export const collectManifestPaths = ({ cwd, manifestPath, skillsRoot }) => {
 export const planSkillsRoot = (skillsRoot, cwd = process.cwd()) => collectManifestPaths({ cwd, skillsRoot }).map((manifestPath) => checkManifest(manifestPath));
 
 const installRequirement = (requirement, dryRun) => {
-  if (requirement.available || !requirement.installCommand) return { ...requirement, changed: false, ok: requirement.available, skipped: true };
+  if (requirement.available) return { ...requirement, changed: false, ok: true, skipped: true };
+  if (!requirement.installCommand) {
+    return {
+      ...requirement,
+      changed: false,
+      ok: !requirement.required,
+      skipped: true,
+      reason: "no install command",
+    };
+  }
   if (dryRun) return { ...requirement, changed: false, ok: true, skipped: false, dryRun: true };
   const result = spawnSync(requirement.installCommand, { shell: true, stdio: "inherit" });
   return { ...requirement, changed: result.status === 0, ok: result.status === 0, skipped: false, exitCode: result.status };
 };
 
-export const installManifest = (manifestPath, { dryRun = false } = {}) => {
+export const installManifest = (manifestPath, { dryRun = false, includeOptional = false } = {}) => {
   const check = checkManifest(manifestPath);
   const attempted = check.requirements
-    .filter((requirement) => requirement.required && !requirement.available)
+    .filter((requirement) => !requirement.available && (requirement.required || includeOptional))
     .map((requirement) => installRequirement(requirement, dryRun));
   return { manifestPath, attempted, ok: attempted.every((entry) => entry.ok) };
 };

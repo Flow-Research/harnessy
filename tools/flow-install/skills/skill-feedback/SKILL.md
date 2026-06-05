@@ -14,6 +14,8 @@ Record feedback about any skill's behavior as a decision trace. This feeds the s
 
 Use this when you have feedback that doesn't correspond to a specific gate interaction — general impressions, workflow complaints, meta-observations, or suggestions.
 
+Follow the Harnessy policy in `.jarvis/context/docs/standards/skill-feedback-protocol.md` when deciding whether feedback must be captured and which skill should receive the trace. The short rule is: capture reusable skill lessons, not empty retrospectives.
+
 ## Inputs
 
 - `skill-name` — the skill to attach feedback to
@@ -23,6 +25,7 @@ Use this when you have feedback that doesn't correspond to a specific gate inter
 
 1. **Parse arguments**: extract skill name and feedback text from `$ARGUMENTS`.
 2. **Validate skill exists**: check that `${AGENTS_SKILLS_ROOT}/<skill-name>/` or `~/.agents/skills/<skill-name>/` exists. If not, report the error and list similar skill names.
+   - Attach the trace to the skill that should change. Do not attach routine feedback to `skill-feedback` unless the recorder itself failed.
 3. **Capture the trace**:
    ```bash
    python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \

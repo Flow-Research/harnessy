@@ -11,7 +11,7 @@ Primary user intents:
 1) `pull`: safely update the current branch from a selected remote branch.
 2) `push`: safely publish local changes, create or reuse a PR, and keep working until the PR reaches a terminal success state or an explicit safe escalation state.
 
-Default target branch is the repository integration branch from `.flow/delivery-profile.json` when present; otherwise fall back to `dev`.
+Default target branch is the repository integration branch from `.jarvis/context/profiles/ci.json` when present; otherwise fall back to legacy `.flow/delivery-profile.json`, then `dev`.
 
 When running inside an issue-flow worktree, context-sync auto-detects the issue context and adjusts defaults — pulling/pushing against the issue's base branch instead of the integration branch, enriching commit messages with the issue reference, and handling state file conflicts interactively.
 

@@ -35,12 +35,13 @@ Treat every `specs/<epic>/...` reference below as `${SPEC_ROOT}/<epic>/...`.
 
 ## Integration Branch Resolution
 
-Use the repository integration branch from `.flow/delivery-profile.json` when present.
+Use the repository integration branch from `.jarvis/context/profiles/ci.json` when present.
 
 Fallback order:
 
-1. `.flow/delivery-profile.json` → `workflow.integrationBranch`
-2. `dev`
+1. `.jarvis/context/profiles/ci.json` → `project.integrationBranch`
+2. `.flow/delivery-profile.json` → `workflow.integrationBranch` (legacy compatibility)
+3. `dev`
 
 Treat every hardcoded `dev` reference below as the resolved integration branch.
 
@@ -1395,4 +1396,3 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
 
 After completion, ask: **"Any feedback on this build-e2e run? (skip to finish)"**
 If provided, capture via trace_capture.py with gate "run_retrospective" and gate-type "retrospective".
-

@@ -1,6 +1,6 @@
 ---
 description: Plan, verify, and explicitly install runtime dependencies from Harnessy manifests
-argument-hint: "[check|plan|install] [--manifest <path>|--skills-root <path>] [--json] [--dry-run]"
+argument-hint: "[check|plan|install] [--manifest <path>|--skills-root <path>] [--json] [--dry-run] [--include-optional]"
 ---
 
 # Dependency Manager Command
@@ -26,6 +26,10 @@ Emit the normalized dependency inventory without requiring everything to be inst
 ### `flow-deps install`
 
 Explicitly install missing dependencies. This command is opt-in and should only be run after user approval.
+
+By default, only missing required dependencies are installed. Use
+`--include-optional` when a capability/provider path needs optional tools such
+as an MCP server, deployment CLI, browser driver, or cloud-provider helper.
 
 ## Notes
 

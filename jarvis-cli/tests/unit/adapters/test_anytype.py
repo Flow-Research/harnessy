@@ -413,6 +413,25 @@ class TestAnyTypeAdapterSyncOperations:
         )
         assert api.headers["Anytype-Version"] == "old"
 
+    def test_update_page_content_strips_duplicate_title_heading(
+        self, connected_adapter: AnyTypeAdapter
+    ) -> None:
+        """Sync updates should not duplicate the page title in the body."""
+        api = SimpleNamespace(headers={"Anytype-Version": "old"}, updateObject=MagicMock())
+        fake_space = SimpleNamespace(get_object=lambda _object_id: SimpleNamespace(name="Page"))
+        connected_adapter._client._client = SimpleNamespace(
+            get_space=lambda _space_id: fake_space,
+            _apiEndpoints=api,
+        )
+
+        connected_adapter.update_page_content("space-1", "page-1", "# Page\n\nBody")
+
+        api.updateObject.assert_called_once_with(
+            "space-1",
+            "page-1",
+            {"name": "Page", "markdown": "Body"},
+        )
+
     def test_delete_file_delegates_to_client(self, connected_adapter: AnyTypeAdapter) -> None:
         """Sync prune deletes native file objects via the Files API."""
         with patch.object(

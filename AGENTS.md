@@ -54,6 +54,14 @@ when working inside a nested app.
 - For skills that call command docs, reference installed paths in `SKILL.md` as `${AGENTS_SKILLS_ROOT}/<skill-name>/commands/<file-name>.md`.
 - Every `SKILL.md` must declare template resolution: `Template paths are resolved from ${AGENTS_SKILLS_ROOT}/<skill-name>/.`
 
+## Skill Feedback Protocol
+
+- Read `.jarvis/context/docs/standards/skill-feedback-protocol.md` before relying on skill behavior for substantial work.
+- Before finalizing any skill-backed task, check whether a reusable skill lesson occurred: user correction, missed step, brittle assumption, manual workaround, missing deterministic command, provider/runtime gap, security/package/evidence issue, or repeated friction.
+- If a lesson occurred, capture it with `skill-feedback` or `${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py` against the skill that should change.
+- Do not create empty feedback traces for normal successful runs with no skill-level lesson.
+- If trace capture fails, report that failure in the final response instead of silently dropping the feedback.
+
 ## Autoresearch Convention
 
 Core skills include `autoresearch: enabled: true` in their `manifest.yaml` by
@@ -85,5 +93,9 @@ This repo is Harnessy-managed.
 - Read `.jarvis/context/AGENTS.md`
 - Global skills: `~/.agents/skills/`
 - Project skills: `.agents/skills/` (if present)
+- Runtime profiles: `.jarvis/context/profiles/{qa,ci,deploy}.json`
+- Testing: prefer integration/container tests; use Testcontainers first and mocks only by documented exception
+- Deployment: CI/profile/evidence-driven; local overrides must run the same gates
+- Skill feedback: capture reusable skill lessons as traces; do not leave them only in chat
 - If inside a sub-project, prefer its local `.jarvis/context/`
 <!-- flow:end -->

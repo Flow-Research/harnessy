@@ -376,6 +376,34 @@ class TestNotionAdapterJournal:
         assert entry.entry_date == date(2025, 1, 25)
         assert entry.content == "Today was productive."
 
+    def test_create_journal_entry_strips_duplicate_title_heading(
+        self, connected_adapter: NotionAdapter
+    ) -> None:
+        """Notion page bodies should not duplicate the page title heading."""
+        mock_response = {
+            "id": "page-journal-1",
+            "created_time": "2025-01-25T10:00:00.000Z",
+            "last_edited_time": "2025-01-25T10:00:00.000Z",
+            "properties": {
+                "Name": {"title": [{"plain_text": "Morning thoughts"}]},
+                "Date": {"date": {"start": "2025-01-25"}},
+            },
+        }
+        connected_adapter._client.pages.create.return_value = mock_response
+
+        entry = connected_adapter.create_journal_entry(
+            space_id="space-1",
+            content="# Morning thoughts\n\nToday was productive.",
+            title="Morning thoughts",
+            entry_date=date(2025, 1, 25),
+        )
+
+        assert entry.content == "Today was productive."
+        children = connected_adapter._client.pages.create.call_args.kwargs["children"]
+        assert children[0]["paragraph"]["rich_text"][0]["text"]["content"] == (
+            "Today was productive."
+        )
+
     def test_get_journal_entries_negative_offset(self, connected_adapter: NotionAdapter) -> None:
         """Test get_journal_entries rejects negative offset."""
         with pytest.raises(ValidationError):

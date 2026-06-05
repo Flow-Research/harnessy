@@ -14,9 +14,10 @@ See `.jarvis/context/docs/standards/qa-process.md` for the shared Harnessy QA co
 
 The runtime reads a repo-local JSON profile. Default lookup order:
 
-1. `.harnessy/qa-profile.json`
-2. `.flow/qa-profile.json`
-3. `qa/qa-profile.json`
+1. `.jarvis/context/profiles/qa.json`
+2. `.harnessy/qa-profile.json` (legacy compatibility)
+3. `.flow/qa-profile.json` (legacy compatibility)
+4. `qa/qa-profile.json` (legacy compatibility)
 
 The profile must declare:
 
@@ -54,7 +55,8 @@ The profile must declare:
 }
 ```
 
-Use `${AGENTS_SKILLS_ROOT}/qa-runtime/templates/qa-profile.json` as the starter template.
+Use `${AGENTS_SKILLS_ROOT}/qa-runtime/templates/qa-profile.json` as the starter
+template and save it to `.jarvis/context/profiles/qa.json` for new repos.
 
 Only `specs`, `apps`, and `output.coverage` are required by the deterministic
 runtime today. The other fields are shared conventions used by orchestration
@@ -89,3 +91,6 @@ Generate a summary report from the spec and test inventories. Write to the profi
 - This command is intentionally deterministic and profile-driven.
 - Use repo-local commands declared in `commands` for execution and result-sink
   sync. `qa` remains responsible for parse, scan, drift, and coverage.
+- Prefer `testEnvironment.runtimePreference = "testcontainers"` for
+  integration coverage. Use Docker Compose when the repo needs a full
+  multi-service environment.

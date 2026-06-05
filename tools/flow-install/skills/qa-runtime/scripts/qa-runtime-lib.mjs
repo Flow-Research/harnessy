@@ -62,7 +62,23 @@ const parseArgs = (argv) => {
   return { subcommand, flags };
 };
 
-const resolveProfilePath = (cwd, explicitPath) => {
+const DEFAULT_PROFILE_CANDIDATES = [
+  ".jarvis/context/profiles/qa.json",
+  ".harnessy/qa-profile.json",
+  ".flow/qa-profile.json",
+  "qa/qa-profile.json",
+];
+
+const profileRootDir = (absoluteProfilePath) => {
+  const normalized = path.normalize(absoluteProfilePath);
+  const suffix = path.join(".jarvis", "context", "profiles", "qa.json");
+  if (normalized.endsWith(suffix)) {
+    return normalized.slice(0, -suffix.length).replace(/[\\/]$/, "");
+  }
+  return path.dirname(absoluteProfilePath);
+};
+
+export const resolveProfilePath = (cwd, explicitPath) => {
   if (explicitPath) {
     const absolute = path.resolve(cwd, explicitPath);
     if (!fs.existsSync(absolute)) {
@@ -73,7 +89,7 @@ const resolveProfilePath = (cwd, explicitPath) => {
 
   let current = cwd;
   while (true) {
-    for (const candidate of [".harnessy/qa-profile.json", ".flow/qa-profile.json", "qa/qa-profile.json"]) {
+    for (const candidate of DEFAULT_PROFILE_CANDIDATES) {
       const absolute = path.join(current, candidate);
       if (fs.existsSync(absolute)) return absolute;
     }
@@ -82,7 +98,7 @@ const resolveProfilePath = (cwd, explicitPath) => {
     current = parent;
   }
 
-  throw new Error("No QA profile found. Create .harnessy/qa-profile.json or pass --profile.");
+  throw new Error("No QA profile found. Create .jarvis/context/profiles/qa.json or pass --profile.");
 };
 
 const loadProfile = (cwd, explicitPath) => {
@@ -91,7 +107,7 @@ const loadProfile = (cwd, explicitPath) => {
   if (!profile || typeof profile !== "object") throw new Error(`Invalid QA profile JSON: ${profilePath}`);
   if (!Array.isArray(profile.specs) || profile.specs.length === 0) throw new Error(`QA profile must declare a non-empty specs array: ${profilePath}`);
   if (!Array.isArray(profile.apps) || profile.apps.length === 0) throw new Error(`QA profile must declare a non-empty apps array: ${profilePath}`);
-  return { profilePath, rootDir: path.dirname(profilePath), profile };
+  return { profilePath, rootDir: profileRootDir(profilePath), profile };
 };
 
 const parseSpecFile = (content, relativeFilePath, app, defaultLayer) => {
