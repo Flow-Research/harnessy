@@ -1,0 +1,29 @@
+name: code-refactorer
+type: opencode
+version: 0.1.0
+owner: dozie
+status: experimental
+blast_radius: medium
+description: "Autonomous code refactoring agent that rewrites messy functions, splits large files, removes duplication, improves naming, enforces structure, and preserves behavior."
+permissions: [write]
+data_categories: [none]
+egress: []
+invoke: "/code-refactorer"
+location: .agents/skills/code-refactorer
+autoresearch:
+  enabled: true
+  metric_layer: 1
+  time_budget_seconds: 1200
+  evaluation_window: 3
+  constraints:
+    max_regression_rate: 0.05
+    max_human_intervention: 0.3
+traces:
+  enabled: true
+  gates:
+    quality:
+      - behavior_preservation_gate
+      - naming_clarity_gate
+      - structure_gate
+    human:
+      - refactor_approval
