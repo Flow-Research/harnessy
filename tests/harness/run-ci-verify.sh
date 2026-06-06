@@ -16,7 +16,6 @@ set -euo pipefail
 # Environment variables:
 #   HARNESS_SOURCE_DIR  — path to harnessy repo (default: /source/harnessy)
 #   HARNESS_TARGET_DIR  — where to install (default: /workspace)
-#   SKIP_COMMUNITY      — set to 1 to skip community skills (faster CI)
 #   INSTALL_OPENCODE    — set to 1 to install OpenCode (same as --with-opencode)
 #   INSTALL_CLAUDE      — set to 1 to install Claude CLI (same as --with-claude)
 #   GOAL_AGENT_E2E      — set to 1 to run a real worker-driven goal-agent E2E check (requires Claude auth)
@@ -24,7 +23,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="${HARNESS_SOURCE_DIR:-/source/harnessy}"
 TARGET_DIR="${HARNESS_TARGET_DIR:-/workspace}"
-SKIP_COMMUNITY="${SKIP_COMMUNITY:-1}"
 INSTALL_OPENCODE="${INSTALL_OPENCODE:-0}"
 INSTALL_CLAUDE="${INSTALL_CLAUDE:-0}"
 
@@ -140,9 +138,6 @@ fi
 log "Phase 3: Running Harnessy install"
 
 INSTALL_ARGS=(--yes --target "$TARGET_DIR")
-if [[ "$SKIP_COMMUNITY" == "1" ]]; then
-  INSTALL_ARGS+=(--no-community)
-fi
 
 # Use source as the cached harness (skip clone)
 export FLOW_CACHE_DIR="$SOURCE_DIR"
@@ -322,7 +317,6 @@ echo "  Target:        $TARGET_DIR"
 echo "  OpenCode:      $(if [[ "$INSTALL_OPENCODE" == "1" ]]; then echo "installed"; else echo "skipped"; fi)"
 echo "  Claude:        $(if [[ "$INSTALL_CLAUDE" == "1" ]]; then echo "installed"; else echo "skipped"; fi)"
 echo "  Codex:         $(if command -v codex &>/dev/null; then echo "detected"; else echo "not detected"; fi)"
-echo "  Community:     $(if [[ "$SKIP_COMMUNITY" == "1" ]]; then echo "skipped"; else echo "installed"; fi)"
 echo ""
 
 if [[ "$FAILURES" -eq 0 ]]; then

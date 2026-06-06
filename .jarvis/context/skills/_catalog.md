@@ -409,26 +409,6 @@ updated: 2026-03-16
 ---
 
 ---
-name: community-skills-install
-type: opencode
-version: 0.1.0
-status: experimental
-owner: julian
-blast_radius: medium
-description: "Install community skills from antigravity-awesome-skills with bundle filtering and catalog merging."
-location: tools/flow-install/skills/community-skills-install
-invoke: "/install-skills"
-permissions: [read, write, execute]
-data_categories: [none]
-egress: [github.com]
-phase: P1
-tags: [skills, community, sync]
-depends_on: []
-created: 2026-03-16
-updated: 2026-03-16
----
-
----
 name: jarvis
 type: opencode
 version: 0.1.0

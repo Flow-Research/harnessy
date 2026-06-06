@@ -123,10 +123,6 @@ run_base_eval() {
   record_pass "Base fixture context AGENTS installed" "$repo/.jarvis/context/AGENTS.md"
   test -f "$repo/scripts/flow/verify-harness.mjs"
   record_pass "Base fixture verify-harness script installed" "$repo/scripts/flow/verify-harness.mjs"
-  if [[ "${FLOW_EVAL_FULL_COMMUNITY:-0}" == "1" ]]; then
-    (cd "$repo" && node "$WORKSPACE_ROOT/tools/flow-install/skills/community-skills-install/scripts/main.js" --full >/dev/null)
-    record_pass "Base fixture full community skill install completed"
-  fi
   pnpm --dir "$repo" harness:verify >/dev/null
   record_pass "Base fixture harness verify passed"
   run_goal_agent_checks "$repo"
@@ -189,7 +185,6 @@ repo = Path(os.environ['CUSTOM_REPO'])
     'skillsDir': '.flow/skills',
     'scriptsDir': 'tools/flow-scripts',
   },
-  'communitySkills': {'mode': 'none', 'expected': [], 'strict': False},
 }, indent=2) + '\n', encoding='utf8')
 PY
   install_flow "$repo"

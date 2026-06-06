@@ -307,11 +307,6 @@ const main = async () => {
   // ── Write lockfile ──────────────────────────────────────────────────────
   if ((runAll || updateContextAgents) && !dryRun) {
     const flowCoreSkills = await collectFlowCoreSkillNames();
-    const previousCommunitySkills = projectInfo.existing.lockfile?.communitySkills || {
-      mode: "none",
-      expected: [],
-      strict: false,
-    };
     const lockfile = {
       version,
       timestamp: new Date().toISOString(),
@@ -333,7 +328,6 @@ const main = async () => {
         ...(autoflowInstalled !== null ? { autoflow: autoflowInstalled } : {}),
       },
       flowCoreSkills,
-      communitySkills: previousCommunitySkills,
       contextAgents: {
         version: CONTEXT_AGENTS_VERSION,
         templateHash: projectInfo.existing.contextAgentsResult?.templateHash || projectInfo.existing.lockfile?.contextAgents?.templateHash || null,
