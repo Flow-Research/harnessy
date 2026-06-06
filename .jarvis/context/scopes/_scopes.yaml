@@ -18,9 +18,3 @@ scopes:
     parent: "org:Flow-Research"
     path: "scopes/project/"
     match: "**"
-
-  # Added by flow-install upgrade
-  - id: "org:github.com:codewithfranciss"
-    type: org
-    parent: null
-    path: "scopes/org/"

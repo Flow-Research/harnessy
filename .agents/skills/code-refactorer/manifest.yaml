@@ -9,7 +9,7 @@ permissions: [write]
 data_categories: [none]
 egress: []
 invoke: "/code-refactorer"
-location: tools/flow-install/skills/code-refactorer
+location: .agents/skills/code-refactorer
 autoresearch:
   enabled: true
   metric_layer: 1
