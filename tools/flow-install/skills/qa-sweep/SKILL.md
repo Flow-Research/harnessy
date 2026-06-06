@@ -25,8 +25,9 @@ Template paths are resolved from `${AGENTS_SKILLS_ROOT}/qa-sweep/`.
 
 ## Required Inputs
 
-- A canonical QA profile: `.harnessy/qa-profile.json`, `.flow/qa-profile.json`,
-  or `qa/qa-profile.json`.
+- A canonical QA profile: `.jarvis/context/profiles/qa.json`. Legacy
+  `.harnessy/qa-profile.json`, `.flow/qa-profile.json`, and `qa/qa-profile.json`
+  paths remain supported as fallbacks.
 - Regression specs and test roots declared by that profile.
 - Optional delivery profile metadata from `.flow/delivery-profile.json` for
   roles, routes, fixtures, helpers, selector inspection scripts, seeded account
@@ -42,7 +43,9 @@ Template paths are resolved from `${AGENTS_SKILLS_ROOT}/qa-sweep/`.
 4. Use `/browser-qa` or repo-local Playwright helpers for real browser
    walkthroughs before writing browser assertions when selectors, redirects,
    auth state, or persisted UI state are uncertain.
-5. Map scenarios with explicit roles and scenario types. Browser scenarios that
+5. Map scenarios with explicit roles and scenario types. Prefer container-backed
+   execution plans through Testcontainers or Docker Compose when DB/API behavior
+   matters. Browser scenarios that
    verify a persisted mutation or workflow transition must include a `DB Assert:`
    or explain why persistence cannot be checked.
 6. Use `/browser-integration-codegen` and `/api-integration-codegen` for test
@@ -64,6 +67,8 @@ Template paths are resolved from `${AGENTS_SKILLS_ROOT}/qa-sweep/`.
 - Keep repo-specific auth, seed, sheet, dashboard, and CI behavior in the
   target repo. This skill coordinates those commands but does not invent them.
 - Do not guess selectors from source when browser behavior can be walked.
+- Do not design mock-first API or persistence tests when a container-backed
+  integration test is practical.
 - Do not mark scenarios as implemented unless matching tests exist or are added
   in the same change.
 - Gate destructive flows behind explicit user intent or a repo-local destructive

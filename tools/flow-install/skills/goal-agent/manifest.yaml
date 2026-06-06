@@ -4,12 +4,12 @@ version: 0.3.0
 owner: julian
 status: experimental
 blast_radius: high
-description: "Two-intelligence goal orchestrator: an AI orchestrator decomposes goals into phases and drives a separate Claude Code worker (via -p mode) in a loop until objective verification passes."
+description: "Provider-agnostic goal orchestrator: an AI provider decomposes goals into phases, executes or dispatches phase work, and loops until objective verification passes."
 python_packages: "PyYAML:yaml"
 install_scope: global
 permissions: [terminal, filesystem, network]
 data_categories: [none]
-egress: [api.anthropic.com]
+egress: [api.openai.com, api.anthropic.com]
 invoke: /goal-agent
 location: tools/flow-install/skills/goal-agent
 traces:
@@ -44,10 +44,18 @@ autoresearch:
     max_regression_rate: 0.1
     max_human_intervention: 0.5
 dependencies:
-  - tool: claude
-    description: "Claude Code CLI for worker sessions"
-    check: "claude --version"
+  - tool: codex
+    description: "Codex CLI for default background goal execution"
+    check: "codex --version"
     required: true
+  - tool: claude
+    description: "Claude Code CLI for optional Claude-backed goal execution"
+    check: "claude --version"
+    required: false
+  - tool: opencode
+    description: "OpenCode CLI for optional OpenCode-backed goal execution"
+    check: "opencode --version"
+    required: false
   - tool: tmux
     description: "Terminal multiplexer (optional, Agent tool preferred for background dispatch)"
     check: "tmux -V"

@@ -1,6 +1,6 @@
 name: dependency-manager
 type: opencode
-version: 0.1.0
+version: 0.1.1
 install_scope: global
 owner: julian
 status: experimental

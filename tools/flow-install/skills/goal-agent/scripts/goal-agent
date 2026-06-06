@@ -170,7 +170,8 @@ def parse_goal_file(path: str) -> dict[str, Any]:
         "max_iterations": 10,
         "budget_per_phase": 2.0,
         "total_budget": 10.0,
-        "model": "sonnet",
+        "agent_provider": "auto",
+        "model": "auto",
         "allowed_tools": DEFAULT_ALLOWED_TOOLS,
         "max_parallel_workers": DEFAULT_MAX_PARALLEL_WORKERS,
         "role_reinforcement_interval": DEFAULT_ROLE_REINFORCEMENT_INTERVAL,
@@ -199,6 +200,10 @@ def parse_goal_file(path: str) -> dict[str, Any]:
             match = re.search(r"\$?([\d.]+)", line)
             if match:
                 constraints["total_budget"] = float(match.group(1))
+        elif lowered.startswith("agent provider") or lowered.startswith("provider"):
+            match = re.search(r":\s*(\S+)", line)
+            if match:
+                constraints["agent_provider"] = match.group(1).strip().lower()
         elif lowered.startswith("model"):
             match = re.search(r":\s*(\S+)", line)
             if match:
@@ -306,7 +311,8 @@ def parse_meta_goal(path: str) -> dict[str, Any]:
         "constraints": {
             "max_iterations": int(constraints.get("max_iterations", 10)),
             "total_budget": float(constraints.get("max_total_budget_usd", constraints.get("total_budget", 10.0))),
-            "model": constraints.get("model", "sonnet"),
+            "agent_provider": constraints.get("agent_provider", "auto"),
+            "model": constraints.get("model", "auto"),
             "allowed_tools": constraints.get("allowed_tools", DEFAULT_ALLOWED_TOOLS),
             "allow_parallel_goals": bool(constraints.get("allow_parallel_goals", False)),
             "on_failure": constraints.get("on_failure", "pause"),
@@ -373,6 +379,8 @@ def build_runtime_policy(run_id: str, constraints: dict[str, Any]) -> dict[str, 
         ],
         "allowed_bash_markers": [
             "claude -p",
+            "codex exec",
+            "opencode run",
             "test -f",
             'echo "EXIT_CODE:',
             "python3",
@@ -416,6 +424,7 @@ def build_base_state(
         "max_iterations": constraints["max_iterations"],
         "budget_used_estimate": 0.0,
         "budget_limit": constraints["total_budget"],
+        "agent_provider": constraints.get("agent_provider", "auto"),
         "model": constraints["model"],
         "allowed_tools": constraints["allowed_tools"],
         "phases": [],

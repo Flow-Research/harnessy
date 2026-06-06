@@ -8,6 +8,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from ...config import JarvisConfig, get_backend_token
+from ...knowledge_body import strip_duplicate_title_heading
 from ...models import (
     BackendObject,
     JournalEntry,
@@ -605,6 +606,7 @@ class NotionAdapter:
         content: str,
         title: str | None = None,
         entry_date: date | None = None,
+        tags: list[str] | None = None,
     ) -> JournalEntry:
         """Create a new journal entry.
 
@@ -613,6 +615,7 @@ class NotionAdapter:
             content: Entry content (markdown).
             title: Optional title.
             entry_date: Date for entry (defaults to today).
+            tags: Optional list of tag names.
 
         Returns:
             Created JournalEntry object.
@@ -631,10 +634,12 @@ class NotionAdapter:
             title = title.replace("\n", " ")
 
         entry_date = entry_date or date.today()
+        content = strip_duplicate_title_heading(content, title)
 
         properties = journal_to_notion_properties(
             title=title,
             entry_date=entry_date,
+            tags=tags,
             mappings=notion_config.property_mappings,
         )
 
@@ -1078,6 +1083,7 @@ class NotionAdapter:
         notion_updates: dict[str, Any] = {}
         icon_update = None
         body_content: str | None = None
+        effective_title = self._notion_page_title(page)
 
         for key, new_value in updates.items():
             # Handle special keys
@@ -1108,6 +1114,8 @@ class NotionAdapter:
 
             prop_data = page_properties[key]
             prop_type = prop_data.get("type", "")
+            if prop_type == "title":
+                effective_title = str(new_value)
             notion_updates[key] = self._build_notion_property_update(prop_type, new_value)
 
         try:
@@ -1132,6 +1140,7 @@ class NotionAdapter:
                     )
 
                 if body_content:
+                    body_content = strip_duplicate_title_heading(body_content, effective_title)
                     blocks = content_to_notion_blocks(body_content)
                     if blocks:
                         self._client.blocks.children.append(  # type: ignore[union-attr]
@@ -1283,6 +1292,15 @@ class NotionAdapter:
             backend="notion",
             raw=page,
         )
+
+    @staticmethod
+    def _notion_page_title(page: Any) -> str:
+        page_properties = page.get("properties", {})
+        for prop_data in page_properties.values():
+            if prop_data.get("type") == "title":
+                title_arr = prop_data.get("title", [])
+                return "".join(t.get("plain_text", "") for t in title_arr)
+        return ""
 
     @staticmethod
     def _extract_notion_property_value(prop_data: dict, prop_type: str) -> Any:

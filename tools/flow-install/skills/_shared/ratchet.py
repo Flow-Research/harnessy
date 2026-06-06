@@ -345,6 +345,36 @@ def command_score(args: argparse.Namespace) -> int:
             print(f"  h (human intervention):{variables['h']:.2f}")
             print(f"  c (cost):             {variables['c']:.2f}")
 
+        if args.verbose:
+            print()
+            print("  Breakdown (variable | raw | weight | weighted contribution):")
+            exp = DEFAULT_CONFIG["layer_1" if layer == 1 else "layer_2"]
+            # base values mirror compute_score: (1 - x) for r/h/c, floored at 1e-10
+            inverted = {"r", "h", "c"}
+            labels = {
+                "f": "final success",
+                "p": "first-pass",
+                "q": "output quality",
+                "r": "refinement burden",
+                "h": "human intervention",
+                "c": "cost",
+            }
+            for name in exp:
+                raw = variables[name]
+                base = max((1.0 - raw) if name in inverted else raw, 1e-10)
+                weight = exp[name]
+                contribution = base ** weight
+                print(
+                    f"    {name} ({labels[name]}): raw={raw:.4f}  "
+                    f"weight={weight:.2f}  contribution={contribution:.4f}"
+                )
+            raw_block = variables.get("raw", {})
+            if raw_block:
+                print()
+                print("  Raw aggregates:")
+                for k, v in raw_block.items():
+                    print(f"    {k}: {v}")
+
     return 0
 
 
@@ -626,6 +656,11 @@ def parse_args() -> argparse.Namespace:
     sc.add_argument("--skill", required=True)
     sc.add_argument("--layer", type=int, default=1, choices=[1, 2])
     sc.add_argument("--json", action="store_true")
+    sc.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print a per-variable breakdown (raw value, weight, weighted contribution).",
+    )
 
     # gates
     gt = subparsers.add_parser("gates", help="Check hard constraint gates")

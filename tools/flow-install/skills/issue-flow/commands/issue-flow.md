@@ -408,11 +408,13 @@ At Phase 17 closeout, after all gates pass and before final GitHub sync:
 - Invoke `prd`.
 - Produce `product_spec.md` with explicit, testable acceptance criteria.
 - Carry forward the strategy-derived goals, non-goals, and workflow constraints from intake and brainstorm instead of rediscovering them ad hoc.
+- Run `jarvis text-hygiene clean <product_spec.md> --report` before review.
 - Update the state file with the PRD artifact path and phase progress.
 
 ### Phase 3 — PRD review
 - Invoke `prd-spec-review`.
 - Resolve all blocking review issues.
+- Run `jarvis text-hygiene clean <product_spec.md> --report` after review edits.
 - Human approval should confirm both delivery clarity and strategic fit for product- or workflow-shaping issues.
 - Stop for human approval before design spec starts.
 - After the user approves `prd_approval`, execute the **Artifact Commit-and-Link** procedure for `product_spec.md` (artifact_key=`product_spec`, artifact_label="Product Spec (PRD)").
@@ -424,12 +426,14 @@ At Phase 17 closeout, after all gates pass and before final GitHub sync:
 - Invoke `design-spec`.
 - Read `product_spec.md` as primary input. Carry forward personas, user flows, and UI requirements from the PRD.
 - Produce `design_spec.md` with Mermaid user flow diagrams, screen inventory, component specifications, interaction patterns, accessibility requirements, responsive behavior, and placeholder sections for Figma/screenshot links.
+- Run `jarvis text-hygiene clean <design_spec.md> --report` before review.
 - Update the state file with the design spec artifact path and phase progress.
 
 ### Phase 5 — Design review
 - Invoke `design-spec-review`.
 - Review through 5 expert lenses: UX researcher, interaction designer, accessibility expert, visual/brand designer, frontend engineer.
 - Block advancement if critical user flows are missing, accessibility requirements are incomplete, or component specs are not implementable.
+- Run `jarvis text-hygiene clean <design_spec.md> --report` after review edits.
 - Stop for human approval before tech spec starts.
 - After the user approves `design_approval`, execute the **Artifact Commit-and-Link** procedure for `design_spec.md` (artifact_key=`design_spec`, artifact_label="Design Spec").
 - After artifact commit-and-link completes, run the **Pause Protocol**: set `phase.status` to `paused_awaiting_instruction` with `next_action` = "Await explicit user instruction to start tech spec." Report the pause and stop. Do NOT proceed to Phase 6 until the user explicitly says to start tech spec.
@@ -441,12 +445,14 @@ At Phase 17 closeout, after all gates pass and before final GitHub sync:
 - Require `design_spec.md` as mandatory input (not optional). If missing, stop with error: "Run /design-spec first."
 - Produce `technical_spec.md` that is minimal, coherent, and repo-fit.
 - Preserve only the strategy-derived constraints that materially affect architecture, sequencing, or implementation boundaries.
+- Run `jarvis text-hygiene clean <technical_spec.md> --report` before review.
 - Update the state file with the tech spec artifact path and phase progress.
 
 ### Phase 7 — Tech spec review
 - Invoke `tech-spec-review`.
 - Require the review to include simplicity and architectural fitness as a blocking concern during design review.
 - Block advancement if the design is over-engineered, unjustifiably abstract, or poorly aligned with repo architecture.
+- Run `jarvis text-hygiene clean <technical_spec.md> --report` after review edits.
 - Stop for human approval before implementation begins.
 - After the user approves `tech_spec_approval`, execute the **Artifact Commit-and-Link** procedure for `technical_spec.md` (artifact_key=`technical_spec`, artifact_label="Technical Spec").
 - After artifact commit-and-link completes, run the **Pause Protocol**: set `phase.status` to `paused_awaiting_instruction` with `next_action` = "Await explicit user instruction to start implementation planning." Report the pause and stop. Do NOT proceed to Phase 6 until the user explicitly says to start.

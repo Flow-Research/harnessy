@@ -39,6 +39,7 @@ def ingest_meeting(
     auto_route: bool = False,
     destinations: list[str] | None = None,
     wiki_domain: str | None = None,
+    journal_space_id: str | None = None,
     enrich_ai: bool = True,
 ) -> MeetingIngestResult:
     """Ingest a meeting transcript-like source into one or more destinations."""
@@ -60,6 +61,7 @@ def ingest_meeting(
         destinations=destinations,
         wiki_domain=wiki_domain,
         backend=backend,
+        journal_space_id=journal_space_id,
     )
 
 
@@ -74,6 +76,7 @@ def ingest_fathom_meeting(
     wiki_domain: str | None = None,
     created_after: str | None = None,
     backend: str | None = None,
+    journal_space_id: str | None = None,
 ) -> MeetingIngestResult:
     """Fetch a Fathom recording and ingest it into Jarvis destinations."""
 
@@ -91,6 +94,7 @@ def ingest_fathom_meeting(
         destinations=destinations,
         wiki_domain=wiki_domain,
         backend=backend,
+        journal_space_id=journal_space_id,
     )
 
 
@@ -106,6 +110,7 @@ def ingest_fathom_meetings_since(
     destinations: list[str] | None = None,
     wiki_domain: str | None = None,
     backend: str | None = None,
+    journal_space_id: str | None = None,
     skip_existing: bool = True,
 ) -> list[MeetingIngestResult]:
     """Ingest Fathom recordings, optionally filtering by created-after timestamp."""
@@ -149,6 +154,7 @@ def ingest_fathom_meetings_since(
                     destinations=destinations,
                     wiki_domain=wiki_domain,
                     backend=backend,
+                    journal_space_id=journal_space_id,
                 )
             )
 
@@ -183,6 +189,7 @@ def ingest_fathom_inbox(
     destinations: list[str] | None = None,
     wiki_domain: str | None = None,
     backend: str | None = None,
+    journal_space_id: str | None = None,
     limit: int | None = None,
     keep: bool = False,
 ) -> list[MeetingIngestResult]:
@@ -203,6 +210,7 @@ def ingest_fathom_inbox(
             destinations=destinations,
             wiki_domain=wiki_domain,
             backend=backend,
+            journal_space_id=journal_space_id,
             keep=keep,
         )
         if result is not None:
@@ -221,6 +229,7 @@ def ingest_archived_fathom_payload(
     destinations: list[str] | None = None,
     wiki_domain: str | None = None,
     backend: str | None = None,
+    journal_space_id: str | None = None,
     keep: bool = False,
 ) -> MeetingIngestResult | None:
     """Ingest one archived Fathom webhook payload into Jarvis destinations."""
@@ -242,6 +251,7 @@ def ingest_archived_fathom_payload(
         destinations=destinations,
         wiki_domain=wiki_domain,
         backend=backend,
+        journal_space_id=journal_space_id,
     )
     if not keep:
         move_inbox_file(path, account, state="processed")
@@ -320,6 +330,7 @@ def write_meeting_record(
     destinations: list[str] | None = None,
     wiki_domain: str | None = None,
     backend: str | None = None,
+    journal_space_id: str | None = None,
 ) -> MeetingIngestResult:
     """Write a normalized meeting record to one or more destinations."""
 
@@ -337,7 +348,12 @@ def write_meeting_record(
             path = write_wiki_meeting(wiki_domain, meeting, rendered)
             result.written_paths.append(str(path))
         elif destination == "journal":
-            entry = write_journal_entry(meeting, rendered, backend=backend)
+            entry = write_journal_entry(
+                meeting,
+                rendered,
+                backend=backend,
+                space_id=journal_space_id,
+            )
             result.journal_entry_id = entry
         elif destination == "memory":
             paths = write_meeting_memory(meeting)
@@ -499,14 +515,16 @@ def write_journal_entry(
     rendered: str,
     *,
     backend: str | None = None,
+    space_id: str | None = None,
 ) -> str:
     """Persist a meeting artifact as a backend journal entry."""
 
     service = JournalService(backend=backend)
     service.connect()
     entry = service.create_entry(
-        title=meeting.title,
+        title=meeting_journal_title(meeting),
         content=rendered,
+        space_id=space_id,
         entry_date=meeting.meeting_date,
         tags=meeting.tags,
     )
@@ -558,7 +576,7 @@ def _render_meeting_event_memory(meeting: MeetingRecord) -> str:
     if meeting.decisions:
         sections.extend(["### Decisions", _markdown_list(meeting.decisions)])
     if meeting.action_items:
-        sections.extend(["### Action Items", _markdown_list(meeting.action_items)])
+        sections.extend(["### Next Steps", _markdown_list(meeting.action_items)])
     if meeting.open_questions:
         sections.extend(["### Open Questions", _markdown_list(meeting.open_questions)])
     source_lines = [f"- Source Ref: {meeting.source_ref}"]
@@ -702,6 +720,28 @@ def private_context_meeting_filename(meeting: MeetingRecord) -> str:
 
     slug = slug_from_title(meeting.title) or "meeting"
     return f"{meeting.meeting_date.strftime('%d')}-{slug}.md"
+
+
+MEETING_JOURNAL_TITLE_PREFIX = "Meeting - "
+
+
+def meeting_journal_title(meeting: MeetingRecord) -> str:
+    """Title used when syncing a meeting to a backend journal (e.g. Anytype Flow Space).
+
+    The JournalHierarchy prepends the day number (e.g. ``15 - <title>``).
+    Meetings additionally carry a ``Meeting - `` marker so synced entries
+    read as ``dd - Meeting - <title>`` and group cleanly alongside other
+    journal entries from the same day.
+
+    Idempotent: if ``meeting.title`` already starts with the marker
+    (case-insensitive), it is returned unchanged so re-ingestion does
+    not double-prefix.
+    """
+
+    title = (meeting.title or "Untitled Meeting").strip()
+    if title.lower().startswith(MEETING_JOURNAL_TITLE_PREFIX.lower()):
+        return title
+    return f"{MEETING_JOURNAL_TITLE_PREFIX}{title}"
 
 
 def _meeting_note_matches(path: Path, meeting: MeetingRecord) -> bool:

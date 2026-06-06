@@ -48,6 +48,9 @@ _WEBHOOK_TRIGGER_CHOICES = [
     "shared_team_recordings",
 ]
 _DESTINATION_CHOICES = ["private-context", "wiki", "journal", "memory"]
+_JOURNAL_SPACE_HELP = (
+    "Backend space/workspace ID for the journal destination; overrides the backend default"
+)
 
 
 def _configured_fathom_accounts() -> list[str | None]:
@@ -129,6 +132,7 @@ def fathom_webhook_group() -> None:
     help="Destination to write to (defaults to private-context)",
 )
 @click.option("--wiki-domain", default=None, help="Wiki domain when using the wiki destination")
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option("--enrich-ai/--no-enrich-ai", default=True, help="Use AI to fill missing sections")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result as JSON")
 def ingest_command(
@@ -141,6 +145,7 @@ def ingest_command(
     tags: tuple[str, ...],
     destinations: tuple[str, ...],
     wiki_domain: str | None,
+    journal_space_id: str | None,
     enrich_ai: bool,
     as_json: bool,
 ) -> None:
@@ -160,6 +165,7 @@ def ingest_command(
             tags=list(tags) or None,
             destinations=list(destinations),
             wiki_domain=wiki_domain,
+            journal_space_id=journal_space_id,
             enrich_ai=enrich_ai,
         )
     except Exception as exc:
@@ -248,6 +254,7 @@ def fathom_list_command(
     help="Limit Fathom search to meetings after this ISO timestamp",
 )
 @click.option("--backend", default=None, help="Backend override for the journal destination")
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option("--json", "as_json", is_flag=True, help="Emit the result as JSON")
 def fathom_ingest_command(
     recording_id: str,
@@ -259,6 +266,7 @@ def fathom_ingest_command(
     wiki_domain: str | None,
     created_after: str | None,
     backend: str | None,
+    journal_space_id: str | None,
     as_json: bool,
 ) -> None:
     """Fetch a Fathom meeting by recording ID and ingest it into destinations."""
@@ -274,6 +282,7 @@ def fathom_ingest_command(
             wiki_domain=wiki_domain,
             created_after=created_after,
             backend=backend,
+            journal_space_id=journal_space_id,
         )
     except Exception as exc:
         console.print(f"[red]Error: {exc}[/red]")
@@ -323,6 +332,7 @@ def fathom_ingest_command(
 )
 @click.option("--wiki-domain", default=None, help="Wiki domain when using the wiki destination")
 @click.option("--backend", default=None, help="Backend override for the journal destination")
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option(
     "--skip-existing/--no-skip-existing",
     default=True,
@@ -342,6 +352,7 @@ def fathom_ingest_today_command(
     destinations: tuple[str, ...],
     wiki_domain: str | None,
     backend: str | None,
+    journal_space_id: str | None,
     skip_existing: bool,
     as_json: bool,
 ) -> None:
@@ -376,6 +387,7 @@ def fathom_ingest_today_command(
             destinations=list(destinations),
             wiki_domain=wiki_domain,
             backend=backend,
+            journal_space_id=journal_space_id,
             skip_existing=skip_existing,
         )
     except Exception as exc:
@@ -442,6 +454,7 @@ def fathom_ingest_today_command(
 )
 @click.option("--wiki-domain", default=None, help="Wiki domain when using the wiki destination")
 @click.option("--backend", default=None, help="Backend override for the journal destination")
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option(
     "--skip-existing/--no-skip-existing",
     default=True,
@@ -466,6 +479,7 @@ def fathom_poll_command(
     destinations: tuple[str, ...],
     wiki_domain: str | None,
     backend: str | None,
+    journal_space_id: str | None,
     skip_existing: bool,
     state_file: Path | None,
     as_json: bool,
@@ -506,6 +520,7 @@ def fathom_poll_command(
                 destinations=list(destinations),
                 wiki_domain=wiki_domain,
                 backend=backend,
+                journal_space_id=journal_space_id,
                 skip_existing=skip_existing,
             )
         except Exception as exc:
@@ -597,6 +612,7 @@ def fathom_poll_command(
     default=None,
     help="Backend override when auto-ingesting to the journal destination",
 )
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option(
     "--layout",
     type=click.Choice(["windows", "panes"]),
@@ -637,6 +653,7 @@ def fathom_start_command(
     destinations: tuple[str, ...],
     wiki_domain: str | None,
     backend: str | None,
+    journal_space_id: str | None,
     layout: str,
     verify_signatures: bool,
     tolerance_seconds: int,
@@ -679,6 +696,7 @@ def fathom_start_command(
             destinations=resolved_destinations,
             wiki_domain=wiki_domain,
             backend=backend,
+            journal_space_id=journal_space_id,
             project=project,
             tags=list(tags),
             auto_route=auto_route,
@@ -994,6 +1012,7 @@ def fathom_webhook_status_command(
     default=None,
     help="Backend override when auto-ingesting to the journal destination",
 )
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 def fathom_webhook_serve_command(
     account: str | None,
     port: int,
@@ -1006,6 +1025,7 @@ def fathom_webhook_serve_command(
     destinations: tuple[str, ...],
     wiki_domain: str | None,
     backend: str | None,
+    journal_space_id: str | None,
 ) -> None:
     """Run a local webhook receiver and archive payloads into the Fathom inbox."""
 
@@ -1024,6 +1044,7 @@ def fathom_webhook_serve_command(
                 destinations=resolved_destinations,
                 wiki_domain=wiki_domain,
                 backend=backend,
+                journal_space_id=journal_space_id,
                 keep=False,
             )
 
@@ -1054,6 +1075,7 @@ def fathom_webhook_serve_command(
 )
 @click.option("--wiki-domain", default=None, help="Wiki domain when using the wiki destination")
 @click.option("--backend", default=None, help="Backend override for the journal destination")
+@click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option("--limit", default=None, type=int, help="Maximum inbox items to ingest")
 @click.option("--keep", is_flag=True, help="Keep inbox files in pending after ingestion")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result as JSON")
@@ -1065,6 +1087,7 @@ def fathom_webhook_ingest_inbox_command(
     destinations: tuple[str, ...],
     wiki_domain: str | None,
     backend: str | None,
+    journal_space_id: str | None,
     limit: int | None,
     keep: bool,
     as_json: bool,
@@ -1080,6 +1103,7 @@ def fathom_webhook_ingest_inbox_command(
             destinations=list(destinations),
             wiki_domain=wiki_domain,
             backend=backend,
+            journal_space_id=journal_space_id,
             limit=limit,
             keep=keep,
         )

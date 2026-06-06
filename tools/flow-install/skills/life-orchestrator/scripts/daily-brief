@@ -64,10 +64,11 @@ from ai_runner import format_failure, run_ai_prompt  # type: ignore  # noqa: E40
 
 def run_collect_state():
     """Run collect-state and return parsed JSON."""
+    timeout_s = int(os.environ.get("LIFE_ORCHESTRATOR_COLLECT_TIMEOUT", "180"))
     try:
         result = subprocess.run(
             [sys.executable, COLLECT_STATE],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=timeout_s,
             cwd=PROJECT_ROOT,
         )
         if result.returncode != 0:
@@ -75,7 +76,7 @@ def run_collect_state():
             sys.exit(1)
         return json.loads(result.stdout)
     except subprocess.TimeoutExpired:
-        print("Error: collect-state timed out", file=sys.stderr)
+        print(f"Error: collect-state timed out after {timeout_s}s", file=sys.stderr)
         sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"Error: collect-state produced invalid JSON: {e}", file=sys.stderr)
@@ -129,17 +130,26 @@ def build_prompt(state, today):
 
     return f"""\
 You are writing the user's morning note. Read their priorities, daily notes, the change summary
-from overnight, and the current project status files. Produce a daily brief with these sections:
+from overnight, recent meeting summaries, and the current project status files. Produce a daily
+brief with these sections:
 
 1. What Changed - what actually moved across their projects, stated plainly
 2. Decisions For You - decisions, reviews, or approvals only the user can do, ranked by urgency
-3. How I Read It - the practical interpretation: what matters, what is stale, what should be
-   delegated, and which cadence or owner would help
+3. What It Means Today - the practical interpretation: what matters, what is stale,
+   what should be delegated, and which cadence or owner would help
 4. In The Background - what agents or lower-priority work completed, stalled, or is waiting
 
 Pay special attention to the "notes" field in the state data — these are the user's own thoughts,
 reminders, and action items captured throughout the day. Use them to understand what's on their
 mind, what they're prioritizing, and what they might be forgetting.
+
+Also use `recent_meetings` when present. Do not summarize every meeting. Pull forward only the
+meeting decisions, risks, follow-ups, or unresolved questions that change what the user should do
+today. Treat meeting action items as candidate work, not automatic priorities.
+
+When `project_context_vaults` contains a nested project's local `.jarvis/context`, treat that as
+canonical for that project. If a private project status says a project needs refresh but the nested
+vault has newer status or meetings, use the nested vault as the fresher source and say what changed.
 
 Write like a sharp teammate leaving a useful note, not like an AI report, strategy memo, or
 system log. Use normal human language, short paragraphs, and concrete verbs. It is fine to use
@@ -180,6 +190,13 @@ def compact_state(state):
     # Priorities: keep parsed sections, drop raw text
     pri = state.get("priorities") or {}
     compact["priorities"] = {
+        "source_path": pri.get("source_path"),
+        "source_modified": pri.get("source_modified"),
+        "external_path": pri.get("external_path"),
+        "external_exists": pri.get("external_exists"),
+        "external_modified": pri.get("external_modified"),
+        "external_differs": pri.get("external_differs"),
+        "external_older": pri.get("external_older"),
         "table": pri.get("table", []),
         "constraints": pri.get("constraints", []),
         "personal": pri.get("personal", []),
@@ -199,6 +216,21 @@ def compact_state(state):
             "status_summary": status_md[:1500] if status_md else None,
         }
     compact["projects"] = projects
+
+    # Nested project context vaults: canonical project-local context, compacted.
+    vaults = {}
+    for name, info in (state.get("project_context_vaults") or {}).items():
+        recent_meetings = info.get("recent_meetings") or []
+        vaults[name] = {
+            "path": info.get("path"),
+            "file_count": info.get("file_count", 0),
+            "newest_modified": info.get("newest_modified"),
+            "status_summary": (info.get("status_md") or "")[:1500] or None,
+            "roadmap_summary": (info.get("roadmap_md") or "")[:1000] or None,
+            "decisions_summary": (info.get("decisions_md") or "")[:1200] or None,
+            "recent_meetings": recent_meetings[:5],
+        }
+    compact["project_context_vaults"] = vaults
 
     # Git: keep as-is (already small)
     compact["git"] = state.get("git", {})
@@ -220,6 +252,9 @@ def compact_state(state):
 
     # Notes: keep as-is (today + yesterday, already small)
     compact["notes"] = state.get("notes") or {}
+
+    # Recent meetings: already compact summaries/action items from collect-state
+    compact["recent_meetings"] = state.get("recent_meetings") or []
 
     # Tmux: keep as-is
     compact["tmux_sessions"] = state.get("tmux_sessions", [])
@@ -247,10 +282,17 @@ def call_ai(prompt):
     Provider selection is handled by the shared Harnessy AI runner:
     HARNESSY_AI_PROVIDER=auto|claude|codex|opencode.
     """
-    # Keep one provider from consuming the full flow-cron-exec 600s attempt cap.
-    timeout_s = int(os.environ.get("HARNESSY_AI_TIMEOUT", "180"))
+    provider = os.environ.get("HARNESSY_AI_PROVIDER") or os.environ.get("FLOW_AI_PROVIDER") or "codex"
+    # Keep the provider within the daily brief's cron wrapper timeout.
+    timeout_s = int(
+        os.environ.get(
+            "LIFE_ORCHESTRATOR_DAILY_AI_TIMEOUT",
+            os.environ.get("HARNESSY_AI_TIMEOUT", "600"),
+        )
+    )
     result = run_ai_prompt(
         prompt,
+        provider=provider,
         cwd=PROJECT_ROOT,
         model=os.environ.get("HARNESSY_AI_MODEL", "sonnet"),
         fallback_model=os.environ.get("HARNESSY_AI_FALLBACK_MODEL", "haiku"),
@@ -281,6 +323,64 @@ def save_brief(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def read_brief(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except (OSError, IOError):
+        return ""
+
+
+def clean_text_hygiene(path):
+    """Run Jarvis text hygiene cleanup on a generated brief."""
+    print("Running text hygiene cleanup", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            [JARVIS_BIN, "text-hygiene", "clean", path, "--report"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as e:
+        print(f"Text hygiene cleanup ERROR: {type(e).__name__}: {e}", file=sys.stderr)
+        return False
+
+    if result.stdout:
+        print(f"  stdout: {result.stdout.strip()}", file=sys.stderr)
+    if result.stderr:
+        print(f"  stderr: {result.stderr.strip()}", file=sys.stderr)
+    if result.returncode != 0:
+        print(
+            f"Text hygiene cleanup FAILED (exit {result.returncode})",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def journal_marker_path(path):
+    return f"{path}.journaled"
+
+
+def mark_journal_delivered(path, today):
+    marker = journal_marker_path(path)
+    payload = {
+        "title": f"Daily Brief — {today.strftime('%B %d, %Y')}",
+        "brief_path": path,
+        "delivered_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+    }
+    try:
+        with open(marker, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+            f.write("\n")
+    except OSError as e:
+        print(f"Warning: could not write journal marker: {e}", file=sys.stderr)
+
+
+def journal_delivered(path):
+    return os.path.exists(journal_marker_path(path))
 
 
 def configured_journal_space():
@@ -327,12 +427,12 @@ def jarvis_journal(path, today):
     """Write the brief to Jarvis journal. Returns True on success, False on failure.
 
     Failure is reported as False rather than raised so the caller can decide
-    whether to fail the whole script. We do fail the cron-visible exit code on
-    delivery failure — a brief that doesn't reach AnyType is not "success".
+    whether to fail the whole script.
     """
     title = f"Daily Brief — {today.strftime('%B %d, %Y')}"
     print(f"Writing to Jarvis journal: {title}", file=sys.stderr)
     journal_space = configured_journal_space()
+    timeout_s = int(os.environ.get("LIFE_ORCHESTRATOR_JOURNAL_TIMEOUT", "180"))
     try:
         cmd = [
             JARVIS_BIN, "journal", "write",
@@ -344,7 +444,7 @@ def jarvis_journal(path, today):
             cmd.extend(["--space", journal_space])
         result = subprocess.run(
             cmd,
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=timeout_s,
         )
         if result.returncode == 0:
             print("Jarvis journal write: success", file=sys.stderr)
@@ -418,19 +518,51 @@ def main():
     )
     args = parser.parse_args()
 
-    # Step 1: Collect state
+    # Step 1: Resolve today's artifact before doing expensive work. Once the
+    # brief has reached the journal, it is complete for the day unless the user
+    # explicitly asks for a forced regeneration.
+    today = datetime.date.today()
+    path = brief_path(today)
+    today_exists = os.path.exists(path)
+    today_journaled = journal_delivered(path)
+
+    if today_exists and today_journaled and not args.force:
+        print("Today's brief is already journaled; skipping brief", file=sys.stderr)
+        sys.exit(0)
+
+    if today_exists and not today_journaled and not args.force:
+        print(
+            "Today's brief exists but has not been journaled; retrying journal delivery.",
+            file=sys.stderr,
+        )
+        brief = read_brief(path)
+        if not brief.strip():
+            print("Error: existing brief file is empty; regenerating.", file=sys.stderr)
+        else:
+            if not clean_text_hygiene(path):
+                print("Error: existing brief text hygiene cleanup failed.", file=sys.stderr)
+                sys.exit(1)
+            brief = read_brief(path)
+            delivered = jarvis_journal(path, today)
+            send_notification(brief)
+            if not delivered:
+                print(
+                    "Error: existing brief still failed journal delivery.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            mark_journal_delivered(path, today)
+            sys.exit(0)
+
+    # Step 2: Collect state
     print("Collecting state...", file=sys.stderr)
     state = run_collect_state()
 
-    # Step 2: Check for changes
-    today = datetime.date.today()
-    today_exists = os.path.exists(brief_path(today))
-    is_retry = int(os.environ.get("FLOW_CRON_ATTEMPT", "1")) > 1
-    if not state.get("changed", True) and today_exists and not args.force and not is_retry:
-        print("No changes detected, skipping brief", file=sys.stderr)
+    if not state.get("changed", True) and today_exists and not args.force:
+        print("No changes detected and today's brief already exists; skipping brief", file=sys.stderr)
         sys.exit(0)
 
-    # Step 3: Generate brief via Claude
+    # Step 3: Generate brief via the configured AI provider
     prompt = build_prompt(state, today)
 
     print("Generating brief with Harnessy AI runner...", file=sys.stderr)
@@ -440,14 +572,17 @@ def main():
         print("Error: failed to generate brief", file=sys.stderr)
         sys.exit(1)
 
-    # Step 4: Write to stdout
+    # Step 4: Save to file and remove configured AI-speak patterns before delivery
+    save_brief(path, brief)
+    if not clean_text_hygiene(path):
+        print("Error: brief generated but text hygiene cleanup failed.", file=sys.stderr)
+        sys.exit(1)
+    brief = read_brief(path)
+
+    # Step 5: Write cleaned brief to stdout
     sys.stdout.write(brief)
     if not brief.endswith("\n"):
         sys.stdout.write("\n")
-
-    # Step 5: Save to file
-    path = brief_path(today)
-    save_brief(path, brief)
     print(f"Brief saved to {path}", file=sys.stderr)
 
     # Step 6: Jarvis journal integration
@@ -456,7 +591,8 @@ def main():
     # Step 7: Desktop notification
     send_notification(brief)
 
-    # Surface delivery failure to cron — file-only success is not user-visible.
+    # Journal delivery is the success boundary for the daily brief. The local file
+    # is only a staging artifact until Jarvis confirms the journal write.
     if not delivered:
         print(
             "Error: brief generated but Jarvis journal write failed — "
@@ -464,6 +600,7 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
+    mark_journal_delivered(path, today)
 
 
 if __name__ == "__main__":

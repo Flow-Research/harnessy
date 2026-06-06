@@ -7,7 +7,7 @@ argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run
 
 ## Purpose
 
-Achieve a user-defined goal by orchestrating a Claude Code worker through phased implementation with objective verification.
+Achieve a user-defined goal through phased implementation with objective verification. Background runs are provider-agnostic: `GOAL_AGENT_PROVIDER=codex|claude|opencode` selects the agent CLI, and `auto` currently resolves to Codex.
 
 ## Ownership
 
@@ -94,14 +94,14 @@ Read the JSON output. It provides:
 - `worker_session_id` — UUID for the worker's persistent session
 - `goal_file` — absolute path to the goal specification
 - `state_dir` — path to `.goal-agent/<run-id>/`
-- `constraints` — parsed from goal file: max_iterations, budget, model, allowed_tools
+- `constraints` — parsed from goal file: max_iterations, budget, agent_provider, model, allowed_tools
 
 The setup script also writes:
 - `identity.json` — on-disk orchestrator identity anchor
 - `runtime-policy.json` — machine-enforced allowlist for orchestrator writes and shell command classes
 - `prepared-goal.md` or `prepared-goals/` — mutable copies used for injected context or approved checks
 
-If `--background` was specified, the script launches a tmux session with a deterministic supervisor (`background-runner`) that drives the orchestration via sequential `claude -p --resume` calls. The output includes `"action": "background"`, the `tmux_session` name, and commands to check status or attach. Report these to the user. The goal runs autonomously to completion — no further action needed from you.
+If `--background` was specified, the script launches a tmux session with a deterministic supervisor (`background-runner`) that drives the orchestration through the configured provider. Codex is the default provider; Claude and OpenCode are opt-in via `GOAL_AGENT_PROVIDER`, `HARNESSY_GOAL_AGENT_PROVIDER`, or a goal-file `provider:` constraint. The output includes `"action": "background"`, the `tmux_session` name, and commands to check status or attach. Report these to the user. The goal runs autonomously to completion — no further action needed from you.
 
 ### Step 1: Analyze Goal
 
@@ -113,7 +113,7 @@ cat "$GOAL_FILE"
 
 Identify and extract:
 1. **Objective** — what must be true when done
-2. **Constraints** — iterations, budget, model, tools
+2. **Constraints** — iterations, budget, provider, model, tools
 3. **Verification commands** — the commands that determine success (exit code 0 = pass)
 4. **File checks** — files that must exist
 5. **Context** — background info, architecture, conventions
@@ -180,9 +180,9 @@ Build a focused prompt for THIS phase only. Structure:
 [Do NOT include constraints about budget or iterations — those are your concern, not the worker's]
 ```
 
-#### 3b. Call the Worker
+#### 3b. Call the Worker / Provider
 
-**Write the prompt to a file first**, then use the Agent tool to dispatch.
+For Claude foreground orchestration, **write the prompt to a file first**, then use the Agent tool to dispatch.
 
 ```
 # Step 1: Write prompt to file
@@ -197,7 +197,9 @@ Agent(
 )
 ```
 
-The Agent tool runs within the same Claude Code session — no separate process, no permission prompts, full tool access. The worker result is returned directly.
+For Codex/OpenCode background orchestration, `background-runner` passes the same focused phase prompt directly to the configured provider. The provider performs the phase work and returns `action=dispatch_worker` with verification commands.
+
+When Claude is active, the Agent tool runs within the same Claude Code session — no separate process, no permission prompts, full tool access. The worker result is returned directly.
 
 For parallel phases, dispatch multiple Agent calls in a single message with `run_in_background: true`.
 

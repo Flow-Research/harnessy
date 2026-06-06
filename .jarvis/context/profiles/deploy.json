@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "defaultEnvironment": "canary",
+  "apps": [
+    {
+      "id": "service-deploy",
+      "type": "node",
+      "root": "tools/flow-install/skills/service-deploy",
+      "buildCommand": "",
+      "startCommand": "",
+      "outputDir": "",
+      "package": "auto",
+      "runtime": {
+        "mode": "node",
+        "serviceName": "",
+        "healthcheckPath": "/"
+      }
+    }
+  ],
+  "environments": {
+    "canary": {
+      "provider": "hostinger",
+      "adapter": "mcp",
+      "strategy": "canary",
+      "healthcheckPath": "/",
+      "url": ""
+    },
+    "production": {
+      "provider": "hostinger",
+      "adapter": "mcp",
+      "strategy": "canary-promote",
+      "requiresTag": true,
+      "healthcheckPath": "/",
+      "url": ""
+    }
+  },
+  "providerPolicy": {
+    "forbidBillingActions": true,
+    "forbidDestructiveActions": true,
+    "forbidDnsMutation": true
+  },
+  "evidence": {
+    "persist": true,
+    "root": ".jarvis/context/deployments"
+  }
+}

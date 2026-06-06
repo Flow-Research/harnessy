@@ -400,6 +400,45 @@ class TestWriteCommand:
         # AI generate_title should not be called when --title is provided
         assert "Custom Title" in result.output or "saved" in result.output.lower()
 
+    @patch("jarvis.journal.cli.save_entry_reference")
+    @patch("jarvis.journal.cli.JournalHierarchy")
+    @patch("jarvis.journal.cli.get_space_selections")
+    @patch("jarvis.journal.cli.get_connected_client")
+    @patch("jarvis.journal.cli.save_draft")
+    @patch("jarvis.journal.cli.capture_entry")
+    def test_custom_title_strips_duplicate_body_heading(
+        self,
+        mock_capture: MagicMock,
+        mock_save_draft: MagicMock,
+        mock_get_client: MagicMock,
+        mock_get_space: MagicMock,
+        mock_hierarchy_class: MagicMock,
+        mock_save_ref: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """A note title should not be duplicated as the first body heading."""
+        mock_capture.return_value = "# Custom Title\n\nBody"
+        draft_path = tmp_path / "draft.txt"
+        draft_path.write_text("Body")
+        mock_save_draft.return_value = draft_path
+        mock_get_client.return_value = MagicMock()
+        mock_get_space.return_value = [("s1", "Space")]
+        mock_hierarchy = MagicMock()
+        mock_hierarchy.create_entry.return_value = ("e", "j", "y", "m")
+        mock_hierarchy.get_path.return_value = "Journal/2026/January"
+        mock_hierarchy_class.return_value = mock_hierarchy
+
+        result = runner.invoke(
+            journal_cli,
+            ["write", "--title", "Custom Title", "--no-deep-dive"],
+        )
+
+        assert result.exit_code == 0
+        mock_hierarchy.create_entry.assert_called_once()
+        assert mock_hierarchy.create_entry.call_args.kwargs["content"] == "Body"
+        mock_save_draft.assert_called_once_with("Body")
+
     @patch("jarvis.journal.cli._offer_deep_dive")
     @patch("jarvis.journal.cli.save_entry_reference")
     @patch("jarvis.journal.cli.JournalHierarchy")

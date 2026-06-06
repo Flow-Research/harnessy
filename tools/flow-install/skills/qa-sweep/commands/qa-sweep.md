@@ -11,9 +11,10 @@ argument-hint: "[--all] [--apps <app,...>] [--features <slug,...>] [--phase disc
 
 Find the QA profile using the standard lookup order:
 
-1. `.harnessy/qa-profile.json`
-2. `.flow/qa-profile.json`
-3. `qa/qa-profile.json`
+1. `.jarvis/context/profiles/qa.json`
+2. `.harnessy/qa-profile.json` (legacy compatibility)
+3. `.flow/qa-profile.json` (legacy compatibility)
+4. `qa/qa-profile.json` (legacy compatibility)
 
 Load optional `.flow/delivery-profile.json` if present. Treat it as adapter
 metadata, not as the QA source of truth.
@@ -38,6 +39,8 @@ For each selected app from the QA profile:
 - enumerate auth/role/tenant guards
 - enumerate DB policies/migrations when available
 - cross-reference each surface against parsed regression scenarios and test IDs
+- inspect `testEnvironment` for Testcontainers, Docker Compose, required
+  services, and mock-policy exceptions
 
 Write `.qa-sweep/<timestamp>/discover-<app>.md`.
 
@@ -101,6 +104,9 @@ qa coverage --profile <qa-profile>
 If the repo has feature-scoped execution commands, run a plan before execution
 and document skipped/not-run rows explicitly.
 
+When API, persistence, auth, queue, cache, or storage behavior matters, prefer
+Testcontainers or Docker Compose execution over mock-first suites.
+
 ### 7. Validate And Report
 
 Run `/test-quality-validator` for generated or edited tests.
@@ -120,5 +126,6 @@ Write `.qa-sweep/<timestamp>/report.md` with:
 - drift status is known and clean unless the sweep is explicitly a gap audit
 - browser selectors are based on walkthroughs or marked as unresolved TODOs
 - persistence-sensitive browser flows have DB assertions or documented blockers
+- mock-heavy API or persistence suites are called out as false-green risks
 - new feature prefixes are cataloged
 - security-relevant new surfaces are queued for `/qa-security-sweep`
