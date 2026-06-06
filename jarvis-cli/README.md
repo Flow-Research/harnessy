@@ -632,4 +632,4 @@ ANTHROPIC_API_KEY=your-key jarvis suggest
 
 ## License
 
-MIT
+AGPL-3.0-only

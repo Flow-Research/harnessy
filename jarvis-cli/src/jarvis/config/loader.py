@@ -12,7 +12,7 @@ from .defaults import (
     ENV_NOTION_TOKEN_FALLBACK,
 )
 from .fathom_setup import default_env_file_path
-from .schema import JarvisConfig, get_config_path
+from .schema import JarvisConfig, WhatsAppAccountConfig, get_config_path
 
 
 class ConfigError(Exception):
@@ -201,6 +201,126 @@ def get_fathom_webhook_secret(account: str | None = None) -> str:
         "No Fathom webhook secret found. Set FATHOM_WEBHOOK_SECRET, "
         "JARVIS_FATHOM_WEBHOOK_SECRET, or configure fathom.accounts in ~/.jarvis/config.yaml.",
         backend="fathom",
+    )
+
+
+def get_whatsapp_account_config(account: str | None = None) -> WhatsAppAccountConfig:
+    """Resolve a WhatsApp account configuration, using generic fallbacks when unnamed."""
+
+    cfg = get_config()
+    target_account = account or cfg.whatsapp.default_account
+    if target_account:
+        acct = cfg.whatsapp.accounts.get(target_account)
+        if acct is None:
+            raise ConfigError(
+                f"Unknown WhatsApp account: {target_account}. "
+                f"Add it under whatsapp.accounts in ~/.jarvis/config.yaml",
+                backend="whatsapp",
+            )
+        return acct
+    return WhatsAppAccountConfig()
+
+
+def get_whatsapp_access_token(account: str | None = None) -> str:
+    """Resolve a Meta WhatsApp Cloud API access token."""
+
+    acct = get_whatsapp_account_config(account)
+    token = os.environ.get(acct.access_token_env_var)
+    if token:
+        return token
+    target_account = account or get_config().whatsapp.default_account
+    if target_account:
+        raise ConfigError(
+            f"WhatsApp access token not found for account '{target_account}'. "
+            f"Set {acct.access_token_env_var} environment variable.",
+            backend="whatsapp",
+        )
+
+    token = (
+        os.environ.get("JARVIS_WHATSAPP_META_TOKEN")
+        or os.environ.get("WHATSAPP_META_TOKEN")
+        or os.environ.get("WHATSAPP_ACCESS_TOKEN")
+    )
+    if token:
+        return token
+    raise ConfigError(
+        "No WhatsApp access token found. Set JARVIS_WHATSAPP_META_TOKEN "
+        "or configure whatsapp.accounts in ~/.jarvis/config.yaml.",
+        backend="whatsapp",
+    )
+
+
+def get_whatsapp_app_secret(account: str | None = None) -> str:
+    """Resolve a Meta app secret for WhatsApp webhook signature checks."""
+
+    acct = get_whatsapp_account_config(account)
+    secret = os.environ.get(acct.app_secret_env_var)
+    if secret:
+        return secret
+    target_account = account or get_config().whatsapp.default_account
+    if target_account:
+        raise ConfigError(
+            f"WhatsApp app secret not found for account '{target_account}'. "
+            f"Set {acct.app_secret_env_var} environment variable.",
+            backend="whatsapp",
+        )
+
+    secret = os.environ.get("JARVIS_WHATSAPP_META_APP_SECRET") or os.environ.get(
+        "WHATSAPP_META_APP_SECRET"
+    )
+    if secret:
+        return secret
+    raise ConfigError(
+        "No WhatsApp app secret found. Set JARVIS_WHATSAPP_META_APP_SECRET "
+        "or configure whatsapp.accounts in ~/.jarvis/config.yaml.",
+        backend="whatsapp",
+    )
+
+
+def get_whatsapp_verify_token(account: str | None = None) -> str:
+    """Resolve the local webhook verification token expected from Meta."""
+
+    acct = get_whatsapp_account_config(account)
+    token = os.environ.get(acct.verify_token_env_var)
+    if token:
+        return token
+    target_account = account or get_config().whatsapp.default_account
+    if target_account:
+        raise ConfigError(
+            f"WhatsApp verify token not found for account '{target_account}'. "
+            f"Set {acct.verify_token_env_var} environment variable.",
+            backend="whatsapp",
+        )
+
+    token = os.environ.get("JARVIS_WHATSAPP_VERIFY_TOKEN") or os.environ.get(
+        "WHATSAPP_VERIFY_TOKEN"
+    )
+    if token:
+        return token
+    raise ConfigError(
+        "No WhatsApp webhook verify token found. Set JARVIS_WHATSAPP_VERIFY_TOKEN "
+        "or configure whatsapp.accounts in ~/.jarvis/config.yaml.",
+        backend="whatsapp",
+    )
+
+
+def get_whatsapp_phone_number_id(account: str | None = None) -> str:
+    """Resolve the Meta WhatsApp phone number ID for outbound sends."""
+
+    acct = get_whatsapp_account_config(account)
+    if acct.phone_number_id:
+        return acct.phone_number_id
+    fallback = os.environ.get("JARVIS_WHATSAPP_PHONE_NUMBER_ID") or os.environ.get(
+        "WHATSAPP_PHONE_NUMBER_ID"
+    )
+    if fallback:
+        return fallback
+    target_account = account or get_config().whatsapp.default_account
+    suffix = f" for account '{target_account}'" if target_account else ""
+    raise ConfigError(
+        f"WhatsApp phone number ID not configured{suffix}. "
+        "Set phone_number_id under whatsapp.accounts or JARVIS_WHATSAPP_PHONE_NUMBER_ID.",
+        backend="whatsapp",
     )
 
 

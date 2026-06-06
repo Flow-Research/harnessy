@@ -1,0 +1,1312 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import base64
+import fnmatch
+import getpass
+import hashlib
+import json
+import os
+import shlex
+import socket
+import ssl
+import subprocess
+import sys
+import tarfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+DEFAULT_CI_PROFILE = Path(".jarvis/context/profiles/ci.json")
+DEFAULT_DEPLOY_PROFILE = Path(".jarvis/context/profiles/deploy.json")
+DEFAULT_QA_PROFILE = Path(".jarvis/context/profiles/qa.json")
+DEFAULT_EVIDENCE_ROOT = Path(".jarvis/context/deployments")
+DEFAULT_HOSTINGER_ENV = Path(".jarvis/context/profiles/local/hostinger.env")
+DEFAULT_HOSTINGER_API_URL = "https://developers.hostinger.com"
+DEFAULT_DEPLOY_SSH_USER = "harnessy-deploy"
+DEFAULT_EXCLUDES = [
+    ".git",
+    ".git/**",
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
+    "node_modules",
+    "node_modules/**",
+    "**/node_modules/**",
+    ".cache",
+    ".cache/**",
+    "**/.cache/**",
+    ".jarvis/context/deployments",
+    ".jarvis/context/deployments/**",
+    ".jarvis/context/profiles/local",
+    ".jarvis/context/profiles/local/**",
+    ".jarvis/context/profiles/*.local.json",
+    ".next/cache",
+    ".next/cache/**",
+    ".streamlit/secrets.toml",
+    "**/.streamlit/secrets.toml",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.pfx",
+    "**/*secret*",
+    "**/*token*",
+]
+SUPPORTED_RUNTIME_MODES = {
+    "auto",
+    "static",
+    "node",
+    "node-managed",
+    "process",
+    "systemd",
+    "docker",
+    "docker-compose",
+}
+
+
+@dataclass
+class Profiles:
+    ci_path: Path
+    deploy_path: Path
+    ci: dict[str, Any]
+    deploy: dict[str, Any]
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Missing profile: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON in {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Profile must be a JSON object: {path}")
+    return payload
+
+
+def load_profiles(args: argparse.Namespace) -> Profiles:
+    ci_path = Path(args.ci_profile or DEFAULT_CI_PROFILE)
+    deploy_path = Path(args.deploy_profile or DEFAULT_DEPLOY_PROFILE)
+    return Profiles(
+        ci_path=ci_path,
+        deploy_path=deploy_path,
+        ci=read_json(ci_path),
+        deploy=read_json(deploy_path),
+    )
+
+
+def evidence_root(deploy: dict[str, Any]) -> Path:
+    evidence = deploy.get("evidence") or {}
+    return Path(evidence.get("root") or DEFAULT_EVIDENCE_ROOT)
+
+
+def run_id() -> str:
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
+
+def selected_environment(deploy: dict[str, Any], env_name: str | None) -> tuple[str, dict[str, Any]]:
+    environments = deploy.get("environments") or {}
+    name = env_name or deploy.get("defaultEnvironment") or "canary"
+    env = environments.get(name)
+    if not isinstance(env, dict):
+        raise SystemExit(f"Unknown deploy environment: {name}")
+    return name, env
+
+
+def selected_target(deploy: dict[str, Any], env_name: str | None) -> dict[str, Any]:
+    _, env = selected_environment(deploy, env_name)
+    target = env.get("target") or {}
+    return target if isinstance(target, dict) else {}
+
+
+def runtime_config(app: dict[str, Any]) -> dict[str, Any]:
+    runtime = app.get("runtime")
+    if isinstance(runtime, dict):
+        return runtime
+    return {}
+
+
+def app_runtime_mode(app: dict[str, Any], env: dict[str, Any] | None = None) -> str:
+    runtime = runtime_config(app)
+    mode = runtime.get("mode") or app.get("deploymentMode") or app.get("runtimeMode")
+    if not mode and env:
+        mode = env.get("runtimeMode")
+    if not mode:
+        mode = app.get("type") or "auto"
+    return str(mode)
+
+
+def app_runtime_value(app: dict[str, Any], key: str) -> Any:
+    runtime = runtime_config(app)
+    return runtime.get(key) if key in runtime else app.get(key)
+
+
+def deployment_units(deploy: dict[str, Any], env: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    units: list[dict[str, Any]] = []
+    for app in deploy.get("apps", []):
+        if not isinstance(app, dict):
+            continue
+        mode = app_runtime_mode(app, env)
+        units.append(
+            {
+                "id": app.get("id"),
+                "root": app.get("root", "."),
+                "type": app.get("type", "auto"),
+                "runtimeMode": mode,
+                "serviceName": app_runtime_value(app, "serviceName") or "",
+                "composeFile": app_runtime_value(app, "composeFile") or "",
+                "startCommand": app_runtime_value(app, "startCommand") or app_runtime_value(app, "execStart") or "",
+                "healthcheckPath": app_runtime_value(app, "healthcheckPath") or (env or {}).get("healthcheckPath") or "",
+                "port": app_runtime_value(app, "port") or "",
+            }
+        )
+    return units
+
+
+def validate_profiles(profiles: Profiles, env_name: str | None) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    ci = profiles.ci
+    deploy = profiles.deploy
+    if ci.get("version") != 1:
+        issues.append({"severity": "error", "rule": "ci-version", "message": "ci profile version must be 1"})
+    if deploy.get("version") != 1:
+        issues.append({"severity": "error", "rule": "deploy-version", "message": "deploy profile version must be 1"})
+    if not isinstance(deploy.get("apps"), list) or not deploy["apps"]:
+        issues.append({"severity": "error", "rule": "deploy-apps", "message": "deploy profile must declare at least one app"})
+    env: dict[str, Any] = {}
+    try:
+        _, env = selected_environment(deploy, env_name)
+        provider = env.get("provider")
+        adapter = env.get("adapter")
+        if provider != "hostinger":
+            issues.append({"severity": "warning", "rule": "provider", "message": f"provider adapter is not implemented for {provider}"})
+        if provider == "hostinger" and adapter not in {"mcp", "api", "mock"}:
+            issues.append({"severity": "error", "rule": "hostinger-adapter", "message": "Hostinger adapter must be mcp, api, or mock"})
+    except SystemExit as exc:
+        issues.append({"severity": "error", "rule": "environment", "message": str(exc)})
+
+    for index, app in enumerate(deploy.get("apps", [])):
+        if not isinstance(app, dict):
+            issues.append({"severity": "error", "rule": "deploy-app", "message": f"deploy app at index {index} must be an object"})
+            continue
+        app_id = app.get("id") or f"index-{index}"
+        mode = app_runtime_mode(app, env)
+        if mode not in SUPPORTED_RUNTIME_MODES:
+            issues.append({"severity": "error", "rule": "runtime-mode", "message": f"{app_id} uses unsupported runtime mode: {mode}"})
+            continue
+        if mode == "systemd":
+            if not app_runtime_value(app, "serviceName"):
+                issues.append({"severity": "error", "rule": "systemd-service-name", "message": f"{app_id} systemd runtime requires serviceName"})
+            if not (app_runtime_value(app, "startCommand") or app_runtime_value(app, "execStart")):
+                issues.append({"severity": "error", "rule": "systemd-start-command", "message": f"{app_id} systemd runtime requires startCommand or execStart"})
+        if mode == "docker-compose" and not app_runtime_value(app, "composeFile"):
+            issues.append({"severity": "warning", "rule": "docker-compose-file", "message": f"{app_id} docker-compose runtime should declare composeFile"})
+
+    qa_profile = Path((ci.get("qa") or {}).get("profile") or DEFAULT_QA_PROFILE)
+    if not qa_profile.exists():
+        issues.append({"severity": "warning", "rule": "qa-profile", "message": f"QA profile not found: {qa_profile}"})
+    evidence = evidence_root(deploy).as_posix().rstrip("/") + "/"
+    gitignore = Path(".gitignore")
+    if gitignore.exists():
+        ignored = False
+        for raw_line in gitignore.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("!"):
+                continue
+            normalized = line.lstrip("/").rstrip("/") + "/"
+            if normalized == evidence:
+                ignored = True
+                break
+        if not ignored:
+            issues.append({"severity": "warning", "rule": "evidence-gitignore", "message": f"Deployment evidence root should usually be gitignored: {evidence}"})
+    else:
+        issues.append({"severity": "warning", "rule": "evidence-gitignore", "message": f"No .gitignore found; ignore deployment evidence root: {evidence}"})
+    return issues
+
+
+def run_gate(command: str) -> dict[str, Any]:
+    started = time.time()
+    result = subprocess.run(command, shell=True, text=True, capture_output=True, check=False)
+    return {
+        "command": command,
+        "exitCode": result.returncode,
+        "durationSeconds": round(time.time() - started, 3),
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-4000:],
+        "ok": result.returncode == 0,
+    }
+
+
+def should_exclude(relative_path: str, patterns: list[str]) -> bool:
+    normalized = relative_path.replace(os.sep, "/")
+    return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
+
+
+def iter_package_files(root: Path, excludes: list[str]) -> list[Path]:
+    files: list[Path] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if should_exclude(rel, excludes):
+            continue
+        files.append(path)
+    return files
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def parse_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            value = value[1:-1]
+        if key:
+            values[key] = value
+    return values
+
+
+def write_env_values(path: Path, updates: dict[str, str]) -> None:
+    values = parse_env_file(path)
+    values.update({key: value for key, value in updates.items() if value})
+    lines = [
+        "# Gitignored local Hostinger deployment credentials.",
+        "# Managed by harness-deploy configure/targets.",
+    ]
+    for key in sorted(values):
+        lines.append(f"{key}={values[key]}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+
+
+def env_file_path(args: argparse.Namespace, target: dict[str, Any] | None = None) -> Path:
+    explicit = getattr(args, "env_file", None)
+    if explicit:
+        return Path(explicit)
+    if target and target.get("localEnvFile"):
+        return Path(str(target["localEnvFile"]))
+    return DEFAULT_HOSTINGER_ENV
+
+
+def provider_env(target: dict[str, Any], env_path: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(parse_env_file(env_path))
+    token_name = target.get("apiTokenEnv") or "HOSTINGER_API_TOKEN"
+    hapi_token_name = "HAPI_API_TOKEN"
+    if token_name in env and hapi_token_name not in env:
+        env[hapi_token_name] = env[token_name]
+    if hapi_token_name in env and token_name not in env:
+        env[token_name] = env[hapi_token_name]
+    return env
+
+
+def hostinger_token(env: dict[str, str], target: dict[str, Any]) -> str:
+    token_name = target.get("apiTokenEnv") or "HOSTINGER_API_TOKEN"
+    token = env.get(token_name) or env.get("HAPI_API_TOKEN")
+    if not token:
+        raise SystemExit(f"Missing Hostinger token. Run: harness-deploy configure")
+    return token
+
+
+def hostinger_request(env: dict[str, str], target: dict[str, Any], method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    token = hostinger_token(env, target)
+    base_url = env.get("HOSTINGER_API_URL") or DEFAULT_HOSTINGER_API_URL
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request = urllib.request.Request(
+        base_url.rstrip("/") + path,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "harnessy-service-deploy/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"Hostinger API {method} {path} failed: HTTP {exc.code} {raw}") from exc
+
+
+def unwrap_collection(payload: Any) -> list[Any]:
+    if isinstance(payload, dict):
+        value = payload.get("data") or payload.get("items") or []
+        return value if isinstance(value, list) else []
+    return payload if isinstance(payload, list) else []
+
+
+def vm_id_from_env(env: dict[str, str], target: dict[str, Any]) -> str:
+    name = target.get("virtualMachineIdEnv") or "HOSTINGER_VPS_ID"
+    vm_id = env.get(name)
+    if not vm_id:
+        raise SystemExit(f"Missing {name}. Run: harness-deploy targets --write-selection")
+    return str(vm_id)
+
+
+def get_vm_info(env: dict[str, str], target: dict[str, Any]) -> dict[str, Any]:
+    vm_id = vm_id_from_env(env, target)
+    payload = hostinger_request(env, target, "GET", f"/api/vps/v1/virtual-machines/{vm_id}")
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Unexpected Hostinger VM payload for {vm_id}")
+    return payload
+
+
+def vm_host(vm: dict[str, Any]) -> str:
+    hostname = vm.get("hostname")
+    if hostname:
+        return str(hostname)
+    ipv4 = vm.get("ipv4")
+    if isinstance(ipv4, list) and ipv4:
+        first = ipv4[0]
+        if isinstance(first, dict) and first.get("address"):
+            return str(first["address"])
+    raise SystemExit("Hostinger VM has no hostname or IPv4 address")
+
+
+def ssh_destination(env: dict[str, str], target: dict[str, Any], vm: dict[str, Any]) -> str:
+    user = env.get("HOSTINGER_SSH_USER") or target.get("sshUser") or "root"
+    host = env.get("HOSTINGER_SSH_HOST") or vm_host(vm)
+    return f"{user}@{host}"
+
+
+def ssh_host(env: dict[str, str], vm: dict[str, Any]) -> str:
+    return env.get("HOSTINGER_SSH_HOST") or vm_host(vm)
+
+
+def run_subprocess(
+    command: list[str],
+    *,
+    stdin: str | None = None,
+    timeout: int | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, input=stdin, text=True, capture_output=True, check=False, timeout=timeout, env=env)
+
+
+def test_ssh(destination: str, args: argparse.Namespace | None = None, env: dict[str, str] | None = None) -> bool:
+    result = run_subprocess([
+        "ssh",
+        *ssh_client_options(args, env),
+        destination,
+        "echo ssh-ok",
+    ], timeout=20)
+    return result.returncode == 0 and "ssh-ok" in result.stdout
+
+
+def encoded_remote_bash_command(script: str) -> str:
+    encoded = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    return f"printf %s {shlex.quote(encoded)} | base64 -d | bash"
+
+
+def normalize_path(raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    return path if path.is_absolute() else (Path.cwd() / path)
+
+
+def default_deploy_key_path() -> Path:
+    return DEFAULT_HOSTINGER_ENV.parent / "hostinger_deploy_key"
+
+
+def ssh_private_key_path(args: argparse.Namespace | None, env: dict[str, str] | None = None) -> Path | None:
+    env = env or {}
+    raw = (
+        getattr(args, "ssh_key", None)
+        if args is not None
+        else None
+    ) or env.get("HOSTINGER_SSH_KEY") or os.environ.get("HARNESS_DEPLOY_SSH_KEY")
+    if raw:
+        return normalize_path(raw)
+    default_key = normalize_path(str(default_deploy_key_path()))
+    return default_key if default_key.exists() else None
+
+
+def ssh_client_options(args: argparse.Namespace | None = None, env: dict[str, str] | None = None) -> list[str]:
+    options = [
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "-o", "StrictHostKeyChecking=accept-new",
+    ]
+    key_path = ssh_private_key_path(args, env)
+    if key_path and key_path.exists():
+        options.extend(["-i", str(key_path), "-o", "IdentitiesOnly=yes"])
+    return options
+
+
+def ensure_generated_ssh_key(args: argparse.Namespace, env_path: Path, env: dict[str, str]) -> dict[str, Any] | None:
+    if not getattr(args, "generate_ssh_key", False):
+        return None
+    raw_key = getattr(args, "ssh_key", None) or env.get("HOSTINGER_SSH_KEY") or os.environ.get("HARNESS_DEPLOY_SSH_KEY") or str(default_deploy_key_path())
+    key_path = normalize_path(raw_key)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    if not key_path.exists():
+        if not shutil_which("ssh-keygen"):
+            raise SystemExit("ssh-keygen is required to generate a deploy key.")
+        result = run_subprocess([
+            "ssh-keygen",
+            "-t", "ed25519",
+            "-N", "",
+            "-C", f"harnessy-deploy-{int(time.time())}",
+            "-f", str(key_path),
+        ], timeout=30)
+        if result.returncode != 0:
+            raise SystemExit(f"Failed to generate deploy SSH key: {result.stderr.strip() or result.stdout.strip()}")
+        created = True
+    public_key = Path(f"{key_path}.pub")
+    if not public_key.exists():
+        result = run_subprocess(["ssh-keygen", "-y", "-f", str(key_path)], timeout=30)
+        if result.returncode != 0:
+            raise SystemExit(f"Failed to derive deploy SSH public key: {result.stderr.strip() or result.stdout.strip()}")
+        public_key.write_text(result.stdout.strip() + "\n", encoding="utf-8")
+        public_key.chmod(0o644)
+    key_path.chmod(0o600)
+    env["HOSTINGER_SSH_KEY"] = raw_key
+    write_env_values(env_path, {"HOSTINGER_SSH_KEY": raw_key})
+    return {"path": str(key_path), "publicKeyPath": str(public_key), "created": created}
+
+
+def bootstrap_ssh_key_with_password(destination: str, key_content: str, password: str) -> dict[str, Any]:
+    if not shutil_which("expect"):
+        return {"ok": False, "used": False, "message": "expect is not installed; cannot bootstrap SSH key with password."}
+    remote_command = encoded_remote_bash_command(f"""
+set -euo pipefail
+public_key={shlex.quote(key_content)}
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+touch /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+grep -qxF "$public_key" /root/.ssh/authorized_keys || printf '%s\\n' "$public_key" >> /root/.ssh/authorized_keys
+""")
+    expect_script = f"""
+set timeout 30
+set password $env(HOSTINGER_SSH_PASSWORD)
+set destination $env(HARNESS_SSH_DESTINATION)
+set remote_command $env(HARNESS_REMOTE_COMMAND)
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o PreferredAuthentications=password $destination $remote_command
+expect {{
+  -re "(?i)password:" {{
+    send -- "$password\\r"
+    exp_continue
+  }}
+  eof
+}}
+set result [wait]
+exit [lindex $result 3]
+"""
+    env = os.environ.copy()
+    env["HOSTINGER_SSH_PASSWORD"] = password
+    env["HARNESS_SSH_DESTINATION"] = destination
+    env["HARNESS_REMOTE_COMMAND"] = remote_command
+    result = run_subprocess(["expect", "-f", "-"], stdin=expect_script, timeout=60, env=env)
+    return {
+        "ok": result.returncode == 0,
+        "used": True,
+        "stdoutTail": result.stdout[-1000:],
+        "stderrTail": result.stderr[-1000:],
+    }
+
+
+def bootstrap_deploy_user_with_root_password(host: str, deploy_user: str, key_content: str, password: str) -> dict[str, Any]:
+    if not shutil_which("expect"):
+        return {"ok": False, "used": False, "message": "expect is not installed; cannot bootstrap deploy user with password."}
+    remote_command = encoded_remote_bash_command(f"""
+set -euo pipefail
+deploy_user={shlex.quote(deploy_user)}
+public_key={shlex.quote(key_content)}
+if ! id -u "$deploy_user" >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash "$deploy_user"
+fi
+install -d -m 700 -o "$deploy_user" -g "$deploy_user" "/home/$deploy_user/.ssh"
+touch "/home/$deploy_user/.ssh/authorized_keys"
+chmod 600 "/home/$deploy_user/.ssh/authorized_keys"
+chown "$deploy_user:$deploy_user" "/home/$deploy_user/.ssh/authorized_keys"
+grep -qxF "$public_key" "/home/$deploy_user/.ssh/authorized_keys" || printf '%s\\n' "$public_key" >> "/home/$deploy_user/.ssh/authorized_keys"
+chown "$deploy_user:$deploy_user" "/home/$deploy_user/.ssh/authorized_keys"
+if ! command -v sudo >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y sudo
+fi
+printf '%s ALL=(root) NOPASSWD: ALL\n' "$deploy_user" >/etc/sudoers.d/harnessy-deploy
+chmod 440 /etc/sudoers.d/harnessy-deploy
+visudo -cf /etc/sudoers.d/harnessy-deploy
+""")
+    expect_script = f"""
+set timeout 60
+set password $env(HOSTINGER_BOOTSTRAP_ROOT_PASSWORD)
+set destination $env(HARNESS_SSH_DESTINATION)
+set remote_command $env(HARNESS_REMOTE_COMMAND)
+spawn ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o PreferredAuthentications=password $destination $remote_command
+expect {{
+  -re "(?i)password:" {{
+    send -- "$password\\r"
+    exp_continue
+  }}
+  eof
+}}
+set result [wait]
+exit [lindex $result 3]
+"""
+    env = os.environ.copy()
+    env["HOSTINGER_BOOTSTRAP_ROOT_PASSWORD"] = password
+    env["HARNESS_SSH_DESTINATION"] = f"root@{host}"
+    env["HARNESS_REMOTE_COMMAND"] = remote_command
+    result = run_subprocess(["expect", "-f", "-"], stdin=expect_script, timeout=120, env=env)
+    return {
+        "ok": result.returncode == 0,
+        "used": True,
+        "deployUser": deploy_user,
+        "stdoutTail": result.stdout[-1000:],
+        "stderrTail": result.stderr[-1000:],
+    }
+
+
+def shutil_which(command: str) -> str | None:
+    paths = os.environ.get("PATH", "").split(os.pathsep)
+    for raw_path in paths:
+        path = Path(raw_path) / command
+        if path.exists() and os.access(path, os.X_OK):
+            return str(path)
+    return None
+
+
+def public_key_path(args: argparse.Namespace, env: dict[str, str] | None = None) -> Path:
+    raw = (
+        getattr(args, "ssh_public_key", None)
+        or (env or {}).get("HOSTINGER_SSH_PUBLIC_KEY")
+        or os.environ.get("HARNESS_DEPLOY_SSH_PUBLIC_KEY")
+    )
+    if raw:
+        return normalize_path(raw)
+    private_key = ssh_private_key_path(args, env)
+    if private_key:
+        return Path(f"{private_key}.pub")
+    return Path("~/.ssh/id_rsa.pub").expanduser()
+
+
+def ensure_public_key_attached(args: argparse.Namespace, env: dict[str, str], target: dict[str, Any]) -> dict[str, Any]:
+    path = public_key_path(args, env)
+    if not path.exists():
+        raise SystemExit(f"SSH public key not found: {path}")
+    key_content = path.read_text(encoding="utf-8").strip()
+    if not key_content:
+        raise SystemExit(f"SSH public key is empty: {path}")
+
+    keys = unwrap_collection(hostinger_request(env, target, "GET", "/api/vps/v1/public-keys"))
+    existing = next((item for item in keys if isinstance(item, dict) and item.get("key") == key_content), None)
+    created = False
+    if existing and existing.get("id"):
+        key_id = existing["id"]
+        key_name = existing.get("name") or ""
+    else:
+        key_name = f"harnessy-{os.uname().nodename}-{int(time.time())}"
+        created_payload = hostinger_request(env, target, "POST", "/api/vps/v1/public-keys", {"name": key_name, "key": key_content})
+        created = True
+        if isinstance(created_payload, dict):
+            key_id = created_payload.get("id") or (created_payload.get("data") or {}).get("id")
+        else:
+            key_id = None
+        if not key_id:
+            refreshed = unwrap_collection(hostinger_request(env, target, "GET", "/api/vps/v1/public-keys"))
+            match = next((item for item in refreshed if isinstance(item, dict) and item.get("key") == key_content), None)
+            key_id = match.get("id") if match else None
+        if not key_id:
+            raise SystemExit("Hostinger public key was created but its id could not be resolved")
+
+    vm_id = vm_id_from_env(env, target)
+    hostinger_request(env, target, "POST", f"/api/vps/v1/public-keys/attach/{vm_id}", {"ids": [int(key_id)]})
+    return {"keyId": key_id, "keyName": key_name, "created": created, "publicKeyPath": str(path)}
+
+
+def local_env_status(env_path: Path) -> dict[str, Any]:
+    values = parse_env_file(env_path)
+    return {
+        "path": str(env_path),
+        "exists": env_path.exists(),
+        "mode": oct(env_path.stat().st_mode & 0o777) if env_path.exists() else None,
+        "keys": sorted(values.keys()),
+        "hasHostingerToken": bool(values.get("HOSTINGER_API_TOKEN") or values.get("HAPI_API_TOKEN")),
+    }
+
+
+def latest_run_dir(root: Path) -> Path | None:
+    if not root.exists():
+        return None
+    dirs = sorted([entry for entry in root.iterdir() if entry.is_dir()])
+    return dirs[-1] if dirs else None
+
+
+def resolve_run_dir(root: Path, run: str | None) -> Path:
+    if run:
+        path = root / run
+        if not path.exists():
+            raise SystemExit(f"Run not found: {run}")
+        return path
+    latest = latest_run_dir(root)
+    if not latest:
+        raise SystemExit(f"No deployment evidence found under {root}")
+    return latest
+
+
+def command_plan(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    env_name, env = selected_environment(profiles.deploy, args.env)
+    units = deployment_units(profiles.deploy, env)
+    return {
+      "ok": True,
+      "ciProfile": str(profiles.ci_path),
+      "deployProfile": str(profiles.deploy_path),
+      "environment": env_name,
+      "provider": env.get("provider"),
+      "adapter": env.get("adapter"),
+      "strategy": env.get("strategy"),
+      "apps": profiles.deploy.get("apps", []),
+      "deploymentUnits": units,
+      "runtimeModes": sorted({unit["runtimeMode"] for unit in units}),
+      "gates": profiles.ci.get("gates", []),
+      "evidenceRoot": str(evidence_root(profiles.deploy)),
+    }
+
+
+def command_check(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    issues = validate_profiles(profiles, args.env)
+    gates = []
+    for gate in profiles.ci.get("gates", []):
+        command = gate.get("command")
+        if not command:
+            continue
+        gates.append({"name": gate.get("name"), "required": gate.get("required", True), **run_gate(command)})
+    failed_required = [gate for gate in gates if gate.get("required", True) and not gate["ok"]]
+    errors = [issue for issue in issues if issue["severity"] == "error"]
+    return {
+        "ok": not errors and not failed_required,
+        "issues": issues,
+        "gates": gates,
+    }
+
+
+def command_configure(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    target = selected_target(profiles.deploy, args.env)
+    env_path = env_file_path(args, target)
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+
+    current = parse_env_file(env_path)
+    token_name = target.get("apiTokenEnv") or "HOSTINGER_API_TOKEN"
+    token = current.get(token_name) or current.get("HAPI_API_TOKEN") or os.environ.get(token_name) or os.environ.get("HAPI_API_TOKEN")
+    if not token and not args.no_prompt and sys.stdin.isatty():
+        token = getpass.getpass("Hostinger API token: ").strip()
+
+    changed = False
+    if token:
+        lines = [
+            "# Gitignored local Hostinger deployment credentials.",
+            "# Created by harness-deploy configure.",
+            f"{token_name}={token}",
+            f"HAPI_API_TOKEN={token}",
+        ]
+        if args.force or not env_path.exists() or parse_env_file(env_path).get(token_name) != token:
+            env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            os.chmod(env_path, 0o600)
+            changed = True
+    elif not env_path.exists():
+        env_path.write_text(
+            "\n".join([
+                "# Gitignored local Hostinger deployment credentials.",
+                "# Fill these values locally; do not commit this file.",
+                f"{token_name}=",
+                "HAPI_API_TOKEN=",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(env_path, 0o600)
+        changed = True
+    else:
+        os.chmod(env_path, 0o600)
+
+    status = local_env_status(env_path)
+    return {
+        "ok": status["hasHostingerToken"],
+        "changed": changed,
+        "envFile": status,
+        "message": "Hostinger env file is configured." if status["hasHostingerToken"] else "Hostinger env file exists but no token is configured.",
+    }
+
+
+def summarize_vps_payload(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        candidates = payload.get("data") or payload.get("virtual_machines") or payload.get("virtualMachines") or payload.get("items") or []
+    else:
+        candidates = payload
+    if not isinstance(candidates, list):
+        return []
+    result = []
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        ip_value = item.get("ip") or item.get("ipv4") or item.get("ipv4Address")
+        if isinstance(ip_value, list) and ip_value:
+            first_ip = ip_value[0]
+            if isinstance(first_ip, dict):
+                ip_value = first_ip.get("address") or first_ip.get("ip") or first_ip.get("value")
+            else:
+                ip_value = first_ip
+        result.append({
+            "id": item.get("id") or item.get("virtualMachineId") or item.get("virtual_machine_id"),
+            "hostname": item.get("hostname") or item.get("name") or item.get("label"),
+            "state": item.get("state") or item.get("status"),
+            "ip": ip_value,
+        })
+    return result
+
+
+def choose_target_id(targets: list[dict[str, Any]], requested: str | None) -> str | None:
+    if requested:
+        for target in targets:
+            if str(target.get("id")) == str(requested):
+                return str(target.get("id"))
+        raise SystemExit(f"Requested target id was not found: {requested}")
+    if len(targets) == 1 and targets[0].get("id"):
+        return str(targets[0]["id"])
+    return None
+
+
+def command_targets(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    target = selected_target(profiles.deploy, args.env)
+    env_path = env_file_path(args, target)
+    env = provider_env(target, env_path)
+    token_name = target.get("apiTokenEnv") or "HOSTINGER_API_TOKEN"
+    if not env.get(token_name) and not env.get("HAPI_API_TOKEN"):
+        return {
+            "ok": False,
+            "envFile": local_env_status(env_path),
+            "targets": [],
+            "message": f"Missing Hostinger token. Run: harness-deploy configure --env-file {env_path}",
+        }
+    command = ["hapi", "vps", "vm", "list", "--format", "json"]
+    started = time.time()
+    result = subprocess.run(command, text=True, capture_output=True, check=False, env=env)
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "envFile": local_env_status(env_path),
+            "targets": [],
+            "durationSeconds": round(time.time() - started, 3),
+            "message": result.stderr.strip() or result.stdout.strip() or "Failed to list Hostinger VPS targets.",
+        }
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = []
+    targets = summarize_vps_payload(payload)
+    selected_id = None
+    if args.write_selection:
+        selected_id = choose_target_id(targets, args.target_id)
+        if not selected_id:
+            return {
+                "ok": False,
+                "envFile": local_env_status(env_path),
+                "targets": targets,
+                "durationSeconds": round(time.time() - started, 3),
+                "message": "Multiple or zero targets found. Re-run with --target-id <id> --write-selection.",
+            }
+        vm_env_name = target.get("virtualMachineIdEnv") or "HOSTINGER_VPS_ID"
+        write_env_values(env_path, {vm_env_name: selected_id})
+    return {
+        "ok": True,
+        "envFile": local_env_status(env_path),
+        "targets": targets,
+        "selectedTargetId": selected_id,
+        "durationSeconds": round(time.time() - started, 3),
+        "message": f"Found {len(targets)} Hostinger VPS target(s)." + (f" Selected {selected_id}." if selected_id else ""),
+    }
+
+
+def command_ssh_setup(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    target = selected_target(profiles.deploy, args.env)
+    env_path = env_file_path(args, target)
+    env = provider_env(target, env_path)
+    generated_key = ensure_generated_ssh_key(args, env_path, env)
+    vm = get_vm_info(env, target)
+    host = ssh_host(env, vm)
+    destination = ssh_destination(env, target, vm)
+    before = test_ssh(destination, args, env)
+    key_result = None
+    password_bootstrap = None
+    deploy_user_bootstrap = None
+    if not before:
+        key_result = ensure_public_key_attached(args, env, target)
+        time.sleep(8)
+    after = test_ssh(destination, args, env)
+    root_password = env.get("HOSTINGER_BOOTSTRAP_ROOT_PASSWORD") or env.get("HOSTINGER_SSH_PASSWORD")
+    if not after and root_password:
+        deploy_user = env.get("HOSTINGER_SSH_USER") or target.get("sshUser") or DEFAULT_DEPLOY_SSH_USER
+        key_content = public_key_path(args, env).read_text(encoding="utf-8").strip()
+        deploy_user_bootstrap = bootstrap_deploy_user_with_root_password(host, deploy_user, key_content, root_password)
+        if deploy_user_bootstrap.get("ok"):
+            write_env_values(env_path, {"HOSTINGER_SSH_USER": deploy_user})
+            env = provider_env(target, env_path)
+            destination = ssh_destination(env, target, vm)
+            time.sleep(1)
+            after = test_ssh(destination, args, env)
+    password = env.get("HOSTINGER_SSH_PASSWORD")
+    if not after and password and not deploy_user_bootstrap:
+        key_content = public_key_path(args, env).read_text(encoding="utf-8").strip()
+        password_bootstrap = bootstrap_ssh_key_with_password(destination, key_content, password)
+        if password_bootstrap.get("ok"):
+            time.sleep(1)
+            after = test_ssh(destination, args, env)
+    return {
+        "ok": after,
+        "ssh": {"destination": destination, "availableBefore": before, "available": after},
+        "generatedKey": generated_key,
+        "publicKey": key_result,
+        "deployUserBootstrap": deploy_user_bootstrap,
+        "passwordBootstrap": password_bootstrap,
+        "message": "SSH is ready." if after else "SSH key was attached but login is still unavailable.",
+    }
+
+
+def command_package(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    _, env = selected_environment(profiles.deploy, args.env)
+    root = Path.cwd()
+    rid = args.run_id or run_id()
+    out_dir = evidence_root(profiles.deploy) / rid
+    out_dir.mkdir(parents=True, exist_ok=True)
+    excludes = DEFAULT_EXCLUDES + list(profiles.deploy.get("packageExcludes") or [])
+    tar_path = out_dir / "package.tar.gz"
+    with tarfile.open(tar_path, "w:gz") as archive:
+        for app in profiles.deploy.get("apps", []):
+            app_root = (root / app.get("root", ".")).resolve()
+            if not app_root.exists():
+                raise SystemExit(f"App root does not exist: {app_root}")
+            for file_path in iter_package_files(app_root, excludes):
+                archive.add(file_path, arcname=file_path.relative_to(root).as_posix())
+    package_hash = sha256_file(tar_path)
+    (out_dir / "package.sha256").write_text(f"{package_hash}  package.tar.gz\n", encoding="utf-8")
+    manifest = {
+        "runId": rid,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "package": str(tar_path),
+        "sha256": package_hash,
+        "apps": profiles.deploy.get("apps", []),
+        "deploymentUnits": deployment_units(profiles.deploy, env),
+        "excludes": excludes,
+    }
+    write_json(out_dir / "manifest.json", manifest)
+    return {"ok": True, "runId": rid, "evidenceDir": str(out_dir), "package": str(tar_path), "sha256": package_hash}
+
+
+def provider_response(args: argparse.Namespace, profiles: Profiles, rid: str, action: str) -> dict[str, Any]:
+    env_name, env = selected_environment(profiles.deploy, args.env)
+    provider = env.get("provider")
+    adapter = env.get("adapter")
+    if provider != "hostinger":
+        raise SystemExit(f"Provider is not implemented: {provider}")
+    if args.dry_run:
+        status = "dry_run"
+    elif adapter == "mock" or env.get("mode") == "mock":
+        status = "succeeded"
+    else:
+        raise SystemExit("Live Hostinger execution is not enabled in v1. Use --dry-run or provider mode mock.")
+    return {
+        "action": action,
+        "runId": rid,
+        "provider": provider,
+        "adapter": adapter,
+        "environment": env_name,
+        "strategy": env.get("strategy"),
+        "runtimeModes": sorted({unit["runtimeMode"] for unit in deployment_units(profiles.deploy, env)}),
+        "status": status,
+        "deploymentId": f"{provider}-{rid}" if status != "dry_run" else None,
+        "url": env.get("url") or "",
+        "raw": {
+            "note": "Harnessy normalized Hostinger adapter response; no live provider call was made." if status == "dry_run" else "Mock Hostinger adapter response.",
+        },
+    }
+
+
+def public_url_for_env(env: dict[str, str], target: dict[str, Any], vm: dict[str, Any], deploy_env: dict[str, Any]) -> str:
+    configured_url = str(deploy_env.get("url") or "").strip()
+    if configured_url:
+        return configured_url.rstrip("/")
+    public_port = deploy_env.get("publicPort")
+    domain_env = target.get("domainEnv")
+    if domain_env and env.get(domain_env):
+        host = env[domain_env]
+    else:
+        host = vm_host(vm)
+    if str(host).startswith("http://") or str(host).startswith("https://"):
+        return str(host).rstrip("/")
+    if public_port and str(public_port) not in {"80", "443"} and ":" not in str(host):
+        host = f"{host}:{public_port}"
+    return f"http://{host}"
+
+
+def http_get(url: str, timeout: int = 20) -> tuple[bool, str]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            body = response.read(200).decode("utf-8", errors="replace")
+            return 200 <= response.status < 300, body
+    except Exception as exc:
+        return False, str(exc)
+
+
+def websocket_url_for_http_url(url: str, path: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    scheme = "wss" if parsed.scheme == "https" else "ws"
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    return urllib.parse.urlunsplit((scheme, parsed.netloc, normalized_path, "", ""))
+
+
+def websocket_handshake(url: str, path: str = "/_stcore/stream", timeout: int = 10) -> tuple[bool, str]:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False, f"Unsupported WebSocket smoke URL: {url}"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    request = "\r\n".join([
+        f"GET {normalized_path} HTTP/1.1",
+        f"Host: {parsed.netloc}",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+        "Sec-WebSocket-Version: 13",
+        f"Origin: {origin}",
+        "",
+        "",
+    ])
+    sock: socket.socket | ssl.SSLSocket | None = None
+    try:
+        raw_sock = socket.create_connection((parsed.hostname, port), timeout=timeout)
+        raw_sock.settimeout(timeout)
+        sock = raw_sock
+        if parsed.scheme == "https":
+            sock = ssl.create_default_context().wrap_socket(raw_sock, server_hostname=parsed.hostname)
+        sock.sendall(request.encode("ascii"))
+        response = sock.recv(4096).decode("utf-8", errors="replace")
+        status_line = response.splitlines()[0] if response else ""
+        return " 101 " in f" {status_line} ", status_line or response[:200]
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if sock is not None:
+            sock.close()
+
+
+def remote_systemd_script(rid: str, remote_package: str, public_port: int | str = 80) -> str:
+    release = f"/opt/econ-sim/releases/{rid}"
+    return f"""set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+release={shlex.quote(release)}
+package={shlex.quote(remote_package)}
+service_user=econ-sim
+service_group=econ-sim
+
+apt-get update
+apt-get install -y ca-certificates curl nginx
+
+if ! command -v /usr/local/bin/uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+fi
+
+if ! id -u "$service_user" >/dev/null 2>&1; then
+  useradd --system --home /var/lib/econ-sim --shell /usr/sbin/nologin "$service_user"
+fi
+
+mkdir -p "$release" /opt/econ-sim/releases /etc/econ-sim /var/lib/econ-sim /var/cache/econ-sim /var/log/econ-sim
+tar -xzf "$package" -C "$release"
+chown -R "$service_user:$service_group" /opt/econ-sim /var/lib/econ-sim /var/cache/econ-sim /var/log/econ-sim
+
+ln -sfn "$release" /opt/econ-sim/current
+chown -h "$service_user:$service_group" /opt/econ-sim/current
+
+cd /opt/econ-sim/current
+runuser -u "$service_user" -- env HOME=/var/lib/econ-sim UV_CACHE_DIR=/var/cache/econ-sim/uv PYTHONPATH=src /usr/local/bin/uv sync --python 3.11 --frozen --no-dev
+
+install -m 0644 deploy/systemd/econ-sim.service /etc/systemd/system/econ-sim.service
+install -m 0644 deploy/nginx/econ-sim.conf /etc/nginx/sites-available/econ-sim
+rm -f /etc/nginx/sites-enabled/default
+ln -sfn /etc/nginx/sites-available/econ-sim /etc/nginx/sites-enabled/econ-sim
+
+systemctl daemon-reload
+systemctl enable econ-sim
+systemctl restart econ-sim
+sleep 3
+systemctl is-active --quiet econ-sim
+
+nginx -t
+systemctl reload nginx || systemctl restart nginx
+
+curl -fsS http://127.0.0.1:8501/_stcore/health >/tmp/econ-sim-streamlit-health.txt
+curl -fsS http://127.0.0.1:{shlex.quote(str(public_port))}/_stcore/health >/tmp/econ-sim-nginx-health.txt
+echo remote-ok
+"""
+
+
+def deploy_systemd_live(args: argparse.Namespace, profiles: Profiles, package_result: dict[str, Any]) -> dict[str, Any]:
+    _, deploy_env = selected_environment(profiles.deploy, args.env)
+    target = selected_target(profiles.deploy, args.env)
+    env_path = env_file_path(args, target)
+    env = provider_env(target, env_path)
+    vm = get_vm_info(env, target)
+    destination = ssh_destination(env, target, vm)
+    if not test_ssh(destination, args, env):
+        setup = command_ssh_setup(args)
+        if not setup.get("ok"):
+            raise SystemExit("SSH setup failed; cannot deploy systemd service.")
+        env = provider_env(target, env_path)
+        destination = ssh_destination(env, target, vm)
+
+    local_package = Path(package_result["package"])
+    remote_package = f"/tmp/econ-sim-{package_result['runId']}.tar.gz"
+    scp = run_subprocess([
+        "scp",
+        *ssh_client_options(args, env),
+        str(local_package),
+        f"{destination}:{remote_package}",
+    ], timeout=120)
+    if scp.returncode != 0:
+        raise SystemExit(f"SCP package upload failed: {scp.stderr.strip() or scp.stdout.strip()}")
+
+    script = remote_systemd_script(package_result["runId"], remote_package, deploy_env.get("publicPort") or 80)
+    remote_shell = ["bash", "-s"] if destination.startswith("root@") else ["sudo", "bash", "-s"]
+    ssh = run_subprocess([
+        "ssh",
+        *ssh_client_options(args, env),
+        destination,
+        *remote_shell,
+    ], stdin=script, timeout=900)
+    if ssh.returncode != 0:
+        raise SystemExit(f"Remote systemd deployment failed:\nSTDOUT:\n{ssh.stdout[-4000:]}\nSTDERR:\n{ssh.stderr[-4000:]}")
+
+    url = public_url_for_env(env, target, vm, deploy_env)
+    health_url = url.rstrip("/") + (deploy_env.get("healthcheckPath") or "/_stcore/health")
+    websocket_path = deploy_env.get("websocketPath") or "/_stcore/stream"
+    websocket_url = websocket_url_for_http_url(url, websocket_path)
+    smoke_ok, smoke_body = http_get(health_url)
+    websocket_ok, websocket_response = websocket_handshake(url, websocket_path)
+    succeeded = smoke_ok and websocket_ok
+    return {
+        "action": "deploy",
+        "runId": package_result["runId"],
+        "provider": "hostinger",
+        "adapter": deploy_env.get("adapter"),
+        "environment": args.env or profiles.deploy.get("defaultEnvironment") or "canary",
+        "strategy": deploy_env.get("strategy"),
+        "runtimeModes": ["systemd"],
+        "status": "succeeded" if succeeded else "smoke_failed",
+        "deploymentId": f"hostinger-systemd-{package_result['runId']}",
+        "url": url,
+        "healthUrl": health_url,
+        "websocketUrl": websocket_url,
+        "vm": {"id": vm.get("id"), "hostname": vm.get("hostname"), "state": vm.get("state")},
+        "raw": {
+            "note": "Live Hostinger systemd deployment executed through SSH/SCP after Hostinger API target discovery.",
+            "remoteStdoutTail": ssh.stdout[-2000:],
+            "remoteStderrTail": ssh.stderr[-2000:],
+            "smokeBody": smoke_body,
+            "websocketSmoke": websocket_response,
+        },
+    }
+
+
+def command_deploy(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    policy = profiles.ci.get("policy") or {}
+    if args.local_override and not policy.get("allowLocalOverride", False):
+        raise SystemExit("Local override is disabled by CI policy.")
+    if not args.local_override and os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit("Deploy outside CI requires --local-override.")
+    if policy.get("requireSameGatesForLocalOverride", False) or os.environ.get("GITHUB_ACTIONS") == "true":
+        check_result = command_check(args)
+        if not check_result.get("ok"):
+            raise SystemExit("Deployment blocked because configured gates failed.")
+    package_result = command_package(args)
+    rid = package_result["runId"]
+    out_dir = Path(package_result["evidenceDir"])
+    _, deploy_env = selected_environment(profiles.deploy, args.env)
+    runtime_modes = {unit["runtimeMode"] for unit in deployment_units(profiles.deploy, deploy_env)}
+    if not args.dry_run and deploy_env.get("provider") == "hostinger" and "systemd" in runtime_modes and deploy_env.get("adapter") in {"mcp", "api"}:
+        response = deploy_systemd_live(args, profiles, package_result)
+    else:
+        response = provider_response(args, profiles, rid, "deploy")
+    write_json(out_dir / "provider-response.json", response)
+    smoke = {
+        "ok": response["status"] in {"dry_run", "succeeded"},
+        "url": response.get("url"),
+        "healthUrl": response.get("healthUrl"),
+        "websocketUrl": response.get("websocketUrl"),
+        "status": response["status"],
+    }
+    write_json(out_dir / "smoke.json", smoke)
+    trace = {"ok": smoke["ok"], "runId": rid, "provider": response, "package": package_result, "smoke": smoke}
+    write_json(out_dir / "trace.json", trace)
+    return {"ok": smoke["ok"], "runId": rid, "evidenceDir": str(out_dir), "provider": response, "smoke": smoke}
+
+
+def command_status(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    run_dir = resolve_run_dir(evidence_root(profiles.deploy), args.run_id)
+    response_path = run_dir / "provider-response.json"
+    manifest_path = run_dir / "manifest.json"
+    return {
+        "ok": True,
+        "runId": run_dir.name,
+        "evidenceDir": str(run_dir),
+        "manifest": read_json(manifest_path) if manifest_path.exists() else {},
+        "provider": read_json(response_path) if response_path.exists() else {},
+    }
+
+
+def command_logs(args: argparse.Namespace) -> dict[str, Any]:
+    status = command_status(args)
+    provider = status.get("provider") or {}
+    return {
+        "ok": True,
+        "runId": status["runId"],
+        "logs": provider.get("raw", {}).get("note", "No provider logs recorded."),
+    }
+
+
+def command_rollback(args: argparse.Namespace) -> dict[str, Any]:
+    profiles = load_profiles(args)
+    rid = args.run_id or run_id()
+    out_dir = evidence_root(profiles.deploy) / rid
+    out_dir.mkdir(parents=True, exist_ok=True)
+    response = provider_response(args, profiles, rid, "rollback")
+    response["rollbackTarget"] = args.rollback_target or ""
+    write_json(out_dir / "rollback.json", response)
+    return {"ok": True, "runId": rid, "evidenceDir": str(out_dir), "rollback": response}
+
+
+def render_human(payload: dict[str, Any]) -> str:
+    lines = [f"ok: {str(payload.get('ok')).lower()}"]
+    for key in ["ciProfile", "deployProfile", "environment", "provider", "adapter", "strategy", "evidenceRoot", "evidenceDir", "package", "sha256", "runId"]:
+        if key in payload and payload[key] not in (None, ""):
+            lines.append(f"{key}: {payload[key]}")
+    if payload.get("issues"):
+        lines.append("issues:")
+        for issue in payload["issues"]:
+            lines.append(f"- {issue['severity']} {issue['rule']}: {issue['message']}")
+    if payload.get("gates"):
+        lines.append("gates:")
+        for gate in payload["gates"]:
+            lines.append(f"- {gate.get('name')}: exit {gate.get('exitCode')}")
+    if payload.get("deploymentUnits"):
+        lines.append("deploymentUnits:")
+        for unit in payload["deploymentUnits"]:
+            detail = unit.get("serviceName") or unit.get("composeFile") or unit.get("startCommand") or unit.get("root")
+            lines.append(f"- {unit.get('id')}: {unit.get('runtimeMode')} ({detail})")
+    if payload.get("envFile"):
+        env_file = payload["envFile"]
+        lines.append(f"envFile: {env_file.get('path')}")
+        lines.append(f"envFileConfigured: {str(env_file.get('hasHostingerToken')).lower()}")
+    if payload.get("targets"):
+        lines.append("targets:")
+        for target in payload["targets"]:
+            label = target.get("hostname") or target.get("id") or "unknown"
+            lines.append(f"- {label}: id={target.get('id')} state={target.get('state')} ip={target.get('ip')}")
+    if payload.get("selectedTargetId"):
+        lines.append(f"selectedTargetId: {payload['selectedTargetId']}")
+    if payload.get("provider"):
+        provider = payload["provider"]
+        # `plan` reports provider as a bare name string; deploy/status report a
+        # dict with status/deploymentId. Handle both shapes.
+        if isinstance(provider, dict):
+            lines.append(f"providerStatus: {provider.get('status')}")
+            if provider.get("deploymentId"):
+                lines.append(f"deploymentId: {provider['deploymentId']}")
+        else:
+            lines.append(f"provider: {provider}")
+    if payload.get("logs"):
+        lines.append(f"logs: {payload['logs']}")
+    if payload.get("message"):
+        lines.append(f"message: {payload['message']}")
+    return "\n".join(lines) + "\n"
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Harnessy CI/profile-driven service deployment.")
+    parser.add_argument("command", choices=["plan", "check", "configure", "targets", "ssh-setup", "package", "deploy", "status", "logs", "rollback"])
+    parser.add_argument("--ci-profile")
+    parser.add_argument("--deploy-profile")
+    parser.add_argument("--env")
+    parser.add_argument("--env-file")
+    parser.add_argument("--run-id")
+    parser.add_argument("--rollback-target")
+    parser.add_argument("--target-id")
+    parser.add_argument("--ssh-key")
+    parser.add_argument("--ssh-public-key")
+    parser.add_argument("--generate-ssh-key", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--local-override", action="store_true")
+    parser.add_argument("--no-prompt", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--write-selection", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv or sys.argv[1:])
+    commands = {
+        "plan": command_plan,
+        "check": command_check,
+        "configure": command_configure,
+        "targets": command_targets,
+        "ssh-setup": command_ssh_setup,
+        "package": command_package,
+        "deploy": command_deploy,
+        "status": command_status,
+        "logs": command_logs,
+        "rollback": command_rollback,
+    }
+    payload = commands[args.command](args)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        sys.stdout.write(render_human(payload))
+    return 0 if payload.get("ok", False) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

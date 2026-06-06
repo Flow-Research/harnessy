@@ -27,7 +27,7 @@ The command should feel simple for non-technical users while still preserving pr
 3. Default branch targeting must be simple:
    - if the user references a branch, use it
    - if running inside an issue-flow worktree with a matching `.issue-flow-state.json`, default to the issue's base branch (minimizes conflicts by avoiding unrelated work from the integration branch)
-   - otherwise prefer the repository integration branch from `.flow/delivery-profile.json`
+   - otherwise prefer the repository integration branch from `.jarvis/context/profiles/ci.json`
    - if no integration branch is configured, fall back to `dev`
 4. `pull` should fetch only when needed for the selected target branch, then safely rebase local work onto that target branch only.
 5. `push` should use a deterministic publish flow: sync the working branch with its remote branch, stage only the eligible change set, verify locally, commit, push, and create or reuse the PR.

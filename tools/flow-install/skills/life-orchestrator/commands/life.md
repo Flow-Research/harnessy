@@ -44,10 +44,10 @@ OUTPUT_DIR=$LIFE_DIR/$YEAR/$MONTH
 Before collecting any project state, read the user's priorities:
 
 ```bash
-cat ~/.agents/life/priorities.md
+cat ".jarvis/context/private/${FLOW_USER:-${USER}}/priorities.md"
 ```
 
-This file is the user's voice. It defines what matters right now, what to deprioritize, and what to ignore. All subsequent state collection and synthesis must be filtered through this lens.
+This repo-private file is the user's voice. It defines what matters right now, what to deprioritize, and what to ignore. All subsequent state collection and synthesis must be filtered through this lens. `~/.agents/life/priorities.md` is a legacy fallback for older weekly-plan installs, not the primary source.
 
 ---
 
@@ -150,11 +150,15 @@ Produce a weekly plan based on the monthly review and current state.
 8. Write the plan:
    - File: `$OUTPUT_DIR/week-$WEEK-plan.md`
    - Follow the weekly plan template structure
-9. Create Jarvis tasks for the week's key deliverables:
+9. Run text hygiene cleanup:
+   ```bash
+   jarvis text-hygiene clean "$OUTPUT_DIR/week-$WEEK-plan.md" --report
+   ```
+10. Create Jarvis tasks for the week's key deliverables:
    ```bash
    jarvis task create "<task title>" --priority <high|medium|low>
    ```
-10. Capture trace:
+11. Capture trace:
     ```bash
     python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
         --skill "life-orchestrator" --gate "weekly_plan" --gate-type "quality" \
@@ -193,7 +197,7 @@ Two-step daily brief: collect state, then synthesize focus.
    ```bash
    python3 "${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/daily-brief" \
        --state-file "/tmp/life-collect-state-$(date +%Y%m%d).json" \
-       --priorities ~/.agents/life/priorities.md \
+       --priorities ".jarvis/context/private/${FLOW_USER:-${USER}}/priorities.md" \
        --weekly-plan "$OUTPUT_DIR/week-$WEEK-plan.md" \
        --template "${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/daily-brief.md" \
        --prompt "${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/chief-of-staff-prompt.md" \
@@ -201,15 +205,19 @@ Two-step daily brief: collect state, then synthesize focus.
    ```
    This script internally calls the shared Harnessy AI runner. Set `HARNESSY_AI_PROVIDER=auto|claude|codex|opencode` to choose the runtime; `auto` tries the configured provider order and falls back when possible.
 7. Write the brief to `$OUTPUT_DIR/$DAY-daily-brief.md`.
-8. Journal to Anytype:
+8. Run text hygiene cleanup:
+   ```bash
+   jarvis text-hygiene clean "$OUTPUT_DIR/$DAY-daily-brief.md" --report
+   ```
+9. Journal to Anytype:
    ```bash
    jarvis journal write --file "$OUTPUT_DIR/$DAY-daily-brief.md"
    ```
-9. Send desktop notification:
+10. Send desktop notification:
    ```bash
    osascript -e 'display notification "Daily brief ready" with title "Life Orchestrator"'
    ```
-10. Capture trace:
+11. Capture trace:
     ```bash
     python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
         --skill "life-orchestrator" --gate "daily_brief" --gate-type "quality" \

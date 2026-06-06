@@ -50,13 +50,13 @@ Anytype journal (via Jarvis CLI)
 Daily and weekly synthesis use `${AGENTS_SKILLS_ROOT}/_shared/ai_runner.py`.
 
 - `HARNESSY_AI_PROVIDER=auto|claude|codex|opencode` controls the runtime.
-- `HARNESSY_AI_PROVIDER_ORDER=claude,codex,opencode` controls fallback order when provider is `auto`.
+- `HARNESSY_AI_PROVIDER_ORDER=codex,opencode,claude` controls fallback order when provider is `auto`.
 - `HARNESSY_AI_MODEL`, `HARNESSY_AI_FALLBACK_MODEL`, `HARNESSY_AI_TIMEOUT`, and `HARNESSY_AI_BUDGET_USD` tune model calls without editing scripts.
 
 ## Inputs
 
 - Subcommand and arguments: `$ARGUMENTS`
-- Priorities file: `~/.agents/life/priorities.md`
+- Priorities file: `.jarvis/context/private/$USER/priorities.md` in the active project root, with `~/.agents/life/priorities.md` retained as a legacy fallback for weekly planning
 - Templates: `${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/`
 - Scripts: `${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/`
 

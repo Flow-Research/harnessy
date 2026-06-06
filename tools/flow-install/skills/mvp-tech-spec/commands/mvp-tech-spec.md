@@ -171,6 +171,11 @@ For each major technical area, determine the MVP approach:
 ### Final Output
 
 Write `MVP_technical_spec.md` using the template and produce summary report.
+Run text hygiene before delivery:
+
+```bash
+jarvis text-hygiene clean path/to/MVP_technical_spec.md --report
+```
 
 ## Common MVP Anti-Patterns
 
@@ -204,4 +209,3 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
     --skill "mvp-tech-spec" --gate "run_retrospective" --gate-type "retrospective" \
     --outcome "approved" --feedback "<user's feedback>"
 ```
-

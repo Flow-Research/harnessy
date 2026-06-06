@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-04-24T11:02:22.677Z",
+  "timestamp": "2026-06-05T17:56:55.363Z",
   "project": "harnessy",
   "monorepo": null,
   "apps": [],
@@ -31,6 +31,7 @@
     "ci-watch",
     "code-review",
     "community-skills-install",
+    "content-review",
     "context-sync",
     "cto",
     "dependency-manager",
@@ -57,6 +58,7 @@
     "qa-sweep",
     "security-audit",
     "semver",
+    "service-deploy",
     "skill-create",
     "skill-feedback",
     "skill-improve",
@@ -81,8 +83,8 @@
     "updatedAt": "2026-04-27T22:26:48.021Z"
   },
   "contextAgents": {
-    "version": "1.1.0",
-    "templateHash": "eac04478428c8973c608d4f9128a5c4bd8ee83ef0e12c0333b2be3da5f517215",
+    "version": "1.3.0",
+    "templateHash": "a1e212b8e53d1fe82c5153b5bc2ef2b8c0ca933170842ea0f84897fbe361f25a",
     "status": "current",
     "path": ".jarvis/context/AGENTS.md"
   },

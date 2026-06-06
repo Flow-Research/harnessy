@@ -1,6 +1,6 @@
 # Goal Agent
 
-A two-intelligence orchestrator that decomposes goals into phases and drives a separate Claude Code worker to implement each one. You define the goal, the agent handles decomposition, execution, verification, and adaptation.
+A provider-agnostic goal orchestrator that decomposes goals into phases, executes or dispatches phase work with the configured agent CLI, and verifies objectively. You define the goal; the agent handles decomposition, execution, verification, and adaptation.
 
 `flow-install` manages the goal-agent runtime dependency for meta-goal parsing by installing `PyYAML` automatically when the skill is installed or refreshed.
 
@@ -9,12 +9,12 @@ A two-intelligence orchestrator that decomposes goals into phases and drives a s
 ```
 You write a goal file
     -> Orchestrator reads it, breaks it into phases
-        -> Worker (Claude Code -p) implements each phase
+        -> Provider executes or dispatches each phase
             -> Orchestrator verifies results, adapts if needed
                 -> Repeat until all verification passes
 ```
 
-The orchestrator and worker are separate Claude Code instances. The orchestrator reasons about strategy; the worker writes code. Both run in the same working directory.
+Codex is the default background provider. Set `GOAL_AGENT_PROVIDER=claude` or `GOAL_AGENT_PROVIDER=opencode` to swap runtimes. Claude uses its Agent tool path when active; Codex and OpenCode execute the same phase prompts directly and return the same structured actions for verification.
 
 ## Quick start
 
@@ -113,7 +113,8 @@ curl -s http://localhost:3000/api/users | jq .
 
 - Max iterations: 10
 - Total budget: $10.00
-- Model: sonnet
+- Provider: auto
+- Model: auto
 - Allowed tools: Bash,Read,Write,Edit,Glob,Grep
 
 ## Context
@@ -131,7 +132,7 @@ Optional hints on methodology (e.g., "use Express, not Hono").
 - `## Verification` — bash commands (exit 0 = pass) and/or file existence checks
 
 **Optional sections:**
-- `## Constraints` — iterations, budget, model, allowed tools (all have defaults)
+- `## Constraints` — iterations, budget, provider, model, allowed tools (all have defaults)
 - `## Context` — background info for the worker
 - `## Approach` — methodology hints
 
@@ -148,7 +149,8 @@ Additional optional constraints:
 | Max iterations | 10 |
 | Budget per phase | $2.00 |
 | Total budget | $10.00 |
-| Model | sonnet |
+| Provider | auto, currently Codex |
+| Model | auto, provider default |
 | Allowed tools | Bash,Read,Write,Edit,Glob,Grep |
 
 ## Monitoring a background run

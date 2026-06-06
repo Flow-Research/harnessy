@@ -72,9 +72,24 @@ uv run python -m jarvis <command>
 | `jarvis meeting fathom start` | Launch the webhook receiver and cloudflared tunnel in tmux |
 | `jarvis meeting fathom webhook serve` | Run a local Fathom webhook receiver |
 | `jarvis meeting fathom webhook ingest-inbox` | Ingest archived Fathom webhook payloads |
+| `jarvis whatsapp setup` | Show Meta WhatsApp Cloud API setup/config guidance |
+| `jarvis whatsapp webhook serve` | Run a local WhatsApp webhook receiver |
+| `jarvis whatsapp webhook status` | Show WhatsApp webhook config and inbox health |
+| `jarvis whatsapp webhook ingest-inbox` | Ingest archived WhatsApp webhook payloads |
+| `jarvis whatsapp send` | Send a free-form WhatsApp reply inside the service window |
+| `jarvis whatsapp send-template` | Send an approved WhatsApp template |
+| `jarvis whatsapp threads list` | List local WhatsApp conversation threads |
+| `jarvis whatsapp threads read <id>` | Read a local WhatsApp conversation thread |
 | `jarvis task create` | Create a new task in AnyType |
 | `jarvis t` | Alias for `task create` (quick capture) |
+| `jarvis content package <path>` | Build a journal-ready `journal.md` package for a content piece |
+| `jarvis content verify <path>` | Check required files and canonical wording before publish/sync |
+| `jarvis content publish-draft <path>` | Package, verify, optionally journal, sync, and dedupe a content draft |
+| `jarvis content audit-anytype <path>` | Audit a synced content Collection for duplicate Anytype links |
+| `jarvis text-hygiene check <path>` | Report configured AI-speak patterns in generated text |
+| `jarvis text-hygiene clean <path>` | Remove configured AI-speak patterns from generated text |
 | `jarvis sync run` | Sync a local folder tree into Anytype Collections, Pages, and file objects |
+| `jarvis sync dedupe` | Remove duplicate Collection links using sync state as truth |
 | `jarvis sync preset add` | Save a reusable local source to Anytype destination sync preset |
 | `jarvis object get <id>` | Fetch and display any object by ID or URL |
 | `jarvis object edit <id>` | Edit object properties (interactive or --set) |
@@ -155,6 +170,10 @@ jarvis sync run --source ./notes --destination "root_obj:space_id" --unsupported
 # Delete Anytype objects previously synced by this preset when they disappear locally
 jarvis sync run --preset flow-context --prune --yes
 
+# Remove stale duplicate Collection links caused by interrupted/failed syncs
+jarvis sync dedupe --preset flow-content --dry-run
+jarvis sync dedupe --source ./drafts --destination "root_obj:space_id" --path 2026/Jun/01-harnessy --yes
+
 # Save a reusable sync preset
 jarvis sync preset add
 jarvis sync preset list
@@ -166,6 +185,54 @@ Files outside the include-extension list, or files that cannot be read as UTF-8
 text, can be handled with `--unsupported-mode upload`, `warn`, `stub`, or
 `error`. `upload` is the default; `stub` creates metadata placeholder Pages when
 you want the tree shape without uploading the binary content.
+
+### Content Commands
+
+```bash
+# Build a single journal-ready package from a content piece folder
+jarvis content package drafts/2026/Jun/01-harnessy
+
+# Verify canonical wording before publishing
+jarvis content verify drafts/2026/Jun/01-harnessy \
+  --require "agent capability harness" \
+  --forbid "software project harness"
+
+# Package, verify, sync to Anytype, then clean duplicate Collection links
+jarvis content publish-draft drafts/2026/Jun/01-harnessy \
+  --require "agent capability harness" \
+  --forbid "software project harness"
+
+# Audit Anytype links for one synced content piece
+jarvis content audit-anytype drafts/2026/Jun/01-harnessy
+```
+
+`jarvis content package` writes `journal.md` beside `index.md` and platform
+drafts. `content verify` checks configured text hygiene patterns by default;
+`publish-draft` cleans those patterns before packaging, verification, optional
+Journal write via `--journal`, `jarvis sync run`, and `jarvis sync dedupe`. Use
+`--no-hygiene` to skip this layer, or `--hygiene-config` to point at a specific
+pattern registry. Use `--sync-source` plus `--sync-destination` when there is no
+named sync preset.
+
+### Text Hygiene Commands
+
+```bash
+# Report AI-speak patterns without writing files
+jarvis text-hygiene check README.md docs/
+
+# Remove configured patterns from generated Markdown/text
+jarvis text-hygiene clean product_spec.md technical_spec.md --report
+
+# Use a specific personal or project pattern registry
+jarvis text-hygiene clean README.md \
+  --config .jarvis/context/private/julian/style/ai-speak-patterns.yaml \
+  --report
+```
+
+Personal patterns are loaded from
+`.jarvis/context/private/${FLOW_USER:-${USER}}/style/ai-speak-patterns.yaml`
+when present. The cleaner skips YAML frontmatter, fenced code blocks, and inline
+code.
 
 ### Journal Commands
 
@@ -218,6 +285,33 @@ jarvis meeting fathom webhook serve --account work --port 8765 --auto-ingest --d
 
 # Ingest archived webhook payloads after they arrive
 jarvis meeting fathom webhook ingest-inbox --account work
+```
+
+### WhatsApp Commands
+
+```bash
+# Show the Meta Cloud API config shape and setup checklist
+jarvis whatsapp setup --account personal
+
+# Run a local receiver behind an HTTPS tunnel
+jarvis whatsapp webhook serve --account personal --port 8787
+
+# Check webhook config, env vars, and local inbox counts
+jarvis whatsapp webhook status --account personal --json
+
+# Ingest archived webhook payloads into local threads and memory
+jarvis whatsapp webhook ingest-inbox --account personal --dest team-inbox --dest memory
+
+# Send a free-form reply when the local 24-hour service window is open
+jarvis whatsapp send --account personal --to +234... --text "Got it"
+
+# Send an approved template for outbound starts or delayed replies
+jarvis whatsapp send-template --account personal --to +234... --template daily_brief
+
+# Review local-first team inbox threads
+jarvis whatsapp threads list --account personal
+jarvis whatsapp threads read wa-123
+jarvis whatsapp threads set-status wa-123 --status done
 ```
 
 ### Fathom Setup

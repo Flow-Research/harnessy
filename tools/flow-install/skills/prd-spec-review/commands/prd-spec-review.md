@@ -188,7 +188,11 @@ After all perspectives have reviewed:
 Once all checks pass:
 
 1. Generate the final `product_spec.md` in the correct folder
-2. Produce a review summary
+2. Run text hygiene before delivery:
+   ```bash
+   jarvis text-hygiene clean path/to/product_spec.md --report
+   ```
+3. Produce a review summary
 
 ### Review Summary Format
 
@@ -271,4 +275,3 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
 
 After completion, ask: **"Any feedback on this prd-spec-review run? (skip to finish)"**
 If provided, capture via trace_capture.py with gate "run_retrospective" and gate-type "retrospective".
-

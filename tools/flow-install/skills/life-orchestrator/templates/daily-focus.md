@@ -16,9 +16,9 @@
 
 ---
 
-## How I Read It
+## What It Means Today
 
-{{strategic_picture}}
+{{what_it_means_today}}
 
 ---
 

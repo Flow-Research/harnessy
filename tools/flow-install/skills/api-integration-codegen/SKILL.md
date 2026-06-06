@@ -14,7 +14,7 @@ Generate API integration test suites from the project's API regression spec with
 
 ## Required contract
 
-- canonical regression source from the active QA profile, typically `.harnessy/qa-profile.json`
+- canonical regression source from the active QA profile, typically `.jarvis/context/profiles/qa.json`
 - optional adapter metadata from `.flow/delivery-profile.json` for suite metadata, helper imports, fixture imports, and DB helper rules
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/api-integration-codegen/`.

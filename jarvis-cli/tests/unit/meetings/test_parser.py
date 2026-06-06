@@ -70,15 +70,15 @@ class TestParseMeetingDocument:
             markdown=(
                 "# Founder Sync\n\n"
                 "## Participants\n\n"
-                "- Alice\n- Bob\n\n"
+                "- Speaker One\n- Speaker Two\n\n"
                 "## Summary\n\n"
                 "We aligned on roadmap and fundraising.\n\n"
                 "## Key Decisions\n\n"
                 "- Delay hiring until June\n\n"
                 "## Action Items\n\n"
-                "- Alice to send deck\n- Bob to update model\n\n"
+                "- Speaker One to send deck\n- Speaker Two to update model\n\n"
                 "## Transcript\n\n"
-                "Alice: Let's tighten scope.\n"
+                "Speaker One: Let's tighten scope.\n"
             ),
             last_modified="1:2",
         )
@@ -86,22 +86,25 @@ class TestParseMeetingDocument:
         assert meeting.title == "Founder Sync"
         assert meeting.project == "aa"
         assert meeting.tags == ["fathom"]
-        assert meeting.participants == ["Alice", "Bob"]
+        assert meeting.participants == ["Speaker One", "Speaker Two"]
         assert meeting.summary == "We aligned on roadmap and fundraising."
         assert meeting.decisions == ["Delay hiring until June"]
-        assert meeting.action_items == ["Alice to send deck", "Bob to update model"]
-        assert meeting.transcript == "Alice: Let's tighten scope."
+        assert meeting.action_items == [
+            "Speaker One to send deck",
+            "Speaker Two to update model",
+        ]
+        assert meeting.transcript == "Speaker One: Let's tighten scope."
 
     def test_falls_back_to_raw_transcript_when_no_sections_exist(self) -> None:
         source = SourceDocument(
             source_type=SourceType.STDIN,
             source_ref="stdin",
             title="Raw transcript",
-            markdown="[00:01] Alice: Hello\n[00:02] Bob: Hi",
+            markdown="[00:01] Speaker One: Hello\n[00:02] Speaker Two: Hi",
             last_modified="abc",
         )
         meeting = parse_meeting_document(source)
-        assert meeting.transcript == "[00:01] Alice: Hello\n[00:02] Bob: Hi"
+        assert meeting.transcript == "[00:01] Speaker One: Hello\n[00:02] Speaker Two: Hi"
 
     def test_uses_key_takeaways_as_summary_for_fathom_markdown_exports(self) -> None:
         source = SourceDocument(
@@ -115,7 +118,7 @@ class TestParseMeetingDocument:
                 "- Tenants cover operating costs.\n"
                 "- Replace vague profit-sharing with right of first refusal.\n\n"
                 "## Next Steps\n\n"
-                "- Julian to revise proposal\n"
+                "- Project lead to revise proposal\n"
             ),
             last_modified="1",
         )
@@ -123,7 +126,7 @@ class TestParseMeetingDocument:
         meeting = parse_meeting_document(source)
 
         assert "Tenants cover operating costs" in meeting.summary
-        assert meeting.action_items == ["Julian to revise proposal"]
+        assert meeting.action_items == ["Project lead to revise proposal"]
 
     def test_preserves_rendered_meeting_metadata_when_file_moves(self) -> None:
         source = SourceDocument(
@@ -137,7 +140,7 @@ class TestParseMeetingDocument:
                 "- Source Type: fathom\n"
                 "- Source Ref: fathom:149059728\n"
                 "- Project: seas\n"
-                "- Participants: Julian Duru, Eke Urum\n"
+                "- Participants: Project Lead, Operations Lead\n"
                 "- Tags: fathom, seas\n"
                 "- Fingerprint: fathom:149059728:2026-05-23T19:25:04Z\n\n"
                 "## Key Takeaways\n\n"
@@ -151,7 +154,7 @@ class TestParseMeetingDocument:
         assert meeting.source_type == "fathom"
         assert meeting.source_ref == "fathom:149059728"
         assert meeting.project == "seas"
-        assert meeting.participants == ["Julian Duru", "Eke Urum"]
+        assert meeting.participants == ["Project Lead", "Operations Lead"]
         assert meeting.tags == ["fathom", "seas"]
         assert meeting.fingerprint == "fathom:149059728:2026-05-23T19:25:04Z"
 
@@ -174,6 +177,53 @@ class TestRenderMeetingMarkdown:
         assert "## Executive Summary" in rendered
         assert "## Transcript" not in rendered
 
+    def test_render_uses_next_steps_for_extracted_actions(self) -> None:
+        source = SourceDocument(
+            source_type=SourceType.FILE,
+            source_ref="/tmp/meeting.md",
+            title="Founder Sync",
+            markdown=(
+                "# Founder Sync\n\n"
+                "## Summary\n\nWe agreed on launch work.\n\n"
+                "## Action Items\n\n"
+                "- Speaker One to send deck\n"
+            ),
+            last_modified="1",
+        )
+        meeting = parse_meeting_document(source)
+
+        rendered = render_meeting_markdown(meeting)
+
+        assert "## Next Steps" in rendered
+        assert "## Action Items" not in rendered
+        assert "- Speaker One to send deck" in rendered
+
+    def test_render_suppresses_extracted_actions_when_detail_has_next_steps(self) -> None:
+        source = SourceDocument(
+            source_type=SourceType.FILE,
+            source_ref="/tmp/meeting.md",
+            title="Fathom Sync",
+            markdown="# Fathom Sync\n\n## Summary\n\nShort summary.\n",
+            last_modified="1",
+        )
+        meeting = parse_meeting_document(source).model_copy(
+            update={
+                "detailed_summary": (
+                    "## Key Takeaways\n\n"
+                    "- Team aligned on launch scope.\n\n"
+                    "## Next Steps\n\n"
+                    "- Speaker One to send deck\n"
+                ),
+                "action_items": ["Speaker One to send deck"],
+            }
+        )
+
+        rendered = render_meeting_markdown(meeting)
+
+        assert "### Next Steps" in rendered
+        assert "## Action Items" not in rendered
+        assert rendered.count("Speaker One to send deck") == 1
+
     def test_render_omits_transcript_discussion(self) -> None:
         source = SourceDocument(
             source_type=SourceType.FILE,
@@ -183,7 +233,7 @@ class TestRenderMeetingMarkdown:
                 "# Founder Sync\n\n"
                 "## Summary\n\nWe agreed on the next fundraising steps.\n\n"
                 "## Transcript\n\n"
-                "Alice: This is the full line-by-line discussion.\n"
+                "Speaker One: This is the full line-by-line discussion.\n"
             ),
             last_modified="1",
         )

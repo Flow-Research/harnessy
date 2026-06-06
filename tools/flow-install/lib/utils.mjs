@@ -175,6 +175,8 @@ export const resolveGlobalSkillsDir = () => {
 export const GLOBAL_SKILLS_DIR = resolveGlobalSkillsDir();
 export const GLOBAL_SCRIPTS_DIR = path.join(homeDir, ".scripts");
 export const GLOBAL_COMMANDS_DIR = process.env.XDG_BIN_HOME?.trim() || path.join(homeDir, ".local", "bin");
+export const GLOBAL_HARNESSY_CONFIG_DIR = path.join(homeDir, ".config", "harnessy");
+export const GLOBAL_TMUX_AGENT_LAUNCHER_CONFIG = path.join(GLOBAL_HARNESSY_CONFIG_DIR, "tmux-agent-launcher.json");
 export const GLOBAL_CLAUDE_MARKETPLACE = path.join(homeDir, ".agents", "claude-marketplace");
 export const GLOBAL_CLAUDE_SETTINGS = path.join(homeDir, ".claude", "settings.json");
 export const GLOBAL_CLAUDE_SKILLS_DIR = path.join(homeDir, ".claude", "skills");

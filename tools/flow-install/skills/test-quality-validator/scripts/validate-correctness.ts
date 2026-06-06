@@ -9,7 +9,7 @@
  *   npx tsx validate-correctness.ts \
  *     tests/integration/api-routes/ \
  *     tests/browser-integration/suites/ \
- *     --profile .flow/delivery-profile.json
+ *     --profile .jarvis/context/profiles/qa.json
  */
 
 import { readFileSync, readdirSync } from "fs";
@@ -28,6 +28,13 @@ interface Issue {
 }
 
 interface DeliveryProfile {
+  testEnvironment?: {
+    mockPolicy?: {
+      default?: "allow" | "warn" | "error";
+      allowedExternalBoundaries?: string[];
+      exceptions?: string[];
+    };
+  };
   validators?: {
     api?: {
       backendGuardFunction?: string;
@@ -54,10 +61,44 @@ function checkFile(filePath: string, content: string, profile: DeliveryProfile):
   const requiresClearAuth = profile.validators?.api?.requiresClearAuth !== false;
   const requireGuardReadOnly = profile.validators?.browser?.requireGuardReadOnly === true;
   const disallowedPatterns = profile.validators?.browser?.disallowedPatterns || ["data-testid"];
+  const mockPolicy = profile.testEnvironment?.mockPolicy || {};
+  const allowedExternalBoundaries = mockPolicy.allowedExternalBoundaries || [];
+  const mockExceptions = mockPolicy.exceptions || [];
+  const mockDefault = mockPolicy.default || "warn";
+
+  const isAllowedMockTarget = (target: string): boolean => {
+    if (mockExceptions.some((entry) => entry === target || target.includes(entry))) return true;
+    return allowedExternalBoundaries.some((entry) => target === entry || target.includes(entry));
+  };
+
+  const mockSeverity = mockDefault === "error" ? "error" : "warning";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1;
+
+    const mockCall = line.match(/\b(?:vi|jest)\.mock\(\s*["'`]([^"'`]+)["'`]/);
+    if (mockCall) {
+      const target = mockCall[1];
+      const internalTarget = target.startsWith(".") || target.startsWith("@/");
+      if (internalTarget && !isAllowedMockTarget(target)) {
+        issues.push({
+          file: fileName,
+          line: lineNum,
+          severity: mockSeverity,
+          rule: "internal-mock-false-green-risk",
+          message: `Internal module mock detected (${target}) — prefer container-backed integration or document an exception`,
+        });
+      } else if (!internalTarget && mockDefault !== "allow" && !isAllowedMockTarget(target)) {
+        issues.push({
+          file: fileName,
+          line: lineNum,
+          severity: "warning",
+          rule: "undocumented-external-mock",
+          message: `External mock detected (${target}) without a mockPolicy allowedExternalBoundaries entry`,
+        });
+      }
+    }
 
     // Rule: Missing await on expect(...).rejects
     if (line.includes(".rejects.toThrow") && !line.trim().startsWith("await") && !lines[i - 1]?.trim().startsWith("await")) {
@@ -255,7 +296,7 @@ function main() {
   });
 
   if (dirs.length === 0) {
-    console.error("Usage: npx tsx validate-correctness.ts <test-dir1> [test-dir2] ... [--profile .flow/delivery-profile.json]");
+    console.error("Usage: npx tsx validate-correctness.ts <test-dir1> [test-dir2] ... [--profile .jarvis/context/profiles/qa.json]");
     process.exit(1);
   }
 

@@ -752,7 +752,7 @@ updated: 2026-05-15
 ---
 name: dependency-manager
 type: opencode
-version: 0.1.0
+version: 0.1.1
 install_scope: global
 status: experimental
 owner: julian
@@ -829,6 +829,68 @@ tags: [anytype, knowledge-management, api]
 depends_on: []
 created: 2026-04-02
 updated: 2026-04-02
+---
+
+---
+name: code-refactorer
+type: opencode
+version: 0.1.0
+status: experimental
+owner: dozie
+blast_radius: medium
+description: "Autonomous code refactoring agent that rewrites messy functions, splits large files, removes duplication, improves naming, enforces structure, and preserves behavior."
+location: .agents/skills/code-refactorer
+invoke: "/code-refactorer"
+permissions: [write]
+data_categories: [none]
+egress: []
+phase: P1
+tags: [refactoring, code-quality, engineering]
+depends_on: []
+created: 2026-06-01
+updated: 2026-06-01
+---
+
+---
+name: content-review
+type: opencode
+version: 0.1.1
+install_scope: global
+status: experimental
+owner: julian
+blast_radius: medium
+description: "Reusable article and content review workflow for fact-checking, audience clarity, editorial quality, and strategy-profile alignment."
+location: tools/flow-install/skills/content-review
+invoke: "/content-review"
+permissions: [read, write, network]
+data_categories: [pii]
+egress: [public-web]
+phase: P2
+tags: [content, editorial, fact-checking, review]
+depends_on: []
+created: 2026-06-01
+updated: 2026-06-01
+---
+
+---
+name: service-deploy
+type: opencode
+version: 0.1.6
+install_scope: global
+status: experimental
+owner: julian
+blast_radius: high
+description: "CI/profile-driven service deployment capability with Hostinger as the first provider adapter."
+location: tools/flow-install/skills/service-deploy
+invoke: "/service-deploy"
+permissions: [read, write, execute, network]
+data_categories: [credentials]
+egress: [api.hostinger.com, github.com, api.github.com, registry.npmjs.org, proxy.golang.org, sum.golang.org]
+phase: P2
+tags: [ci, deployment, hostinger, rollback, evidence]
+depends_on: [qa-runtime, test-quality-validator, semver]
+created: 2026-06-05
+updated: 2026-06-05
 ---
 
 ## Notes

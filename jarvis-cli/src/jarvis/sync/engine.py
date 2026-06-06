@@ -449,6 +449,10 @@ def _sync_page_body(
                 )
             )
         except Exception as e:
+            # Preserve the old remote mapping. If the CLI chooses to persist
+            # partial state, the next run should retry this update instead of
+            # creating a duplicate page.
+            new_objects[relpath] = prior
             result.errors.append(f"{update_kind} {relpath}: {e}")
         return
 
@@ -517,6 +521,8 @@ def _sync_binary_file(
             new_id = adapter.upload_file_in(destination.space_id, parent_id, file_path)
     except Exception as e:
         op = "update_file" if prior and prior.kind == "file" else "create_file"
+        if prior is not None:
+            new_objects[relpath] = prior
         result.errors.append(f"{op} {relpath}: {e}")
         return
 

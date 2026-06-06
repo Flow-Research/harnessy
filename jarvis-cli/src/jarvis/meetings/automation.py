@@ -30,6 +30,7 @@ def build_fathom_automation_plan(
     destinations: list[str],
     wiki_domain: str | None,
     backend: str | None,
+    journal_space_id: str | None,
     project: str,
     tags: list[str],
     auto_route: bool,
@@ -68,6 +69,8 @@ def build_fathom_automation_plan(
         webhook_args.extend(["--wiki-domain", wiki_domain])
     if backend:
         webhook_args.extend(["--backend", backend])
+    if journal_space_id:
+        webhook_args.extend(["--journal-space", journal_space_id])
     for tag in tags:
         webhook_args.extend(["--tag", tag])
     for destination in destinations:

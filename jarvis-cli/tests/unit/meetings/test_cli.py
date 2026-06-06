@@ -20,13 +20,13 @@ def _meeting_record() -> MeetingRecord:
         fingerprint="fathom:123456789:2025-03-01T17:01:30Z",
         project="aa",
         tags=["fathom"],
-        participants=["Alice Johnson", "Bob Lee"],
+        participants=["Speaker One", "Speaker Two"],
         summary="Reviewed pipeline and budget allocation.",
         detailed_summary="## Summary\n\nReviewed pipeline and budget allocation.",
         decisions=["Delay hiring until June"],
-        action_items=["Alice Johnson: Send revised proposal"],
+        action_items=["Action Owner: Send revised proposal"],
         open_questions=[],
-        transcript="[00:05:32] Alice Johnson: Let's revisit the budget allocations.",
+        transcript="[00:05:32] Speaker One: Let's revisit the budget allocations.",
         raw_markdown="## Summary\n\nReviewed pipeline and budget allocation.",
     )
 
@@ -46,7 +46,7 @@ class TestMeetingCli:
             },
             "transcript": [
                 {
-                    "speaker": {"display_name": "Alice Johnson"},
+                    "speaker": {"display_name": "Speaker One"},
                     "text": "Let's revisit the budget allocations.",
                     "timestamp": "00:05:32",
                 }

@@ -345,6 +345,36 @@ def command_score(args: argparse.Namespace) -> int:
             print(f"  h (human intervention):{variables['h']:.2f}")
             print(f"  c (cost):             {variables['c']:.2f}")
 
+        if args.verbose:
+            print()
+            print("  Breakdown (variable | raw | weight | weighted contribution):")
+            exp = DEFAULT_CONFIG["layer_1" if layer == 1 else "layer_2"]
+            # base values mirror compute_score: (1 - x) for r/h/c, floored at 1e-10
+            inverted = {"r", "h", "c"}
+            labels = {
+                "f": "final success",
+                "p": "first-pass",
+                "q": "output quality",
+                "r": "refinement burden",
+                "h": "human intervention",
+                "c": "cost",
+            }
+            for name in exp:
+                raw = variables[name]
+                base = max((1.0 - raw) if name in inverted else raw, 1e-10)
+                weight = exp[name]
+                contribution = base ** weight
+                print(
+                    f"    {name} ({labels[name]}): raw={raw:.4f}  "
+                    f"weight={weight:.2f}  contribution={contribution:.4f}"
+                )
+            raw_block = variables.get("raw", {})
+            if raw_block:
+                print()
+                print("  Raw aggregates:")
+                for k, v in raw_block.items():
+                    print(f"    {k}: {v}")
+
     return 0
 
 
@@ -863,6 +893,43 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Output result as JSON.",
     )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # score
+    sc = subparsers.add_parser("score", help="Compute composite score")
+    sc.add_argument("--skill", required=True)
+    sc.add_argument("--layer", type=int, default=1, choices=[1, 2])
+    sc.add_argument("--json", action="store_true")
+    sc.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print a per-variable breakdown (raw value, weight, weighted contribution).",
+    )
+
+    # gates
+    gt = subparsers.add_parser("gates", help="Check hard constraint gates")
+    gt.add_argument("--skill", required=True)
+    gt.add_argument("--json", action="store_true")
+
+    # snapshot
+    sn = subparsers.add_parser("snapshot", help="Snapshot skill state before improvement")
+    sn.add_argument("--skill", required=True)
+
+    # evaluate
+    ev = subparsers.add_parser("evaluate", help="Evaluate improvement impact")
+    ev.add_argument("--skill", required=True)
+    ev.add_argument("--window", type=int, required=True, help="Number of post-improvement runs to evaluate")
+    ev.add_argument("--json", action="store_true")
+
+    # decide
+    dc = subparsers.add_parser("decide", help="Make keep/revert decision")
+    dc.add_argument("--skill", required=True)
+    dc.add_argument("--json", action="store_true")
+
+    # status
+    st = subparsers.add_parser("status", help="Show ratchet state")
+    st.add_argument("--skill", required=True)
+    st.add_argument("--json", action="store_true")
 
     return parser.parse_args()
 
