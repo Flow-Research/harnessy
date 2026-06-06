@@ -11,6 +11,7 @@ from typing import Any
 
 from ..anytype_client import AnyTypeClient
 from ..config.schema import JarvisConfig
+from ..knowledge_body import strip_duplicate_title_heading
 from ..models import (
     BackendObject,
     JournalEntry,
@@ -496,6 +497,7 @@ class AnyTypeAdapter:
         content: str,
         title: str | None = None,
         entry_date: date | None = None,
+        tags: list[str] | None = None,
     ) -> JournalEntry:
         """Create a new journal entry.
 
@@ -507,6 +509,8 @@ class AnyTypeAdapter:
             content: Entry content (markdown)
             title: Optional title
             entry_date: Date for entry (defaults to today)
+            tags: Optional list of tag names. AnyType journal pages do not
+                currently persist tags through this adapter.
 
         Returns:
             Created JournalEntry object.
@@ -520,6 +524,7 @@ class AnyTypeAdapter:
 
         entry_date = entry_date or date.today()
         final_title = title or f"Entry {entry_date.day}"
+        content = strip_duplicate_title_heading(content, final_title)
 
         try:
             hierarchy = JournalHierarchy(self._client, space_id)
@@ -538,6 +543,7 @@ class AnyTypeAdapter:
             title=final_title,
             content=content,
             entry_date=entry_date,
+            tags=tags or [],
             created_at=now,
             path=f"Journal/{entry_date.year}/{entry_date.strftime('%B')}/{final_title}",
         )
@@ -997,13 +1003,19 @@ class AnyTypeAdapter:
         # Note: UpdateObjectRequest uses "markdown" key, not "body"
         has_body_update = False
         if "body" in updates:
-            update_payload["markdown"] = str(updates.pop("body"))
+            update_payload["markdown"] = strip_duplicate_title_heading(
+                str(updates.pop("body")), str(new_name)
+            )
             has_body_update = True
         elif "content" in updates:
-            update_payload["markdown"] = str(updates.pop("content"))
+            update_payload["markdown"] = strip_duplicate_title_heading(
+                str(updates.pop("content")), str(new_name)
+            )
             has_body_update = True
         elif "markdown" in updates:
-            update_payload["markdown"] = str(updates.pop("markdown"))
+            update_payload["markdown"] = strip_duplicate_title_heading(
+                str(updates.pop("markdown")), str(new_name)
+            )
             has_body_update = True
 
         # Process property updates
@@ -1173,7 +1185,7 @@ class AnyTypeAdapter:
             space = self._client._client.get_space(space_id)
             type_page = space.get_type_byname("Page")
             obj = AnytypeObject(name=name, type=type_page)
-            obj.body = body_markdown
+            obj.body = strip_duplicate_title_heading(body_markdown, name)
             created = _with_anytype_retries(lambda: space.create_object(obj))
             if parent_collection_id:
                 self._attach_to_collection(space_id, parent_collection_id, str(created.id))
@@ -1240,13 +1252,14 @@ class AnyTypeAdapter:
             api = self._client._client._apiEndpoints
             original_version = api.headers.get("Anytype-Version")
             api.headers["Anytype-Version"] = "2025-11-08"
+            name = str(getattr(obj, "name", ""))
             try:
                 api.updateObject(
                     space_id,
                     object_id,
                     {
-                        "name": str(getattr(obj, "name", "")),
-                        "markdown": body_markdown,
+                        "name": name,
+                        "markdown": strip_duplicate_title_heading(body_markdown, name),
                     },
                 )
             finally:

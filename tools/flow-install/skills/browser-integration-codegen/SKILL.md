@@ -14,7 +14,7 @@ Generate Playwright-style browser integration suites from structured browser reg
 
 ## Required contract
 
-- canonical regression source from the active QA profile, typically `.harnessy/qa-profile.json`
+- canonical regression source from the active QA profile, typically `.jarvis/context/profiles/qa.json`
 - optional adapter metadata from `.flow/delivery-profile.json` for fixture mappings, route helpers, import shims, and DOM inspection paths
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/browser-integration-codegen/`.

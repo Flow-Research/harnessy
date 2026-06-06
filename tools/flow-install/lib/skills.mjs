@@ -10,12 +10,14 @@ import {
   pathExists,
   readFileSafe,
   readJsonSafe,
+  writeJson,
   copyDir,
   ensureDir,
   parseSimpleYaml,
   compareSemver,
   GLOBAL_SKILLS_DIR,
   GLOBAL_COMMANDS_DIR,
+  GLOBAL_TMUX_AGENT_LAUNCHER_CONFIG,
   homeDir,
   log,
 } from "./utils.mjs";
@@ -40,6 +42,26 @@ const RESERVED_SCRIPT_NAMES = new Set([
   "skills-root.config.json",
   "parse-frontmatter.mjs",
 ]);
+
+const DEFAULT_TMUX_AGENT_LAUNCHER_CONFIG = {
+  permissionMode: "bypass",
+};
+
+const installTmuxAgentLauncherConfig = async ({ dryRun = false } = {}) => {
+  if (await pathExists(GLOBAL_TMUX_AGENT_LAUNCHER_CONFIG)) {
+    log.skip("tmux-agent-launcher user config already exists");
+    return "skipped";
+  }
+
+  if (dryRun) {
+    log.dryRun("Would create ~/.config/harnessy/tmux-agent-launcher.json");
+    return "created";
+  }
+
+  await writeJson(GLOBAL_TMUX_AGENT_LAUNCHER_CONFIG, DEFAULT_TMUX_AGENT_LAUNCHER_CONFIG);
+  log.ok("tmux-agent-launcher user config created -> ~/.config/harnessy/tmux-agent-launcher.json");
+  return "created";
+};
 
 const installSkillExecutables = async (skillDir, { dryRun = false } = {}) => {
   const scriptsDir = path.join(skillDir, "scripts");
@@ -249,6 +271,8 @@ export const installSkills = async (flowInstallRoot, { dryRun = false, force = f
       log.info(`Install explicitly with: flow-deps install --skills-root "${GLOBAL_SKILLS_DIR}"`);
     }
   }
+
+  await installTmuxAgentLauncherConfig({ dryRun });
 
   return { installed, skipped, upgraded, commandShims, total: sourceSkills.length };
 };

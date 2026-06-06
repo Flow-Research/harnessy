@@ -79,7 +79,7 @@ function main() {
   const profilePath = profileArgIndex >= 0 ? process.argv[profileArgIndex + 1] : "";
 
   if (!criteriaPath || !scenariosPath) {
-    console.error("Usage: npx tsx validate-coverage.ts <criteria.json> <api-scenarios.json> [browser-scenarios.json] [--profile .flow/delivery-profile.json]");
+    console.error("Usage: npx tsx validate-coverage.ts <criteria.json> <api-scenarios.json> [browser-scenarios.json] [--profile .jarvis/context/profiles/qa.json]");
     process.exit(1);
   }
 

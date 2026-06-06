@@ -4,22 +4,28 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { computeCoverage, computeDrift, parseAllSpecs, runCli, scanAllTests } from "../../tools/flow-install/skills/qa-runtime/scripts/qa-runtime-lib.mjs";
+import { computeCoverage, computeDrift, parseAllSpecs, resolveProfilePath, runCli, scanAllTests } from "../../tools/flow-install/skills/qa-runtime/scripts/qa-runtime-lib.mjs";
 
-const createFixture = () => {
+const createFixture = ({ profileLayout = "canonical" } = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qa-runtime-"));
-  fs.mkdirSync(path.join(root, ".harnessy"), { recursive: true });
+  const profileDir = profileLayout === "canonical"
+    ? path.join(root, ".jarvis/context/profiles")
+    : path.join(root, ".harnessy");
+  const profilePath = profileLayout === "canonical"
+    ? path.join(profileDir, "qa.json")
+    : path.join(profileDir, "qa-profile.json");
+  fs.mkdirSync(profileDir, { recursive: true });
   fs.mkdirSync(path.join(root, "qa/browser/scripts"), { recursive: true });
   fs.mkdirSync(path.join(root, "apps/web/tests/browser-integration/suites"), { recursive: true });
-  fs.writeFileSync(path.join(root, ".harnessy/qa-profile.json"), JSON.stringify({
+  fs.writeFileSync(profilePath, JSON.stringify({
     version: 1,
     specs: [
-      { path: "../qa/browser/scripts/web-regression.md", app: "web", layer: "browser" }
+      { path: profileLayout === "canonical" ? "qa/browser/scripts/web-regression.md" : "../qa/browser/scripts/web-regression.md", app: "web", layer: "browser" }
     ],
     apps: [
-      { id: "web", tests: { browser: ["../apps/web/tests/browser-integration/suites"] } }
+      { id: "web", tests: { browser: [profileLayout === "canonical" ? "apps/web/tests/browser-integration/suites" : "../apps/web/tests/browser-integration/suites"] } }
     ],
-    output: { coverage: "../qa/qa-coverage.md" }
+    output: { coverage: profileLayout === "canonical" ? "qa/qa-coverage.md" : "../qa/qa-coverage.md" }
   }, null, 2));
   fs.writeFileSync(path.join(root, "qa/browser/scripts/web-regression.md"), `## AUTH-001 Login works
 
@@ -48,7 +54,7 @@ test("AUTH-001 login works", () => {});
   return root;
 };
 
-test("qa-runtime parses specs and tests from profile", () => {
+test("qa-runtime parses specs and tests from canonical .jarvis profile", () => {
   const root = createFixture();
   const specs = parseAllSpecs({ cwd: root });
   const tests = scanAllTests({ cwd: root });
@@ -56,6 +62,20 @@ test("qa-runtime parses specs and tests from profile", () => {
   assert.equal(specs.errors.length, 0);
   assert.equal(tests.records.length, 1);
   assert.equal(tests.filesMissingHeader.length, 0);
+});
+
+test("qa-runtime prefers .jarvis context profile and falls back to legacy .harnessy profile", () => {
+  const canonical = createFixture();
+  assert.equal(
+    resolveProfilePath(canonical),
+    path.join(canonical, ".jarvis/context/profiles/qa.json"),
+  );
+
+  const legacy = createFixture({ profileLayout: "legacy-harnessy" });
+  assert.equal(
+    resolveProfilePath(legacy),
+    path.join(legacy, ".harnessy/qa-profile.json"),
+  );
 });
 
 test("qa-runtime drift flags implemented scenarios without tests", () => {

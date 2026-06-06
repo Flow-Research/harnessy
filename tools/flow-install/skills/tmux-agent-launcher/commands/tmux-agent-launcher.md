@@ -1,6 +1,6 @@
 ---
 description: Launch Claude, OpenCode, or Codex in a named tmux session
-argument-hint: "--runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]"
+argument-hint: "--runner <claude|opencode|codex> <session-name> [options] [--permission-mode bypass|default] [-- <runner-args>...]"
 ---
 
 # Command Contract: tmux-agent-launcher
@@ -31,6 +31,16 @@ Harnessy also installs a short alias command, `t`, from the same skill.
 
 For the `opencode` runner, the launcher injects `--log-level WARN` by default to avoid pathological INFO log growth unless you explicitly pass your own `--log-level` flag after `--`.
 
+Permission bypass mode is enabled by default from the per-user Harnessy install config at `~/.config/harnessy/tmux-agent-launcher.json`. A launch can opt out with `--permission-mode default` or `--no-skip-permissions`.
+
+Bypass mode maps to each runner's native flag:
+
+| Runner | Bypass mapping |
+|---|---|
+| `claude` | `--permission-mode bypassPermissions` |
+| `codex` | `--dangerously-bypass-approvals-and-sandbox` |
+| `opencode` | `run --interactive --dangerously-skip-permissions` |
+
 ## Arguments
 
 | Name | Required | Description |
@@ -43,6 +53,9 @@ For the `opencode` runner, the launcher injects `--log-level WARN` by default to
 |---|---|---|
 | `--runner <name>` | yes | Runner to launch: `claude`, `opencode`, or `codex` |
 | `--cwd <path>` | no | Working directory for the tmux session; defaults to the current directory |
+| `--permission-mode <mode>` | no | Permission behavior: `bypass` or `default`. Resolution order: CLI flag, `TMUX_AGENT_LAUNCHER_PERMISSION_MODE`, user config, built-in `bypass` |
+| `--skip-permissions` | no | Shortcut for `--permission-mode bypass` |
+| `--no-skip-permissions` | no | Shortcut for `--permission-mode default` |
 | `--attach` | no | Attach immediately after creating the session |
 | `--dry-run` | no | Print the resolved launch plan without creating a tmux session |
 | `--json` | no | Emit machine-readable JSON |
@@ -59,9 +72,23 @@ For the `opencode` runner, the launcher injects `--log-level WARN` by default to
 
 | Variable | Required | Description |
 |---|---|---|
+| `TMUX_AGENT_LAUNCHER_CONFIG` | no | Override the config file path; defaults to `${XDG_CONFIG_HOME:-~/.config}/harnessy/tmux-agent-launcher.json` |
+| `TMUX_AGENT_LAUNCHER_PERMISSION_MODE` | no | Override the configured permission mode for this process: `bypass` or `default` |
 | `TMUX_AGENT_LAUNCHER_CLAUDE_CMD` | no | Override the command used for the `claude` runner |
 | `TMUX_AGENT_LAUNCHER_OPENCODE_CMD` | no | Override the command used for the `opencode` runner |
 | `TMUX_AGENT_LAUNCHER_CODEX_CMD` | no | Override the command used for the `codex` runner |
+
+## User Config
+
+Harnessy install creates this per-user file if it is missing:
+
+```json
+{
+  "permissionMode": "bypass"
+}
+```
+
+Set `permissionMode` to `default` to make permission prompts the default for this user while retaining per-launch opt-in through `--skip-permissions`.
 
 ## Output
 
@@ -78,9 +105,11 @@ Prints a concise success message with the session name, runner, and working dire
   "runner": "claude",
   "session": "agent-name",
   "cwd": "/abs/path",
+  "permission_mode": "bypass",
+  "permission_mode_source": "config",
   "attach": false,
   "dry_run": false,
-  "command": ["tmux", "new-session", "-d", "-s", "agent-name", "-c", "/abs/path", "bash", "-lc", "claude --prompt 'review the PR'"]
+  "command": ["tmux", "new-session", "-d", "-s", "agent-name", "-c", "/abs/path", "bash", "-lc", "claude --permission-mode bypassPermissions --prompt 'review the PR'"]
 }
 ```
 
@@ -128,7 +157,8 @@ List example:
 ```bash
 tmux-agent-launcher --runner claude reviewer
 tmux-agent-launcher --runner opencode planner --cwd /tmp/project --attach
-tmux-agent-launcher --runner codex pairer -- --full-auto
+tmux-agent-launcher --runner codex pairer
+tmux-agent-launcher --runner codex pairer --permission-mode default
 tmux-agent-launcher --runner claude qa-agent --dry-run --json
 tmux-agent-launcher attach reviewer
 tmux-agent-launcher attach reviewer --dry-run --json
@@ -139,6 +169,7 @@ t --runner claude reviewer -- --prompt "review the PR" --allowedTools "Read,Bash
 t --runner opencode worker -- --model sonnet
 t --runner codex worker -- --model gpt-5.4
 t --runner opencode worker -- --log-level ERROR --model sonnet
+t --runner claude worker --no-skip-permissions
 t list
 ```
 

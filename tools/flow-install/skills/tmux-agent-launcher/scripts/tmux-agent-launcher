@@ -15,6 +15,12 @@ Launch Claude, OpenCode, or Codex in a named tmux session, attach to an existing
 Options:
   --runner <name>   Runner to launch: claude, opencode, or codex
   --cwd <path>      Working directory for the tmux session (default: current directory)
+  --permission-mode <mode>
+                    Permission behavior: bypass or default (default: user config, then bypass)
+  --skip-permissions
+                    Shortcut for --permission-mode bypass
+  --no-skip-permissions
+                    Shortcut for --permission-mode default
   --attach          Attach to the session after creating it
   --dry-run         Print the launch plan without creating a tmux session
   --json            Emit machine-readable JSON
@@ -43,6 +49,96 @@ require_command() {
   command -v "$command_name" >/dev/null 2>&1 || fail 3 "Missing required command: $command_name"
 }
 
+resolve_config_path() {
+  if [[ -n "${TMUX_AGENT_LAUNCHER_CONFIG:-}" ]]; then
+    printf '%s\n' "$TMUX_AGENT_LAUNCHER_CONFIG"
+    return
+  fi
+
+  if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+    printf '%s\n' "$XDG_CONFIG_HOME/harnessy/tmux-agent-launcher.json"
+    return
+  fi
+
+  printf '%s\n' "${HOME:-}/.config/harnessy/tmux-agent-launcher.json"
+}
+
+read_config_permission_mode() {
+  local config_path="$1"
+  python3 - "$config_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(10)
+
+value = data.get("permissionMode", data.get("permission_mode", ""))
+if value is None:
+    value = ""
+print(str(value).strip())
+PY
+}
+
+normalize_permission_mode() {
+  local raw="$1"
+  local normalized
+  normalized=$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')
+
+  case "$normalized" in
+    bypass|skip|skip-permissions|skip_permissions|danger|dangerous)
+      printf 'bypass\n'
+      ;;
+    default|normal|prompt|prompts|ask|manual|none|off)
+      printf 'default\n'
+      ;;
+    *)
+      fail 2 "Unsupported permission mode: $raw"
+      ;;
+  esac
+}
+
+runner_has_permission_arg() {
+  local arg
+  for arg in "${RUNNER_ARGS[@]-}"; do
+    case "$RUNNER" in
+      claude)
+        case "$arg" in
+          --permission-mode|--permission-mode=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions)
+            return 0
+            ;;
+        esac
+        ;;
+      codex)
+        case "$arg" in
+          --dangerously-bypass-approvals-and-sandbox|--sandbox|--sandbox=*|-s|--ask-for-approval|--ask-for-approval=*|-a)
+            return 0
+            ;;
+        esac
+        ;;
+      opencode)
+        case "$arg" in
+          --dangerously-skip-permissions)
+            return 0
+            ;;
+        esac
+        ;;
+    esac
+  done
+  return 1
+}
+
+append_shell_args() {
+  local arg
+  for arg in "$@"; do
+    [[ -n "$arg" ]] || continue
+    RUNNER_COMMAND+=" $(printf '%q' "$arg")"
+  done
+}
+
 RUNNER=""
 CWD=$(pwd)
 ATTACH=0
@@ -50,6 +146,8 @@ DRY_RUN=0
 JSON_MODE=0
 SESSION_NAME=""
 MODE="launch"
+PERMISSION_MODE=""
+PERMISSION_MODE_SOURCE=""
 RUNNER_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -73,6 +171,22 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || fail 2 "--cwd requires a value"
       CWD="$2"
       shift 2
+      ;;
+    --permission-mode)
+      [[ $# -ge 2 ]] || fail 2 "--permission-mode requires a value"
+      PERMISSION_MODE="$2"
+      PERMISSION_MODE_SOURCE="cli"
+      shift 2
+      ;;
+    --skip-permissions)
+      PERMISSION_MODE="bypass"
+      PERMISSION_MODE_SOURCE="cli"
+      shift
+      ;;
+    --no-skip-permissions|--no-permission-bypass)
+      PERMISSION_MODE="default"
+      PERMISSION_MODE_SOURCE="cli"
+      shift
       ;;
     --attach)
       ATTACH=1
@@ -171,6 +285,52 @@ esac
 
 RUNNER_BASE_COMMAND="$RUNNER_COMMAND"
 
+require_command python3
+
+if [[ -z "$PERMISSION_MODE" && -n "${TMUX_AGENT_LAUNCHER_PERMISSION_MODE:-}" ]]; then
+  PERMISSION_MODE="$TMUX_AGENT_LAUNCHER_PERMISSION_MODE"
+  PERMISSION_MODE_SOURCE="env"
+fi
+
+CONFIG_PATH=$(resolve_config_path)
+if [[ -z "$PERMISSION_MODE" && -f "$CONFIG_PATH" ]]; then
+  if ! CONFIG_PERMISSION_MODE=$(read_config_permission_mode "$CONFIG_PATH"); then
+    fail 2 "Invalid tmux-agent-launcher config: $CONFIG_PATH"
+  fi
+  if [[ -n "$CONFIG_PERMISSION_MODE" ]]; then
+    PERMISSION_MODE="$CONFIG_PERMISSION_MODE"
+    PERMISSION_MODE_SOURCE="config"
+  fi
+fi
+
+if [[ -z "$PERMISSION_MODE" ]]; then
+  PERMISSION_MODE="bypass"
+  PERMISSION_MODE_SOURCE="built-in"
+fi
+
+PERMISSION_MODE=$(normalize_permission_mode "$PERMISSION_MODE")
+
+INJECTED_RUNNER_ARGS=()
+if [[ "$PERMISSION_MODE" == "bypass" ]]; then
+  if [[ "$RUNNER" == "opencode" && "$RUNNER_COMMAND" != *" "* && "${RUNNER_COMMAND##*/}" == "opencode" ]]; then
+    RUNNER_COMMAND+=" run --interactive"
+  fi
+
+  if ! runner_has_permission_arg; then
+    case "$RUNNER" in
+      claude)
+        INJECTED_RUNNER_ARGS=(--permission-mode bypassPermissions)
+        ;;
+      codex)
+        INJECTED_RUNNER_ARGS=(--dangerously-bypass-approvals-and-sandbox)
+        ;;
+      opencode)
+        INJECTED_RUNNER_ARGS=(--dangerously-skip-permissions)
+        ;;
+    esac
+  fi
+fi
+
 if [[ "$RUNNER" == "opencode" ]]; then
   HAS_LOG_LEVEL=0
   for arg in "${RUNNER_ARGS[@]-}"; do
@@ -185,13 +345,9 @@ if [[ "$RUNNER" == "opencode" ]]; then
   fi
 fi
 
-# Append runner args (everything after --) with proper shell escaping
-for arg in "${RUNNER_ARGS[@]-}"; do
-  [[ -n "$arg" ]] || continue
-  RUNNER_COMMAND+=" $(printf '%q' "$arg")"
-done
-
-require_command python3
+# Append injected args first, then runner args (everything after --), with proper shell escaping.
+append_shell_args "${INJECTED_RUNNER_ARGS[@]-}"
+append_shell_args "${RUNNER_ARGS[@]-}"
 
 if [[ ! -d "$CWD" ]]; then
   fail 2 "Working directory does not exist: $CWD"
@@ -224,16 +380,18 @@ if [[ "$DRY_RUN" == "0" ]]; then
 fi
 
 if [[ "$JSON_MODE" == "1" ]]; then
-  printf '{"ok":true,"action":"launch","runner":%s,"session":%s,"cwd":%s,"attach":%s,"dry_run":%s,"command":%s}\n' \
+  printf '{"ok":true,"action":"launch","runner":%s,"session":%s,"cwd":%s,"permission_mode":%s,"permission_mode_source":%s,"attach":%s,"dry_run":%s,"command":%s}\n' \
     "$(json_escape "$RUNNER")" \
     "$(json_escape "$SESSION_NAME")" \
     "$(json_escape "$ABS_CWD")" \
+    "$(json_escape "$PERMISSION_MODE")" \
+    "$(json_escape "$PERMISSION_MODE_SOURCE")" \
     "$([[ "$ATTACH" == "1" ]] && printf 'true' || printf 'false')" \
     "$([[ "$DRY_RUN" == "1" ]] && printf 'true' || printf 'false')" \
     "$COMMAND_JSON"
 else
   if [[ "$DRY_RUN" == "1" ]]; then
-    printf 'Dry run: would launch %s in tmux session %s at %s\n' "$RUNNER" "$SESSION_NAME" "$ABS_CWD"
+    printf 'Dry run: would launch %s in tmux session %s at %s (permission_mode=%s)\n' "$RUNNER" "$SESSION_NAME" "$ABS_CWD" "$PERMISSION_MODE"
   else
     printf 'Launched %s in tmux session %s at %s\n' "$RUNNER" "$SESSION_NAME" "$ABS_CWD"
   fi

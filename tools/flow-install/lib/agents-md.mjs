@@ -32,6 +32,10 @@ This repo is Harnessy-managed.
 - Read \`${installPaths.contextDir}/AGENTS.md\`
 - Global skills: \`~/.agents/skills/\`
 - Project skills: \`${installPaths.skillsDir}/\` (if present)
+- Runtime profiles: \`${installPaths.contextDir}/profiles/{qa,ci,deploy}.json\`
+- Testing: prefer integration/container tests; use Testcontainers first and mocks only by documented exception
+- Deployment: CI/profile/evidence-driven; local overrides must run the same gates
+- Skill feedback: capture reusable skill lessons as traces; do not leave them only in chat
 - If inside a sub-project, prefer its local \`.jarvis/context/\`
 ${FLOW_END}`;
 

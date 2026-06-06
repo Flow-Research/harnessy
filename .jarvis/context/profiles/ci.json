@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "project": {
+    "name": "harnessy",
+    "integrationBranch": "main",
+    "specRoot": ".jarvis/context/specs"
+  },
+  "release": {
+    "versionFile": "VERSION",
+    "changelogFile": "CHANGELOG.md",
+    "productionTrigger": "semver-tag",
+    "tagPattern": "v*.*.*"
+  },
+  "qa": {
+    "profile": ".jarvis/context/profiles/qa.json",
+    "requiredGates": [
+      "qa-runtime tests",
+      "service-deploy tests"
+    ]
+  },
+  "gates": [
+    {
+      "name": "qa-runtime tests",
+      "command": "node --test tests/qa-runtime/qa-runtime.test.mjs",
+      "required": true
+    },
+    {
+      "name": "service-deploy tests",
+      "command": "python3 -m pytest tools/flow-install/tests/test_service_deploy.py -q",
+      "required": true
+    }
+  ],
+  "policy": {
+    "allowLocalOverride": true,
+    "requireSameGatesForLocalOverride": true
+  }
+}

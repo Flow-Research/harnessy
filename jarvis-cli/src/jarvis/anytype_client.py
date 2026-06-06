@@ -9,6 +9,7 @@ from typing import Any
 import requests
 from rich.console import Console
 
+from jarvis.knowledge_body import strip_duplicate_title_heading
 from jarvis.models import Priority, Task
 
 console = Console()
@@ -746,11 +747,9 @@ class AnyTypeClient:
             page_type = space.get_type_byname("Page")
             obj = Object(name=name, type=page_type)
 
-            # Add content to the page body before creation
-            if content:
-                obj.add_text(content)
-
             created = space.create_object(obj)
+            if content:
+                self._update_object_markdown(space_id, str(created.id), name, content)
 
             # Add to parent collection if specified
             if parent_id:
@@ -760,6 +759,42 @@ class AnyTypeClient:
 
         except Exception as e:
             raise RuntimeError(f"Failed to create page '{name}': {e}")
+
+    def _update_object_markdown(
+        self,
+        space_id: str,
+        object_id: str,
+        name: str,
+        markdown: str,
+    ) -> None:
+        """Replace a page body using AnyType's markdown-capable update API."""
+        if self._client is None or self._client._apiEndpoints is None:
+            raise RuntimeError("AnyType client is not connected.")
+
+        markdown = strip_duplicate_title_heading(markdown, name)
+        api = self._client._apiEndpoints
+        headers = getattr(api, "headers", None)
+        has_original_version = False
+        original_version: str | None = None
+        if isinstance(headers, dict):
+            has_original_version = "Anytype-Version" in headers
+            original_version = headers.get("Anytype-Version")
+            headers["Anytype-Version"] = "2025-11-08"
+        try:
+            api.updateObject(
+                space_id,
+                object_id,
+                {
+                    "name": str(name),
+                    "markdown": str(markdown),
+                },
+            )
+        finally:
+            if isinstance(headers, dict):
+                if has_original_version:
+                    headers["Anytype-Version"] = original_version
+                else:
+                    headers.pop("Anytype-Version", None)
 
     # =========================================================================
     # Task Creation Methods

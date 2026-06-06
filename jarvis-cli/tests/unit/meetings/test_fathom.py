@@ -32,12 +32,12 @@ def _payload() -> dict:
         },
         "transcript": [
             {
-                "speaker": {"display_name": "Alice Johnson"},
+                "speaker": {"display_name": "Speaker One"},
                 "text": "Let's revisit the budget allocations.",
                 "timestamp": "00:05:32",
             },
             {
-                "speaker": {"display_name": "Bob Lee"},
+                "speaker": {"display_name": "Speaker Two"},
                 "text": "Agreed.",
                 "timestamp": "00:06:01",
             },
@@ -45,11 +45,11 @@ def _payload() -> dict:
         "action_items": [
             {
                 "description": "Send revised proposal",
-                "assignee": {"name": "Alice Johnson"},
+                "assignee": {"name": "Action Owner"},
             }
         ],
-        "calendar_invitees": [{"name": "Alice Johnson"}, {"name": "Bob Lee"}],
-        "recorded_by": {"name": "Alice Johnson"},
+        "calendar_invitees": [{"name": "Speaker One"}, {"name": "Speaker Two"}],
+        "recorded_by": {"name": "Speaker One"},
     }
 
 
@@ -71,9 +71,9 @@ class TestFathomNormalization:
 
     def test_extract_helpers(self) -> None:
         payload = _payload()
-        assert fathom_participants(payload) == ["Alice Johnson", "Bob Lee"]
-        assert fathom_action_items(payload) == ["Alice Johnson: Send revised proposal"]
-        assert fathom_transcript_markdown(payload).startswith("[00:05:32] Alice Johnson:")
+        assert fathom_participants(payload) == ["Speaker One", "Speaker Two"]
+        assert fathom_action_items(payload) == ["Action Owner: Send revised proposal"]
+        assert fathom_transcript_markdown(payload).startswith("[00:05:32] Speaker One:")
 
     def test_parse_payload(self) -> None:
         meeting = parse_fathom_payload(_payload(), project="aa")
@@ -83,8 +83,8 @@ class TestFathomNormalization:
         assert meeting.source_type == "fathom"
         assert meeting.summary == "Reviewed pipeline and budget allocation."
         assert meeting.decisions == ["Delay hiring until June"]
-        assert meeting.action_items == ["Alice Johnson: Send revised proposal"]
-        assert "Alice Johnson: Let's revisit the budget allocations." in meeting.transcript
+        assert meeting.action_items == ["Action Owner: Send revised proposal"]
+        assert "Speaker One: Let's revisit the budget allocations." in meeting.transcript
         assert "Let's revisit the budget allocations." not in meeting.raw_markdown
 
         rendered = render_meeting_markdown(meeting)
@@ -99,7 +99,7 @@ class TestFathomNormalization:
                 "- The team aligned on a narrower launch scope.\n"
                 "- Budget review should move before hiring.\n\n"
                 "## Next Steps\n\n"
-                "- Bob to update the launch budget\n"
+                "- Budget owner to update the launch budget\n"
             )
         }
         payload["action_items"] = []
@@ -107,12 +107,12 @@ class TestFathomNormalization:
         meeting = parse_fathom_payload(payload)
 
         assert "narrower launch scope" in meeting.summary
-        assert meeting.action_items == ["Bob to update the launch budget"]
+        assert meeting.action_items == ["Budget owner to update the launch budget"]
 
         rendered = render_meeting_markdown(meeting)
         assert "### Next Steps" in rendered
         assert "## Action Items" not in rendered
-        assert rendered.count("Bob to update the launch budget") == 1
+        assert rendered.count("Budget owner to update the launch budget") == 1
 
     def test_parse_json_text(self) -> None:
         meeting = parse_fathom_json_text(json.dumps({"items": [_payload()]}))

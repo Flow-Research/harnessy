@@ -35,7 +35,7 @@ import { installHooks, installPipelineScripts, scaffoldHooksConfig } from "./lib
 import { resolveInstallPaths } from "./lib/install-paths.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOTAL_STEPS = 10;
+const TOTAL_STEPS = 11;
 
 const collectFlowCoreSkillNames = async () => {
   const skillsDir = path.join(__dirname, "skills");
@@ -52,6 +52,141 @@ const collectFlowCoreSkillNames = async () => {
   }
 
   return skills.sort();
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const copyAutoflowTemplate = async (projectRoot, baseDir) => {
+  const workflowDir = path.join(projectRoot, ".github", "workflows");
+  const templateSource = path.join(baseDir, "templates", "autoflow.yml");
+  if (await pathExists(templateSource)) {
+    await ensureDir(workflowDir);
+    await fs.copyFile(templateSource, path.join(workflowDir, "autoflow.yml"));
+  }
+};
+
+const handleAutoflowSetup = async (projectRoot, baseDir, { reconfigure, yesAll, autoflowStatus }) => {
+  const alreadyInstalled = autoflowStatus === true;
+  const previouslyDeclined = autoflowStatus === false;
+
+  if (alreadyInstalled && !reconfigure) {
+    await copyAutoflowTemplate(projectRoot, baseDir);
+    log.skip("Autoflow CI already installed (templates updated)");
+    return autoflowStatus;
+  }
+
+  if (previouslyDeclined && !reconfigure) {
+    log.skip("Autoflow CI previously declined (use --reconfigure to re-ask)");
+    return autoflowStatus;
+  }
+
+  if (yesAll) {
+    log.skip("Autoflow CI skipped in non-interactive mode (run flow-install --reconfigure to enable)");
+    return autoflowStatus === null ? false : autoflowStatus;
+  }
+
+  const wantAutoflow = await promptConfirm(
+    "Install autoflow GitHub Actions workflow? (enables autonomous issue processing)",
+    false,
+  );
+
+  if (wantAutoflow) {
+    await copyAutoflowTemplate(projectRoot, baseDir);
+    log.ok("Installed .github/workflows/autoflow.yml");
+
+    const programPath = path.join(projectRoot, "program.md");
+    if (!(await pathExists(programPath))) {
+      await fs.copyFile(path.join(baseDir, "templates", "program.md"), programPath);
+      log.ok("Installed program.md (customize objectives and thresholds)");
+    } else {
+      log.skip("program.md already exists");
+    }
+
+    return true;
+  }
+
+  log.skip("Autoflow CI declined");
+  return false;
+};
+
+const registerCronSchedules = async (projectRoot, baseDir) => {
+  try {
+    const { execFileSync } = await import("node:child_process");
+    const flowCronPath = path.join(os.homedir(), ".local", "bin", "flow-cron");
+    const flowCronSource = path.join(baseDir, "scripts", "flow-cron");
+
+    if (await pathExists(flowCronSource)) {
+      await ensureDir(path.join(os.homedir(), ".local", "bin"));
+      await ensureDir(path.join(os.homedir(), ".agents", "cron"));
+      await fs.copyFile(flowCronSource, flowCronPath);
+      await fs.chmod(flowCronPath, 0o755);
+
+      try {
+        const result = execFileSync("python3", [flowCronPath, "install"], {
+          cwd: projectRoot,
+          stdio: "pipe",
+          encoding: "utf-8",
+        });
+        for (const line of result.trim().split("\n")) {
+          if (line.includes("Installed")) log.ok(line.trim());
+          else if (line.includes("No enabled")) log.skip(line.trim());
+        }
+      } catch (cronErr) {
+        log.skip(`Cron registration skipped: ${cronErr.message?.split("\n")[0] || "unknown error"}`);
+      }
+    } else {
+      log.skip("flow-cron script not found in harness");
+    }
+  } catch (e) {
+    log.skip(`Cron setup skipped: ${e.message || e}`);
+  }
+};
+
+/**
+ * Assemble and write harnessy.lock.json for the installed project.
+ *
+ * @param {string} projectRoot       Absolute path to the target repository root.
+ * @param {object} opts
+ * @param {string} opts.version      Installer version recorded in the lockfile.
+ * @param {object} opts.projectInfo  Detected project metadata (name, monorepo, apps, gitOrg, existing lockfile).
+ * @param {object} opts.installPaths Resolved install path layout (context/skills/scripts dirs).
+ * @param {boolean|null} opts.autoflowStatus Tri-state autoflow result: true/false, or null when unset.
+ */
+const writeLockfile = async (projectRoot, { version, projectInfo, installPaths, autoflowStatus }) => {
+  const flowCoreSkills = await collectFlowCoreSkillNames();
+  const lockfile = {
+    version,
+    timestamp: new Date().toISOString(),
+    project: projectInfo.name,
+    monorepo: projectInfo.monorepo?.type || null,
+    apps: projectInfo.apps.map((a) => a.dirName),
+    gitOrg: projectInfo.gitOrg,
+    components: {
+      ...(projectInfo.existing.lockfile?.components || {}),
+      skills: true,
+      claude: true,
+      opencode: true,
+      codex: true,
+      scripts: true,
+      context: true,
+      memory: true,
+      agentsMd: true,
+      hooks: true,
+      ...(autoflowStatus !== null ? { autoflow: autoflowStatus } : {}),
+    },
+    flowCoreSkills,
+    contextAgents: {
+      version: CONTEXT_AGENTS_VERSION,
+      templateHash: projectInfo.existing.contextAgentsResult?.templateHash || projectInfo.existing.lockfile?.contextAgents?.templateHash || null,
+      status: projectInfo.existing.contextAgentsResult?.status || projectInfo.existing.lockfile?.contextAgents?.status || "unknown",
+      path: `${installPaths.contextDir}/AGENTS.md`,
+    },
+    installPaths,
+  };
+  await writeJson(path.join(projectRoot, "harnessy.lock.json"), lockfile);
+  log.ok("harnessy.lock.json written");
 };
 
 // ---------------------------------------------------------------------------
@@ -84,8 +219,8 @@ if (args.has("--target") && !targetArg) {
 const onlySkills = args.has("--skills");
 const onlyMemory = args.has("--memory");
 const onlyAgentsMd = args.has("--agents-md");
-const hasSpecific = onlySkills || onlyMemory || onlyAgentsMd || updateContextAgents;
-const runAll = !hasSpecific;
+const hasSpecificStepFlag = onlySkills || onlyMemory || onlyAgentsMd || updateContextAgents;
+const runAll = !hasSpecificStepFlag;
 
 // ---------------------------------------------------------------------------
 // Main
@@ -200,144 +335,29 @@ const main = async () => {
   }
 
   // ── Step 9: Autoflow CI setup (optional) ────────────────────────────────
-  let autoflowInstalled = projectInfo.existing.lockfile?.components?.autoflow ?? null;
+  let autoflowStatus = projectInfo.existing.lockfile?.components?.autoflow ?? null;
   if (runAll && !dryRun) {
     log.step(9, TOTAL_STEPS, "Autoflow CI setup");
-    const alreadyInstalled = autoflowInstalled === true;
-    const previouslyDeclined = autoflowInstalled === false;
-
-    if (alreadyInstalled && !reconfigure) {
-      // Previously accepted — silently update templates (supports flow:sync with --yes)
-      const templatesDir = path.join(__dirname, "templates");
-      const workflowTarget = path.join(projectRoot, ".github", "workflows", "autoflow.yml");
-      const templateSource = path.join(templatesDir, "autoflow.yml");
-      if (await pathExists(templateSource)) {
-        await ensureDir(path.join(projectRoot, ".github", "workflows"));
-        await fs.copyFile(templateSource, workflowTarget);
-      }
-      log.skip("Autoflow CI already installed (templates updated)");
-    } else if (previouslyDeclined && !reconfigure) {
-      log.skip("Autoflow CI previously declined (use --reconfigure to re-ask)");
-    } else if (yesAll) {
-      log.skip("Autoflow CI skipped in non-interactive mode (run flow-install --reconfigure to enable)");
-      if (autoflowInstalled === null) autoflowInstalled = false;
-    } else {
-      const wantAutoflow = await promptConfirm(
-        "Install autoflow GitHub Actions workflow? (enables autonomous issue processing)",
-        false,
-      );
-      if (wantAutoflow) {
-        const templatesDir = path.join(__dirname, "templates");
-        // Copy autoflow.yml
-        const workflowDir = path.join(projectRoot, ".github", "workflows");
-        await ensureDir(workflowDir);
-        await fs.copyFile(
-          path.join(templatesDir, "autoflow.yml"),
-          path.join(workflowDir, "autoflow.yml"),
-        );
-        log.ok("Installed .github/workflows/autoflow.yml");
-
-        // Copy program.md (only if not already present)
-        const programPath = path.join(projectRoot, "program.md");
-        if (!(await pathExists(programPath))) {
-          await fs.copyFile(path.join(templatesDir, "program.md"), programPath);
-          log.ok("Installed program.md (customize objectives and thresholds)");
-        } else {
-          log.skip("program.md already exists");
-        }
-
-        autoflowInstalled = true;
-      } else {
-        log.skip("Autoflow CI declined");
-        autoflowInstalled = false;
-      }
-    }
+    autoflowStatus = await handleAutoflowSetup(projectRoot, __dirname, { reconfigure, yesAll, autoflowStatus });
   }
 
-  // ── Step 9a: Install pipeline hooks + scripts ──────────────────────────
+  // ── Step 10: Install pipeline hooks + scripts ──────────────────────────
   if (runAll) {
-    log.step(9, TOTAL_STEPS, "Installing pipeline hooks");
+    log.step(10, TOTAL_STEPS, "Installing pipeline hooks");
     await installHooks(__dirname, { dryRun });
     await installPipelineScripts(__dirname, { dryRun });
     await scaffoldHooksConfig(projectRoot, { dryRun });
   }
 
-  // ── Step 10: Register cron schedules from skill manifests ───────────────
+  // ── Step 11: Register cron schedules from skill manifests ───────────────
   if (runAll && !dryRun) {
-    log.step(10, TOTAL_STEPS, "Registering cron schedules");
-    try {
-      const { execFileSync } = await import("node:child_process");
-      // Check if flow-cron is available
-      const flowCronPath = path.join(os.homedir(), ".local", "bin", "flow-cron");
-      const flowCronSource = path.join(__dirname, "scripts", "flow-cron");
-
-      // Deploy flow-cron to ~/.local/bin/ if not present or outdated
-      if (await pathExists(flowCronSource)) {
-        await ensureDir(path.join(os.homedir(), ".local", "bin"));
-        await ensureDir(path.join(os.homedir(), ".agents", "cron"));
-        await fs.copyFile(flowCronSource, flowCronPath);
-        await fs.chmod(flowCronPath, 0o755);
-
-        // Run flow-cron install to sync crontab with manifest schedules
-        try {
-          const result = execFileSync("python3", [flowCronPath, "install"], {
-            cwd: projectRoot,
-            stdio: "pipe",
-            encoding: "utf-8",
-          });
-          const lines = result.trim().split("\n");
-          for (const line of lines) {
-            if (line.includes("Installed")) {
-              log.ok(line.trim());
-            } else if (line.includes("No enabled")) {
-              log.skip(line.trim());
-            }
-          }
-        } catch (cronErr) {
-          log.skip(`Cron registration skipped: ${cronErr.message?.split("\n")[0] || "unknown error"}`);
-        }
-      } else {
-        log.skip("flow-cron script not found in harness");
-      }
-    } catch (e) {
-      log.skip(`Cron setup skipped: ${e.message || e}`);
-    }
+    log.step(11, TOTAL_STEPS, "Registering cron schedules");
+    await registerCronSchedules(projectRoot, __dirname);
   }
 
   // ── Write lockfile ──────────────────────────────────────────────────────
   if ((runAll || updateContextAgents) && !dryRun) {
-    const flowCoreSkills = await collectFlowCoreSkillNames();
-    const lockfile = {
-      version,
-      timestamp: new Date().toISOString(),
-      project: projectInfo.name,
-      monorepo: projectInfo.monorepo?.type || null,
-      apps: projectInfo.apps.map((a) => a.dirName),
-      gitOrg: projectInfo.gitOrg,
-      components: {
-        ...(projectInfo.existing.lockfile?.components || {}),
-        skills: true,
-        claude: true,
-        opencode: true,
-        codex: true,
-        scripts: true,
-        context: true,
-        memory: true,
-        agentsMd: true,
-        hooks: true,
-        ...(autoflowInstalled !== null ? { autoflow: autoflowInstalled } : {}),
-      },
-      flowCoreSkills,
-      contextAgents: {
-        version: CONTEXT_AGENTS_VERSION,
-        templateHash: projectInfo.existing.contextAgentsResult?.templateHash || projectInfo.existing.lockfile?.contextAgents?.templateHash || null,
-        status: projectInfo.existing.contextAgentsResult?.status || projectInfo.existing.lockfile?.contextAgents?.status || "unknown",
-        path: `${installPaths.contextDir}/AGENTS.md`,
-      },
-      installPaths,
-    };
-    await writeJson(path.join(projectRoot, "harnessy.lock.json"), lockfile);
-    log.ok("harnessy.lock.json written");
+    await writeLockfile(projectRoot, { version, projectInfo, installPaths, autoflowStatus });
   }
 
   // ── Summary ─────────────────────────────────────────────────────────────

@@ -271,6 +271,7 @@ class KnowledgeBaseAdapter(Protocol):
         content: str,
         title: str | None = None,
         entry_date: date | None = None,
+        tags: list[str] | None = None,
     ) -> JournalEntry:
         """Create a new journal entry.
 
@@ -279,6 +280,7 @@ class KnowledgeBaseAdapter(Protocol):
             content: Entry content (markdown)
             title: Optional title (may be auto-generated)
             entry_date: Date for entry (defaults to today)
+            tags: Optional list of tag names
 
         Returns:
             Created JournalEntry object.

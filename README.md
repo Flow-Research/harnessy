@@ -1,6 +1,6 @@
 # Harnessy
 
-Harnessy is Flow's agent capability harness for software projects and agent runtimes.
+Harnessy is a reusable harness for agent runtimes.
 
 It installs a shared AI operating layer into repos and runtimes, packaging context, skills, commands, QA surfaces, dependency contracts, runtime adapters, and project protocols so supported agents can do real work safely and consistently.
 
@@ -146,13 +146,15 @@ This path:
 
 Useful environment variables:
 
-| Variable | Purpose | Example |
-|---|---|---|
-| `FLOW_REPO_URL` | Override the Harnessy git source | custom fork URL |
-| `FLOW_INSTALL_DIR` | Workspace clone destination | `/Users/name/harnessy` |
-| `FLOW_CACHE_DIR` | Cache used for in-place installs | `$HOME/.cache/harnessy` |
-| `FLOW_NONINTERACTIVE` | Skip prompts | `1` |
-| `FLOW_SKIP_SUBPROJECTS` | Skip optional bundled sub-project logic | `1` |
+
+| Variable                | Purpose                                 | Example                 |
+| ----------------------- | --------------------------------------- | ----------------------- |
+| `FLOW_REPO_URL`         | Override the Harnessy git source        | custom fork URL         |
+| `FLOW_INSTALL_DIR`      | Workspace clone destination             | `/Users/name/harnessy`  |
+| `FLOW_CACHE_DIR`        | Cache used for in-place installs        | `$HOME/.cache/harnessy` |
+| `FLOW_NONINTERACTIVE`   | Skip prompts                            | `1`                     |
+| `FLOW_SKIP_SUBPROJECTS` | Skip optional bundled sub-project logic | `1`                     |
+
 
 Example:
 
@@ -209,30 +211,35 @@ node tools/flow-install/index.mjs --yes --target "/path/to/project"
 
 ### Root development commands
 
-| Command | Purpose |
-|---|---|
-| `pnpm setup` | Run local setup wizard |
-| `pnpm skills:validate` | Validate shared skill source and catalog consistency |
-| `pnpm skills:register` | Register project-local skills for supported agents |
-| `pnpm skills:register:claude` | Refresh Claude skill registration |
-| `pnpm skills:register:opencode` | Refresh OpenCode `skills.paths` |
-| `pnpm skills:register:codex` | Refresh Codex skill links |
-| `pnpm harness:verify` | Verify repo and runtime parity |
-| `pnpm harness:eval` | Run local fixture-based install evaluation |
-| `pnpm harness:eval:remote` | Run remote-style Docker bootstrap evaluation |
-| `pnpm flow:cleanup` | Clean stale plugin artifacts |
-| `pnpm flow:sync` | Re-run in-place sync from cached source |
-| `pnpm flow:sync:force` | Force in-place sync |
-| `pnpm flow:sync:remote` | Refresh cached source, then sync |
-| `pnpm flow:sync:remote:force` | Refresh cached source, then force sync |
+
+| Command                         | Purpose                                              |
+| ------------------------------- | ---------------------------------------------------- |
+| `pnpm setup`                    | Run local setup wizard                               |
+| `pnpm skills:validate`          | Validate shared skill source and catalog consistency |
+| `pnpm skills:register`          | Register project-local skills for supported agents   |
+| `pnpm skills:register:claude`   | Refresh Claude skill registration                    |
+| `pnpm skills:register:opencode` | Refresh OpenCode `skills.paths`                      |
+| `pnpm skills:register:codex`    | Refresh Codex skill links                            |
+| `pnpm harness:verify`           | Verify repo and runtime parity                       |
+| `pnpm harness:eval`             | Run local fixture-based install evaluation           |
+| `pnpm harness:eval:remote`      | Run remote-style Docker bootstrap evaluation         |
+| `pnpm flow:cleanup`             | Clean stale plugin artifacts                         |
+| `pnpm flow:sync`                | Re-run in-place sync from cached source              |
+| `pnpm flow:sync:force`          | Force in-place sync                                  |
+| `pnpm flow:sync:remote`         | Refresh cached source, then sync                     |
+| `pnpm flow:sync:remote:force`   | Refresh cached source, then force sync               |
+
 
 ### Shared CLI tools installed through skills
 
-| Command | Purpose |
-|---|---|
-| `jarvis` | User-facing CLI for planning, journaling, context operations, reading lists, Android tooling, and more |
-| `qa` | Deterministic QA runtime for spec parsing, test scanning, drift detection, and coverage from a repo-local profile |
-| `flow-deps` | Plan, check, and explicitly install runtime dependencies declared in skill manifests |
+
+| Command     | Purpose                                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------------------- |
+| `jarvis`    | User-facing CLI for planning, journaling, context operations, reading lists, Android tooling, and more            |
+| `qa`        | Deterministic QA runtime for spec parsing, test scanning, drift detection, and coverage from a repo-local profile |
+| `harness-deploy` | CI/profile-driven service deployment planning, packaging, evidence, status, logs, and rollback |
+| `flow-deps` | Plan, check, and explicitly install runtime dependencies declared in skill manifests                              |
+
 
 Harnessy's shared QA contract is documented in `.jarvis/context/docs/standards/qa-process.md`.
 `flow-qa` remains installed as a backward-compatible alias for older projects.
@@ -240,31 +247,37 @@ Harnessy's shared QA contract is documented in `.jarvis/context/docs/standards/q
 ## QA Support
 
 Harnessy QA is repo-agnostic. Target repositories provide their own
-`.harnessy/qa-profile.json`, `.flow/qa-profile.json`, or `qa/qa-profile.json`
-to describe spec paths, app IDs, test roots, output paths, and optional
-repo-local execution or result-sync commands.
+`.jarvis/context/profiles/qa.json` to describe spec paths, app IDs, test roots,
+output paths, test environment policy, and optional repo-local execution or
+result-sync commands. Legacy `.harnessy/qa-profile.json`,
+`.flow/qa-profile.json`, and `qa/qa-profile.json` paths remain compatibility
+fallbacks.
 
 ### Runtime Commands
 
-| Command | Purpose |
-|---|---|
-| `qa ids` | Parse configured regression specs and emit canonical scenario records |
-| `qa tests` | Scan configured test roots and extract scenario IDs plus QA headers |
-| `qa drift` | Detect spec/test drift, missing headers, missing tests, and orphan test IDs |
-| `qa coverage` | Generate a profile-driven QA coverage report |
+
+| Command       | Purpose                                                                     |
+| ------------- | --------------------------------------------------------------------------- |
+| `qa ids`      | Parse configured regression specs and emit canonical scenario records       |
+| `qa tests`    | Scan configured test roots and extract scenario IDs plus QA headers         |
+| `qa drift`    | Detect spec/test drift, missing headers, missing tests, and orphan test IDs |
+| `qa coverage` | Generate a profile-driven QA coverage report                                |
+
 
 ### QA Skills
 
-| Skill | Purpose |
-|---|---|
-| `/qa-sweep` | Full-cycle coverage sweep: discover, browser-walk, map scenarios, coordinate codegen, execute/plan, and report |
-| `/qa-feature-catalog` | Maintain semantic feature catalogs, stable prefixes, generated catalogs, overrides, result snapshots, and optional result sinks |
-| `/qa-security-sweep` | Convert adversarial security findings into canonical `Layer: security` regression scenarios |
-| `/spec-to-regression` | Generate browser/API regression scenarios from approved specs |
-| `/browser-integration-codegen` | Generate browser integration suites from canonical regression specs and adapter metadata |
-| `/api-integration-codegen` | Generate API integration suites from canonical regression specs and adapter metadata |
-| `/browser-qa` | Run Playwright-based walkthroughs, auth handoffs, scripted checks, and artifact summaries |
-| `/test-quality-validator` | Validate coverage completeness, correctness, false-green risk, selectors, DB assertions, and drift |
+
+| Skill                          | Purpose                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `/qa-sweep`                    | Full-cycle coverage sweep: discover, browser-walk, map scenarios, coordinate codegen, execute/plan, and report                  |
+| `/qa-feature-catalog`          | Maintain semantic feature catalogs, stable prefixes, generated catalogs, overrides, result snapshots, and optional result sinks |
+| `/qa-security-sweep`           | Convert adversarial security findings into canonical `Layer: security` regression scenarios                                     |
+| `/spec-to-regression`          | Generate browser/API regression scenarios from approved specs                                                                   |
+| `/browser-integration-codegen` | Generate browser integration suites from canonical regression specs and adapter metadata                                        |
+| `/api-integration-codegen`     | Generate API integration suites from canonical regression specs and adapter metadata                                            |
+| `/browser-qa`                  | Run Playwright-based walkthroughs, auth handoffs, scripted checks, and artifact summaries                                       |
+| `/test-quality-validator`      | Validate coverage completeness, correctness, false-green risk, selectors, DB assertions, and drift                              |
+
 
 The shared QA process covers scenario IDs, spec fields, feature catalogs,
 run-result snapshots, result sinks, Playwright walkthroughs, DB assertions,
@@ -273,6 +286,8 @@ points:
 
 ```text
 .jarvis/context/docs/standards/qa-process.md
+.jarvis/context/docs/standards/testing-strategy.md
+.jarvis/context/docs/standards/ci-process.md
 ```
 
 ## Command Examples
@@ -294,10 +309,10 @@ flow-deps check --manifest "tools/flow-install/skills/goal-agent/manifest.yaml"
 flow-deps check --skills-root "$HOME/.agents/skills"
 
 # Parse QA specs from a repo-local profile
-qa ids --profile .harnessy/qa-profile.json
+qa ids --profile .jarvis/context/profiles/qa.json
 
 # Run a QA drift check
-qa drift --profile .harnessy/qa-profile.json
+qa drift --profile .jarvis/context/profiles/qa.json
 ```
 
 ## Architecture
@@ -484,14 +499,14 @@ Recommended team workflow for an existing repository:
 curl -fsSL https://raw.githubusercontent.com/Flow-Research/harnessy/main/install.sh | bash -s -- --here
 ```
 
-2. Commit generated files:
+1. Commit generated files:
 
 - `AGENTS.md`
 - `.jarvis/context/`
 - `harnessy.lock.json`
 - any repo-local `.agents/skills/`
 
-3. Have each engineer run the repo-local registration command:
+1. Have each engineer run the repo-local registration command:
 
 ```bash
 pnpm skills:register
@@ -499,7 +514,7 @@ pnpm skills:register
 
 or the equivalent package-manager script in that repo.
 
-4. If needed, apply newer managed context protocol explicitly later:
+1. If needed, apply newer managed context protocol explicitly later:
 
 ```bash
 node tools/flow-install/index.mjs --update-context-agents

@@ -16,6 +16,9 @@
 .jarvis/context/plans/
 .jarvis/context/runbooks/
 .jarvis/context/specs/
+.jarvis/context/deployments/
+.jarvis/context/profiles/*.local.json
+.jarvis/context/profiles/local/
 .jarvis/context/docs/strategy/
 tools/flow-install/skills/jarvis/jarvis.local.md
 jarvis-cli/specs/
@@ -37,8 +40,18 @@ jarvis-cli/specs/
 
 # === Environment files ===
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.*
+.streamlit/secrets.toml
 
 # === Dependencies ===
 node_modules/
@@ -72,4 +85,3 @@ progress.md
 
 
 .playwright-mcp
-
