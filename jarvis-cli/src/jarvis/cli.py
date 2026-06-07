@@ -1,6 +1,7 @@
 """CLI interface for Jarvis task scheduler."""
 
 import os
+import sys
 from datetime import UTC, date, datetime, timedelta
 
 import click
@@ -37,6 +38,26 @@ from jarvis.state import (
 )
 
 console = Console()
+
+
+def _ensure_utf8_console() -> None:
+    """Make CLI output able to encode unicode glyphs (✓, →, …).
+
+    On Windows the default console codepage (e.g. cp1252) raises
+    UnicodeEncodeError when these are printed; reconfigure stdout/stderr to
+    UTF-8 with a safe fallback so commands don't crash on success messages.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
+_ensure_utf8_console()
 
 
 def get_adapter(backend: str | None = None) -> KnowledgeBaseAdapter:

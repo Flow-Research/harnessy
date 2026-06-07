@@ -48,6 +48,7 @@ def parse_meeting_document(
         infer_meeting_date(metadata.get("date", ""), source.markdown, source.title)
         or date.today()
     )
+    inline_fields = extract_inline_fields(preamble)
     participants = []
     for heading in _PARTICIPANT_HEADINGS:
         body = sections.get(heading)
@@ -56,6 +57,11 @@ def parse_meeting_document(
             break
     if not participants and metadata.get("participants"):
         participants = extract_people(metadata["participants"])
+    if not participants:
+        for field in _PARTICIPANT_HEADINGS:
+            if inline_fields.get(field):
+                participants = extract_people(inline_fields[field])
+                break
 
     summary = first_section(sections, _SUMMARY_HEADINGS)
     detailed_summary = first_section(sections, _DETAILED_SUMMARY_HEADINGS)
@@ -167,6 +173,25 @@ def extract_metadata(body: str) -> dict[str, str]:
     return metadata
 
 
+def extract_inline_fields(text: str) -> dict[str, str]:
+    """Extract bare `Key: Value` lines (no bullet) from a preamble block.
+
+    Plain-text and manual meeting notes often place fields like
+    ``Participants: A, B`` directly under the title rather than inside a
+    ``## Metadata`` section. Those would otherwise be dropped.
+    """
+
+    fields: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(("-", "*", "+", "#", ">")):
+            continue
+        match = re.match(r"^([A-Za-z][\w ]{0,40}):\s+(.+)$", line)
+        if match:
+            fields.setdefault(normalize_heading(match.group(1)), match.group(2).strip())
+    return fields
+
+
 def extract_transcript_block(markdown: str) -> str:
     """Extract likely transcript lines from markdown when no section exists."""
 
@@ -274,6 +299,79 @@ def render_meeting_markdown(meeting: MeetingRecord) -> str:
     add_section("Key Decisions", meeting.decisions)
     if not has_visible_action_heading(meeting.detailed_summary):
         add_section("Next Steps", meeting.action_items)
+    add_section("Open Questions", meeting.open_questions)
+    return "\n".join(lines).strip() + "\n"
+
+
+def _yaml_str(value: str) -> str:
+    """Quote a scalar for YAML frontmatter only when required."""
+
+    value = value.replace("\n", " ").strip()
+    if value and value[0] not in "-?:" and not re.search(r'[:#\[\]{}",&*!|>%@`]', value):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _obsidian_tag(value: str) -> str:
+    """Normalize a label into an Obsidian-safe tag (no spaces)."""
+
+    return re.sub(r"[^A-Za-z0-9/_-]+", "-", value.strip().lower()).strip("-")
+
+
+def render_obsidian_meeting_markdown(meeting: MeetingRecord) -> str:
+    """Render a meeting as a first-class Obsidian note.
+
+    Emits YAML frontmatter (so Obsidian shows Properties), a ``#meeting`` tag,
+    action items as ``- [ ]`` checkboxes, and ``[[wikilinks]]`` for participants
+    so the note participates in graph view, backlinks, and the tasks view.
+    """
+
+    tags = ["meeting"]
+    for label in ([meeting.project] if meeting.project else []) + list(meeting.tags):
+        slug = _obsidian_tag(label)
+        if slug and slug not in tags:
+            tags.append(slug)
+
+    lines = [
+        "---",
+        f"title: {_yaml_str(meeting.title)}",
+        f"date: {meeting.meeting_date.isoformat()}",
+        "type: meeting",
+    ]
+    if meeting.participants:
+        lines.append("participants:")
+        lines.extend(f"  - {_yaml_str(person)}" for person in meeting.participants)
+    lines.append("tags:")
+    lines.extend(f"  - {tag}" for tag in tags)
+    if meeting.source_ref:
+        lines.append(f"source: {_yaml_str(meeting.source_ref)}")
+    lines.extend(["---", "", f"# {meeting.title}", ""])
+
+    callout = f"> [!info] Meeting\n> **Date:** {meeting.meeting_date.isoformat()}"
+    if meeting.participants:
+        people = ", ".join(f"[[{person}]]" for person in meeting.participants)
+        callout += f" · **People:** {people}"
+    lines.append(callout)
+
+    def add_section(title: str, body: str | list[str], *, checkbox: bool = False) -> None:
+        if not body:
+            return
+        lines.extend(["", f"## {title}", ""])
+        if isinstance(body, list):
+            if checkbox:
+                for item in body:
+                    cleaned = re.sub(r"^\[[ xX]\]\s*", "", item)
+                    lines.append(f"- [ ] {cleaned}")
+            else:
+                lines.extend(f"- {item}" for item in body)
+        else:
+            lines.append(body.strip())
+
+    add_section("Executive Summary", meeting.summary)
+    add_section("Detailed Summary", demote_markdown_headings(meeting.detailed_summary))
+    add_section("Key Decisions", meeting.decisions)
+    if not has_visible_action_heading(meeting.detailed_summary):
+        add_section("Action Items", meeting.action_items, checkbox=True)
     add_section("Open Questions", meeting.open_questions)
     return "\n".join(lines).strip() + "\n"
 
