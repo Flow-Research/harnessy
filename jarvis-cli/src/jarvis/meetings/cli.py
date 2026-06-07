@@ -47,7 +47,10 @@ _WEBHOOK_TRIGGER_CHOICES = [
     "my_shared_with_team_recordings",
     "shared_team_recordings",
 ]
-_DESTINATION_CHOICES = ["private-context", "wiki", "obsidian", "journal", "memory"]
+_DESTINATION_CHOICES = ["private-context", "wiki", "journal", "memory"]
+# Only `meeting ingest` accepts --vault/--folder, so the obsidian destination is
+# exposed only there; other commands keep the restricted set.
+_INGEST_DESTINATION_CHOICES = [*_DESTINATION_CHOICES, "obsidian"]
 _JOURNAL_SPACE_HELP = (
     "Backend space/workspace ID for the journal destination; overrides the backend default"
 )
@@ -128,7 +131,7 @@ def fathom_webhook_group() -> None:
     "--dest",
     "destinations",
     multiple=True,
-    type=click.Choice(_DESTINATION_CHOICES),
+    type=click.Choice(_INGEST_DESTINATION_CHOICES),
     help="Destination to write to (defaults to private-context)",
 )
 @click.option("--wiki-domain", default=None, help="Wiki domain when using the wiki destination")

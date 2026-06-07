@@ -537,7 +537,10 @@ def write_obsidian_meeting(vault: str, meeting: MeetingRecord, *, folder: str = 
     vault_root = Path(vault).expanduser()
     if not vault_root.exists():
         raise FileNotFoundError(f"Obsidian vault not found: {vault_root}")
-    notes_dir = vault_root / folder if folder else vault_root
+    resolved_root = vault_root.resolve()
+    notes_dir = (resolved_root / folder).resolve() if folder else resolved_root
+    if notes_dir != resolved_root and resolved_root not in notes_dir.parents:
+        raise ValueError(f"--folder must stay within the vault: {folder!r}")
     notes_dir.mkdir(parents=True, exist_ok=True)
     rendered = render_obsidian_meeting_markdown(meeting)
     path = unique_path(notes_dir / meeting_filename(meeting))

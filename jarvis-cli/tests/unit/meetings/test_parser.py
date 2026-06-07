@@ -15,7 +15,10 @@ from jarvis.meetings.parser import (
 from jarvis.reading_list.models import SourceDocument, SourceType
 
 
-def _plain_text_source() -> SourceDocument:
+@pytest.fixture
+def plain_text_source() -> SourceDocument:
+    """A plain-text meeting with bare preamble fields and no markdown sections."""
+
     return SourceDocument(
         source_type=SourceType.FILE,
         source_ref="/tmp/sample-meeting.md",
@@ -34,16 +37,20 @@ def _plain_text_source() -> SourceDocument:
 class TestPlainTextParticipants:
     """Bare ``Participants:`` lines in the preamble should be captured (#52.3)."""
 
-    def test_participants_from_inline_field(self) -> None:
-        meeting = parse_meeting_document(_plain_text_source())
+    def test_participants_from_inline_field(self, plain_text_source: SourceDocument) -> None:
+        """A bare ``Participants:`` line is parsed into the participant list."""
+        meeting = parse_meeting_document(plain_text_source)
         assert meeting.participants == ["Julian", "Aniebet", "Sam"]
 
 
 class TestRenderObsidian:
     """Obsidian rendering should produce a first-class note (#51)."""
 
-    def test_frontmatter_tags_checkboxes_and_wikilinks(self) -> None:
-        meeting = parse_meeting_document(_plain_text_source())
+    def test_frontmatter_tags_checkboxes_and_wikilinks(
+        self, plain_text_source: SourceDocument
+    ) -> None:
+        """Rendered note carries frontmatter, tags, checkboxes, and wikilinks."""
+        meeting = parse_meeting_document(plain_text_source)
         out = render_obsidian_meeting_markdown(meeting)
         assert out.startswith("---\n")
         assert "title: Weekly Product Sync" in out
@@ -51,6 +58,17 @@ class TestRenderObsidian:
         assert "- meeting" in out  # #meeting tag in frontmatter
         assert "[[Julian]]" in out
         assert "- [ ] Julian to fix the vault path" in out
+
+    def test_existing_checkbox_marker_not_duplicated(
+        self, plain_text_source: SourceDocument
+    ) -> None:
+        """Action items already prefixed with [ ] are not double-marked."""
+        meeting = parse_meeting_document(plain_text_source)
+        meeting.action_items = ["[ ] already a checkbox", "[x] done item"]
+        out = render_obsidian_meeting_markdown(meeting)
+        assert "- [ ] already a checkbox" in out
+        assert "- [ ] [ ]" not in out
+        assert "- [ ] done item" in out
 
 
 class TestSplitMarkdownSections:

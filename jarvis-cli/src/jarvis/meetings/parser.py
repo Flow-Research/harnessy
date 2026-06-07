@@ -358,8 +358,12 @@ def render_obsidian_meeting_markdown(meeting: MeetingRecord) -> str:
             return
         lines.extend(["", f"## {title}", ""])
         if isinstance(body, list):
-            prefix = "- [ ] " if checkbox else "- "
-            lines.extend(f"{prefix}{item}" for item in body)
+            if checkbox:
+                for item in body:
+                    cleaned = re.sub(r"^\[[ xX]\]\s*", "", item)
+                    lines.append(f"- [ ] {cleaned}")
+            else:
+                lines.extend(f"- {item}" for item in body)
         else:
             lines.append(body.strip())
 
