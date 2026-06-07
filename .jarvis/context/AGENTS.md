@@ -27,7 +27,7 @@ This repo is Harnessy-managed. Use this file as the canonical Harnessy agent pro
 - Global skills live in `~/.agents/skills/`
 - Project-local skills live in `.agents/skills/` when present
 - Run `pnpm skills:register` after adding or updating project-local skills
-- Run `pnpm harness:verify` to confirm Harnessy, community, and supported agent parity
+- Run `pnpm harness:verify` to confirm Harnessy and supported agent parity
 - Before finalizing skill-backed work, capture reusable skill lessons with `skill-feedback` or the shared trace recorder. Do not create empty traces for uneventful successful runs.
 
 ### Context Vault

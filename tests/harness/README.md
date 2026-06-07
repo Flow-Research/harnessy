@@ -57,14 +57,6 @@ FLOW_EVAL_LLM_TESTS=1 FLOW_EVAL_GOAL_AGENT_E2E=1 bash tests/harness/run-flow-ins
 
 That additionally runs `/goal-agent run ...` through `claude -p` and verifies the worker-created artifact.
 
-Optional heavier mode:
-
-```bash
-FLOW_EVAL_FULL_COMMUNITY=1 bash tests/harness/run-flow-install-eval.sh
-```
-
-That installs and verifies the full community skill inventory in the isolated HOME before running `harness:verify`.
-
 ## Remote-install docker evaluation
 
 Run a clean-room bootstrap using `curl ... install.sh` inside Docker:
@@ -83,23 +75,15 @@ How it works:
 - runs `jarvis --help` and `pnpm harness:verify` inside the container
 - runs deterministic goal-agent verification inside the container
 - installs `opencode` and `claude` inside the container
-- verifies Codex directory registration for both Harnessy core and community skills
-- verifies OpenCode can execute both a Harnessy core skill and a community skill
-- verifies Claude can execute both a Harnessy core slash skill and a community slash skill
+- verifies Codex directory registration for a Harnessy core skill
+- verifies OpenCode can execute a Harnessy core skill
+- verifies Claude can execute a Harnessy core slash skill
 
 Optional real worker-driven goal-agent E2E in the clean-room container:
 
 ```bash
 FLOW_REMOTE_EVAL_GOAL_AGENT_E2E=1 bash tests/harness/run-remote-install-docker.sh
 ```
-
-Optional heavier mode:
-
-```bash
-FLOW_REMOTE_EVAL_FULL_COMMUNITY=1 bash tests/harness/run-remote-install-docker.sh
-```
-
-That additionally installs the full community skill set in the container before re-running `harness:verify`.
 
 ## Notes
 

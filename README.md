@@ -143,7 +143,6 @@ This path:
 - installs `jarvis`
 - runs `flow-install`
 - installs shared skills and command shims
-- optionally installs community skills
 
 Useful environment variables:
 
@@ -195,7 +194,6 @@ This mode:
 - scaffolds the context vault and memory files
 - installs shared skills globally
 - generates project lifecycle scripts and package scripts
-- skips community skill installation by default for a leaner in-place install path
 
 If the repo already has `harnessy.lock.json` and you want to re-ask path prompts:
 
@@ -454,7 +452,6 @@ pnpm harness:verify
 - OpenCode, Claude, and Codex registration parity
 - every declared core skill is installed and discoverable
 - project-local skills, when present, are visible to supported agents
-- community skill inventory behavior from `harnessy.lock.json`
 
 ### Acceptance harnesses
 

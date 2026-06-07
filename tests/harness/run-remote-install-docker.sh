@@ -96,23 +96,6 @@ if not seen:
     raise SystemExit(1)
 PY
   echo "PASS opencode loaded Harnessy core skill"
-  opencode run --format json "/ab-test-setup We are testing signup CTA button copy." > /tmp/opencode-community-skill.json
-  python3 - /tmp/opencode-community-skill.json <<"PY"
-import json, sys
-from pathlib import Path
-seen = False
-for line in Path(sys.argv[1]).read_text().splitlines():
-    line = line.strip()
-    if not line:
-        continue
-    obj = json.loads(line)
-    if obj.get("type") == "tool_use" and obj.get("part", {}).get("tool") == "task":
-        seen = True
-        break
-if not seen:
-    raise SystemExit(1)
-PY
-  echo "PASS opencode loaded community skill"
   claude -p "/brainstorm" > /tmp/claude-harnessy-skill.txt
   python3 - /tmp/claude-harnessy-skill.txt <<"PY"
 import sys
@@ -122,24 +105,8 @@ if "Dont worry about having it all figured out" not in text:
     raise SystemExit(1)
 PY
   echo "PASS claude executed Harnessy core slash skill"
-  claude -p "/ab-test-setup We are testing signup CTA button copy." > /tmp/claude-community-skill.txt
-  python3 - /tmp/claude-community-skill.txt <<"PY"
-import sys
-from pathlib import Path
-text = Path(sys.argv[1]).read_text()
-if "Hypothesis" not in text and "A/B" not in text and "test" not in text.lower():
-    raise SystemExit(1)
-PY
-  echo "PASS claude executed community slash skill"
   test -f "$HOME/.codex/skills/harnessy/brainstorm/SKILL.md"
   echo "PASS codex directory registration for Harnessy core skill"
-  test -f "$HOME/.codex/skills/harnessy/ab-test-setup/SKILL.md"
-  echo "PASS codex directory registration for community skill"
-  if [[ "${FLOW_REMOTE_EVAL_FULL_COMMUNITY:-0}" == "1" ]]; then
-    cd "$HOME/harnessy"
-    node tools/flow-install/skills/community-skills-install/scripts/main.js --full
-    pnpm harness:verify
-  fi
   opencode --version >/dev/null
   echo "PASS opencode CLI installed in container"
   claude --version >/dev/null

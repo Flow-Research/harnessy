@@ -6,13 +6,14 @@ FLOW_INSTALL_DIR="${FLOW_INSTALL_DIR:-$HOME/harnessy}"
 FLOW_CACHE_DIR="${FLOW_CACHE_DIR:-$HOME/.cache/harnessy}"
 FLOW_NONINTERACTIVE="${FLOW_NONINTERACTIVE:-0}"
 FLOW_SKIP_SUBPROJECTS="${FLOW_SKIP_SUBPROJECTS:-0}"
+# Community skills are intentionally not auto-installed. Skills available to
+# agents must be deliberately curated, not bulk-imported from an external repo.
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]-$0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" && pwd)"
 LOCAL_SOURCE=0
 INSTALL_MODE="bootstrap"
 TARGET_ROOT=""
-INSTALL_COMMUNITY="auto"
 FLOW_RECONFIGURE="${FLOW_RECONFIGURE:-0}"
 FLOW_FORCE_SYNC="${FLOW_FORCE_SYNC:-0}"
 FLOW_REFRESH_SOURCE="${FLOW_REFRESH_SOURCE:-0}"
@@ -52,7 +53,7 @@ usage() {
 Harnessy installer
 
 Usage:
-  ./install.sh [--here] [--target PATH] [--yes] [--reconfigure] [--refresh-source] [--no-community] [--community]
+  ./install.sh [--here] [--target PATH] [--yes] [--reconfigure] [--refresh-source]
 
 Modes:
   default           Bootstrap a full Harnessy workspace locally
@@ -64,8 +65,6 @@ Flags:
   --force           Force-sync all skills (bypass version check)
   --refresh-source  Pull latest changes into the cached Harnessy source before install
   --reconfigure     Ask for install destinations again even if saved in lockfile
-  --no-community    Skip community skill installation
-  --community       Force community skill installation
   --help            Show this help
 EOF
 }
@@ -98,12 +97,6 @@ parse_args() {
       --reconfigure)
         FLOW_RECONFIGURE=1
         ;;
-      --no-community)
-        INSTALL_COMMUNITY="0"
-        ;;
-      --community)
-        INSTALL_COMMUNITY="1"
-        ;;
       --help|-h)
         usage
         exit 0
@@ -119,9 +112,6 @@ parse_args() {
 
   if [[ "$INSTALL_MODE" == "in-place" ]]; then
     TARGET_ROOT="$(cd "$TARGET_ROOT" && pwd)"
-  fi
-  if [[ "$INSTALL_COMMUNITY" == "auto" ]]; then
-    INSTALL_COMMUNITY="1"
   fi
 }
 
@@ -239,28 +229,6 @@ install_flow_framework() {
   )
 }
 
-install_community_skills() {
-  if [[ "$INSTALL_COMMUNITY" != "1" ]]; then
-    log "[skip] Skipping community skill installation"
-    return
-  fi
-
-  local installer="$FLOW_ROOT/tools/flow-install/skills/community-skills-install/scripts/main.js"
-  local install_context="$FLOW_ROOT"
-  if [[ "$INSTALL_MODE" == "in-place" ]]; then
-    install_context="$TARGET_ROOT"
-  fi
-  if [[ -f "$installer" ]]; then
-    log "[info] Installing community skills"
-    (
-      cd "$install_context"
-      node "$installer" --full
-    )
-  else
-    log "[warn] Community skills installer not found at $installer"
-  fi
-}
-
 clone_subprojects() {
   if [[ "$INSTALL_MODE" == "in-place" ]]; then
     log "[skip] In-place install selected; not cloning bundled sub-projects"
@@ -316,7 +284,6 @@ main() {
   resolve_flow_source
   install_jarvis
   install_flow_framework
-  install_community_skills
   clone_subprojects
   print_summary
 }

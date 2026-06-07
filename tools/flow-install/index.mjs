@@ -144,13 +144,18 @@ const registerCronSchedules = async (projectRoot, baseDir) => {
   }
 };
 
+/**
+ * Assemble and write harnessy.lock.json for the installed project.
+ *
+ * @param {string} projectRoot       Absolute path to the target repository root.
+ * @param {object} opts
+ * @param {string} opts.version      Installer version recorded in the lockfile.
+ * @param {object} opts.projectInfo  Detected project metadata (name, monorepo, apps, gitOrg, existing lockfile).
+ * @param {object} opts.installPaths Resolved install path layout (context/skills/scripts dirs).
+ * @param {boolean|null} opts.autoflowStatus Tri-state autoflow result: true/false, or null when unset.
+ */
 const writeLockfile = async (projectRoot, { version, projectInfo, installPaths, autoflowStatus }) => {
   const flowCoreSkills = await collectFlowCoreSkillNames();
-  const previousCommunitySkills = projectInfo.existing.lockfile?.communitySkills || {
-    mode: "none",
-    expected: [],
-    strict: false,
-  };
   const lockfile = {
     version,
     timestamp: new Date().toISOString(),
@@ -172,7 +177,6 @@ const writeLockfile = async (projectRoot, { version, projectInfo, installPaths, 
       ...(autoflowStatus !== null ? { autoflow: autoflowStatus } : {}),
     },
     flowCoreSkills,
-    communitySkills: previousCommunitySkills,
     contextAgents: {
       version: CONTEXT_AGENTS_VERSION,
       templateHash: projectInfo.existing.contextAgentsResult?.templateHash || projectInfo.existing.lockfile?.contextAgents?.templateHash || null,
