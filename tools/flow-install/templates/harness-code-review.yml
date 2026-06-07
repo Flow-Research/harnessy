@@ -1,0 +1,36 @@
+name: Harnessy Code Review
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Harnessy command shims
+        run: |
+          node tools/flow-install/index.mjs --skills --yes
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run Harnessy code review gate
+        env:
+          HARNESSY_CODE_REVIEW_COMMAND: ${{ secrets.HARNESSY_CODE_REVIEW_COMMAND }}
+        run: harness-code-review ci --json
+      - name: Upload Harnessy code review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-code-review
+          path: .jarvis/context/evidence/code-review/
+          if-no-files-found: warn

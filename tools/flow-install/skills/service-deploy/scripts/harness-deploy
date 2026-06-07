@@ -1082,6 +1082,63 @@ echo remote-ok
 """
 
 
+def remote_static_script(app: dict[str, Any], deploy_env: dict[str, Any], rid: str, remote_package: str) -> str:
+    runtime = runtime_config(app)
+    service_name = str(runtime.get("serviceName") or app.get("id") or "harnessy-static")
+    release_directory = str(runtime.get("releaseDirectory") or f"/opt/{service_name}/releases")
+    current_symlink = str(runtime.get("currentSymlink") or f"/opt/{service_name}/current")
+    reverse_proxy_config = str(runtime.get("reverseProxyConfig") or f"deploy/nginx/{service_name}.conf")
+    nginx_available = f"/etc/nginx/sites-available/{service_name}"
+    nginx_enabled = f"/etc/nginx/sites-enabled/{service_name}"
+    public_port = str(deploy_env.get("publicPort") or runtime.get("port") or 80)
+    healthcheck_path = str(deploy_env.get("healthcheckPath") or runtime.get("healthcheckPath") or "/")
+    service_user = str(runtime.get("user") or "www-data")
+    service_group = str(runtime.get("group") or service_user)
+    release = f"{release_directory.rstrip('/')}/{rid}"
+    health_path = healthcheck_path if healthcheck_path.startswith("/") else f"/{healthcheck_path}"
+    return f"""set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+release={shlex.quote(release)}
+release_directory={shlex.quote(release_directory)}
+current_symlink={shlex.quote(current_symlink)}
+package={shlex.quote(remote_package)}
+service_user={shlex.quote(service_user)}
+service_group={shlex.quote(service_group)}
+reverse_proxy_config={shlex.quote(reverse_proxy_config)}
+nginx_available={shlex.quote(nginx_available)}
+nginx_enabled={shlex.quote(nginx_enabled)}
+public_port={shlex.quote(public_port)}
+health_path={shlex.quote(health_path)}
+
+apt-get update
+apt-get install -y ca-certificates curl nginx
+
+mkdir -p "$release" "$release_directory"
+tar -xzf "$package" -C "$release"
+
+if ! id -u "$service_user" >/dev/null 2>&1; then
+  useradd --system --home "/var/lib/$service_user" --shell /usr/sbin/nologin "$service_user" || true
+fi
+if ! getent group "$service_group" >/dev/null 2>&1; then
+  groupadd --system "$service_group" || true
+fi
+
+chown -R "$service_user:$service_group" "$release" "$release_directory"
+ln -sfn "$release" "$current_symlink"
+chown -h "$service_user:$service_group" "$current_symlink"
+
+test -f "$current_symlink/$reverse_proxy_config"
+install -m 0644 "$current_symlink/$reverse_proxy_config" "$nginx_available"
+ln -sfn "$nginx_available" "$nginx_enabled"
+
+nginx -t
+systemctl reload nginx || systemctl restart nginx
+
+curl -fsS "http://127.0.0.1:$public_port$health_path" >/tmp/{service_name}-static-health.txt
+echo remote-ok
+"""
+
+
 def deploy_systemd_live(args: argparse.Namespace, profiles: Profiles, package_result: dict[str, Any]) -> dict[str, Any]:
     _, deploy_env = selected_environment(profiles.deploy, args.env)
     target = selected_target(profiles.deploy, args.env)
@@ -1149,6 +1206,75 @@ def deploy_systemd_live(args: argparse.Namespace, profiles: Profiles, package_re
     }
 
 
+def deploy_static_live(args: argparse.Namespace, profiles: Profiles, package_result: dict[str, Any]) -> dict[str, Any]:
+    _, deploy_env = selected_environment(profiles.deploy, args.env)
+    target = selected_target(profiles.deploy, args.env)
+    env_path = env_file_path(args, target)
+    env = provider_env(target, env_path)
+    vm = get_vm_info(env, target)
+    destination = ssh_destination(env, target, vm)
+    if not test_ssh(destination, args, env):
+        setup = command_ssh_setup(args)
+        if not setup.get("ok"):
+            raise SystemExit("SSH setup failed; cannot deploy static site.")
+        env = provider_env(target, env_path)
+        destination = ssh_destination(env, target, vm)
+
+    static_apps = [
+        app for app in profiles.deploy.get("apps", [])
+        if isinstance(app, dict) and app_runtime_mode(app, deploy_env) == "static"
+    ]
+    if len(static_apps) != 1:
+        raise SystemExit("Live static deployment expects exactly one static app in the deploy profile.")
+    app = static_apps[0]
+
+    local_package = Path(package_result["package"])
+    remote_package = f"/tmp/{app.get('id') or 'harnessy-static'}-{package_result['runId']}.tar.gz"
+    scp = run_subprocess([
+        "scp",
+        *ssh_client_options(args, env),
+        str(local_package),
+        f"{destination}:{remote_package}",
+    ], timeout=120)
+    if scp.returncode != 0:
+        raise SystemExit(f"SCP package upload failed: {scp.stderr.strip() or scp.stdout.strip()}")
+
+    script = remote_static_script(app, deploy_env, package_result["runId"], remote_package)
+    remote_shell = ["bash", "-s"] if destination.startswith("root@") else ["sudo", "bash", "-s"]
+    ssh = run_subprocess([
+        "ssh",
+        *ssh_client_options(args, env),
+        destination,
+        *remote_shell,
+    ], stdin=script, timeout=600)
+    if ssh.returncode != 0:
+        raise SystemExit(f"Remote static deployment failed:\nSTDOUT:\n{ssh.stdout[-4000:]}\nSTDERR:\n{ssh.stderr[-4000:]}")
+
+    url = public_url_for_env(env, target, vm, deploy_env)
+    health_url = url.rstrip("/") + (deploy_env.get("healthcheckPath") or "/")
+    smoke_ok, smoke_body = http_get(health_url)
+    return {
+        "action": "deploy",
+        "runId": package_result["runId"],
+        "provider": "hostinger",
+        "adapter": deploy_env.get("adapter"),
+        "environment": args.env or profiles.deploy.get("defaultEnvironment") or "canary",
+        "strategy": deploy_env.get("strategy"),
+        "runtimeModes": ["static"],
+        "status": "succeeded" if smoke_ok else "smoke_failed",
+        "deploymentId": f"hostinger-static-{package_result['runId']}",
+        "url": url,
+        "healthUrl": health_url,
+        "vm": {"id": vm.get("id"), "hostname": vm.get("hostname"), "state": vm.get("state")},
+        "raw": {
+            "note": "Live Hostinger static deployment executed through SSH/SCP after Hostinger API target discovery.",
+            "remoteStdoutTail": ssh.stdout[-2000:],
+            "remoteStderrTail": ssh.stderr[-2000:],
+            "smokeBody": smoke_body,
+        },
+    }
+
+
 def command_deploy(args: argparse.Namespace) -> dict[str, Any]:
     profiles = load_profiles(args)
     policy = profiles.ci.get("policy") or {}
@@ -1167,6 +1293,8 @@ def command_deploy(args: argparse.Namespace) -> dict[str, Any]:
     runtime_modes = {unit["runtimeMode"] for unit in deployment_units(profiles.deploy, deploy_env)}
     if not args.dry_run and deploy_env.get("provider") == "hostinger" and "systemd" in runtime_modes and deploy_env.get("adapter") in {"mcp", "api"}:
         response = deploy_systemd_live(args, profiles, package_result)
+    elif not args.dry_run and deploy_env.get("provider") == "hostinger" and runtime_modes == {"static"} and deploy_env.get("adapter") in {"mcp", "api"}:
+        response = deploy_static_live(args, profiles, package_result)
     else:
         response = provider_response(args, profiles, rid, "deploy")
     write_json(out_dir / "provider-response.json", response)

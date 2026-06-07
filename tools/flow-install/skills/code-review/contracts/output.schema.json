@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harnessy.local/schemas/code-review/output.schema.json",
+  "title": "Harnessy Code Review Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "verdict", "summary", "findings", "tests_reviewed", "missing_tests", "verification"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["ai_review", "deterministic_only"]
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["completed", "skipped"]
+    },
+    "skipped_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "comment", "request_changes"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "tests_reviewed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "missing_tests": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_valid", "citations_valid", "blocking_findings_verified"],
+      "properties": {
+        "schema_valid": {
+          "type": "boolean"
+        },
+        "citations_valid": {
+          "type": "boolean"
+        },
+        "blocking_findings_verified": {
+          "type": "boolean"
+        },
+        "verifier_notes": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "category", "file", "line", "title", "evidence", "risk", "recommended_fix"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^CR-[0-9]{3}$"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "major", "minor", "suggestion"]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "risk": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recommended_fix": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

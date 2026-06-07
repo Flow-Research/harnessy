@@ -18,6 +18,23 @@
       "service-deploy tests"
     ]
   },
+  "codeReview": {
+    "enabled": false,
+    "command": "harness-code-review ci --json",
+    "output_root": ".jarvis/context/evidence/code-review",
+    "formats": [
+      "json",
+      "markdown",
+      "sarif"
+    ],
+    "blockingSeverities": [
+      "critical",
+      "major"
+    ],
+    "require_ai": false,
+    "review_command": null,
+    "artifactPath": ".jarvis/context/evidence/code-review/"
+  },
   "gates": [
     {
       "name": "qa-runtime tests",

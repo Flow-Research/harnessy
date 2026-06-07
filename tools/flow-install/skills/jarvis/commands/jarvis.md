@@ -259,6 +259,8 @@ jarvis android run ./builds/demo.apk --avd Medium_Phone_API_36.1 --reinstall
 | Run Fathom webhook receiver | `jarvis meeting fathom webhook serve` |
 | Ingest Fathom webhook inbox | `jarvis meeting fathom webhook ingest-inbox` |
 | Show WhatsApp Meta Cloud API setup guidance | `jarvis whatsapp setup --account personal` |
+| Configure WhatsApp accounts and env activation | `jarvis config whatsapp-setup` |
+| Launch WhatsApp webhook + tunnel tmux stack | `jarvis whatsapp start --account personal` |
 | Run WhatsApp webhook receiver | `jarvis whatsapp webhook serve --account personal --port 8787` |
 | Check WhatsApp webhook inbox and config | `jarvis whatsapp webhook status --account personal --json` |
 | Ingest WhatsApp webhook inbox | `jarvis whatsapp webhook ingest-inbox --account personal --dest team-inbox` |

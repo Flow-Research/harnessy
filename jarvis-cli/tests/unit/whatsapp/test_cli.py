@@ -20,6 +20,26 @@ class TestWhatsAppCli:
         parsed = json.loads(result.output)
         assert parsed["config_yaml"]["whatsapp"]["accounts"]["personal"]["provider"] == "meta"
 
+    def test_start_json_plan(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        cfg = SimpleNamespace(
+            whatsapp=SimpleNamespace(
+                accounts={"personal": object()},
+                default_account="personal",
+            )
+        )
+        monkeypatch.setattr("jarvis.whatsapp.cli.load_config", lambda: cfg)
+
+        result = CliRunner().invoke(
+            whatsapp_cli,
+            ["start", "--account", "personal", "--dry-run", "--json"],
+        )
+
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["session_name"] == "whatsapp-personal"
+        assert "whatsapp webhook serve --account personal" in parsed["webhook_command"]
+        assert "cloudflared tunnel --url http://127.0.0.1:8787" in parsed["tunnel_command"]
+
     def test_webhook_status_command(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         runner = CliRunner()
         account_cfg = SimpleNamespace(
@@ -185,5 +205,8 @@ class TestWhatsAppCli:
         assert result.exit_code == 0
         docs = json.loads(result.output)
         whatsapp_docs = docs["commands"]["whatsapp"]
+        config_docs = docs["commands"]["config"]
+        assert config_docs["subcommands"]["whatsapp-setup"]["options"]["--env-file"]
+        assert whatsapp_docs["subcommands"]["start"]["options"]["--dry-run"]
         assert whatsapp_docs["subcommands"]["webhook ingest-inbox"]["options"]["--dest"]
         assert whatsapp_docs["subcommands"]["send-template"]["options"]["--template"]

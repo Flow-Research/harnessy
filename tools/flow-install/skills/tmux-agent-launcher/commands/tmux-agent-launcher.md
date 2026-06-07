@@ -1,6 +1,6 @@
 ---
 description: Launch Claude, OpenCode, or Codex in a named tmux session
-argument-hint: "--runner <claude|opencode|codex> <session-name> [options] [--permission-mode bypass|default] [-- <runner-args>...]"
+argument-hint: "--runner <claude|opencode|codex> [session-name] [options] [--permission-mode bypass|default] [-- <runner-args>...]"
 ---
 
 # Command Contract: tmux-agent-launcher
@@ -18,16 +18,20 @@ Start `claude`, `opencode`, or `codex` in a new tmux session, or attach to an ex
 ## Invocation
 
 ```bash
-tmux-agent-launcher --runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]
+tmux-agent-launcher --runner <claude|opencode|codex> [session-name] [options] [-- <runner-args>...]
 tmux-agent-launcher attach <session-name> [--dry-run] [--json]
 tmux-agent-launcher list [--json]
-t --runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]
+t --runner <claude|opencode|codex> [session-name] [options] [-- <runner-args>...]
 t attach <session-name> [--dry-run] [--json]
 t list [--json]
 ```
 
 This command is intended to be installed into the user-local bin directory (`$XDG_BIN_HOME` or `~/.local/bin`) by Harnessy so it is runnable directly from the terminal when that directory is on `PATH`.
 Harnessy also installs a short alias command, `t`, from the same skill.
+
+When launch mode omits `session-name`, the launcher prompts for a name segment, defaulting to the current working folder. Blank input accepts that default. In non-interactive stdin, the folder default is used without prompting. The generated session name is `{name}-{runner}-{index}` such as `harnessy-codex-1`; the index is the next number after existing tmux sessions matching the same `{name}-{runner}-N` prefix.
+
+Launch mode attaches to the newly created tmux session by default. Use `--no-attach` when a script or agent should leave the session running detached.
 
 For the `opencode` runner, the launcher injects `--log-level WARN` by default to avoid pathological INFO log growth unless you explicitly pass your own `--log-level` flag after `--`.
 
@@ -45,7 +49,7 @@ Bypass mode maps to each runner's native flag:
 
 | Name | Required | Description |
 |---|---|---|
-| `session-name` | yes | Name of the tmux session to create |
+| `session-name` | no | Name of the tmux session to create. If omitted in launch mode, generates `{name}-{runner}-{index}` |
 
 ## Flags
 
@@ -56,7 +60,8 @@ Bypass mode maps to each runner's native flag:
 | `--permission-mode <mode>` | no | Permission behavior: `bypass` or `default`. Resolution order: CLI flag, `TMUX_AGENT_LAUNCHER_PERMISSION_MODE`, user config, built-in `bypass` |
 | `--skip-permissions` | no | Shortcut for `--permission-mode bypass` |
 | `--no-skip-permissions` | no | Shortcut for `--permission-mode default` |
-| `--attach` | no | Attach immediately after creating the session |
+| `--attach` | no | Attach immediately after creating the session; this is the launch-mode default |
+| `--no-attach` | no | Leave the created session detached |
 | `--dry-run` | no | Print the resolved launch plan without creating a tmux session |
 | `--json` | no | Emit machine-readable JSON |
 | `--help` | no | Show usage |
@@ -107,7 +112,7 @@ Prints a concise success message with the session name, runner, and working dire
   "cwd": "/abs/path",
   "permission_mode": "bypass",
   "permission_mode_source": "config",
-  "attach": false,
+  "attach": true,
   "dry_run": false,
   "command": ["tmux", "new-session", "-d", "-s", "agent-name", "-c", "/abs/path", "bash", "-lc", "claude --permission-mode bypassPermissions --prompt 'review the PR'"]
 }
@@ -156,7 +161,9 @@ List example:
 
 ```bash
 tmux-agent-launcher --runner claude reviewer
+tmux-agent-launcher --runner codex
 tmux-agent-launcher --runner opencode planner --cwd /tmp/project --attach
+tmux-agent-launcher --runner opencode planner --cwd /tmp/project --no-attach
 tmux-agent-launcher --runner codex pairer
 tmux-agent-launcher --runner codex pairer --permission-mode default
 tmux-agent-launcher --runner claude qa-agent --dry-run --json
@@ -165,6 +172,8 @@ tmux-agent-launcher attach reviewer --dry-run --json
 tmux-agent-launcher list
 tmux-agent-launcher list --json
 t --runner claude reviewer
+t --runner codex
+t --runner codex --no-attach
 t --runner claude reviewer -- --prompt "review the PR" --allowedTools "Read,Bash"
 t --runner opencode worker -- --model sonnet
 t --runner codex worker -- --model gpt-5.4

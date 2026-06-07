@@ -59,6 +59,7 @@ For specialized maintenance tasks, read as needed:
 | `docs/personal-context-protocol.md` | Personal-context layout and ownership rules |
 | `docs/autoflow-autoresearch-system.md` | Autoflow and autoresearch reference |
 | `docs/operations/fathom-local-automation.md` | Local Fathom webhook + tunnel + auto-ingest runbook |
+| `docs/operations/whatsapp-local-automation.md` | Local WhatsApp Cloud API webhook + tunnel + thread-ingest runbook |
 
 ## Template Syntax
 

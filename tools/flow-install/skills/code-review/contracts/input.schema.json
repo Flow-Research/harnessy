@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harnessy.local/schemas/code-review/input.schema.json",
+  "title": "Harnessy Code Review Input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_type", "base_ref", "head_ref", "output_dir"],
+  "properties": {
+    "source_type": {
+      "type": "string",
+      "enum": ["local_diff", "ci_diff"]
+    },
+    "base_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "head_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_path": {
+      "type": ["string", "null"]
+    },
+    "qa_profile": {
+      "type": ["string", "null"],
+      "default": ".jarvis/context/profiles/qa.json"
+    },
+    "provider": {
+      "type": ["string", "null"]
+    },
+    "ci_provider": {
+      "type": ["string", "null"]
+    },
+    "review_command": {
+      "type": ["string", "null"]
+    },
+    "required_formats": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["json", "markdown", "sarif"]
+      },
+      "default": ["json", "markdown", "sarif"]
+    },
+    "output_dir": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

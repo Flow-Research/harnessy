@@ -1,0 +1,636 @@
+#!/usr/bin/env python3
+"""Harnessy Code Review CI gate.
+
+This command is intentionally CI-provider neutral. GitHub Actions, GitLab CI,
+Jenkins, Buildkite, or a local runner should all call this same entrypoint and
+upload the evidence directory that it writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+
+DEFAULT_CI_PROFILE = Path(".jarvis/context/profiles/ci.json")
+DEFAULT_OUTPUT_ROOT = Path(".jarvis/context/evidence/code-review")
+BLOCKING_SEVERITIES = {"critical", "major"}
+FORMAT_CHOICES = {"json", "markdown", "sarif"}
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+class GateError(RuntimeError):
+    def __init__(self, message: str, code: int = 2) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def now_run_id() -> str:
+    return "cr_" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text())
+    except FileNotFoundError as exc:
+        raise GateError(f"missing JSON file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise GateError(f"invalid JSON in {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise GateError(f"JSON file must contain an object: {path}")
+    return payload
+
+
+def read_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return read_json(path)
+
+
+def boolish(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def split_formats(raw: Any) -> list[str]:
+    value = raw or "json,markdown,sarif"
+    if isinstance(value, list):
+        formats = [str(item).strip().lower() for item in value if str(item).strip()]
+    else:
+        formats = [item.strip().lower() for item in str(value).split(",") if item.strip()]
+    invalid = sorted(set(formats) - FORMAT_CHOICES)
+    if invalid:
+        raise GateError(f"unsupported report format(s): {', '.join(invalid)}")
+    return formats or ["json", "markdown", "sarif"]
+
+
+def load_profile(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return read_json(path)
+
+
+def code_review_profile(ci_profile: dict[str, Any]) -> dict[str, Any]:
+    direct = ci_profile.get("codeReview") or ci_profile.get("code_review")
+    if isinstance(direct, dict):
+        return direct
+    capabilities = ci_profile.get("capabilities")
+    if isinstance(capabilities, dict):
+        nested = capabilities.get("codeReview") or capabilities.get("code_review")
+        if isinstance(nested, dict):
+            return nested
+    return {}
+
+
+def detect_ci_context(env: dict[str, str]) -> dict[str, Any]:
+    if env.get("GITHUB_ACTIONS") == "true":
+        context: dict[str, Any] = {
+            "provider": "github",
+            "event": env.get("GITHUB_EVENT_NAME", ""),
+            "run_id": env.get("GITHUB_RUN_ID", ""),
+            "run_attempt": env.get("GITHUB_RUN_ATTEMPT", ""),
+            "workflow": env.get("GITHUB_WORKFLOW", ""),
+        }
+        event_path = env.get("GITHUB_EVENT_PATH")
+        event = read_json_if_exists(Path(event_path)) if event_path else {}
+        pr = event.get("pull_request") if isinstance(event.get("pull_request"), dict) else {}
+        base = pr.get("base") if isinstance(pr.get("base"), dict) else {}
+        head = pr.get("head") if isinstance(pr.get("head"), dict) else {}
+        if base.get("sha"):
+            context["base_ref"] = base["sha"]
+        elif env.get("GITHUB_BASE_REF"):
+            context["base_ref"] = f"origin/{env['GITHUB_BASE_REF']}"
+        if head.get("sha"):
+            context["head_ref"] = head["sha"]
+        elif env.get("GITHUB_SHA"):
+            context["head_ref"] = env["GITHUB_SHA"]
+        return context
+
+    if env.get("GITLAB_CI") == "true":
+        return {
+            "provider": "gitlab",
+            "event": env.get("CI_PIPELINE_SOURCE", ""),
+            "run_id": env.get("CI_PIPELINE_ID", ""),
+            "base_ref": env.get("CI_MERGE_REQUEST_DIFF_BASE_SHA")
+            or env.get("CI_MERGE_REQUEST_TARGET_BRANCH_SHA")
+            or env.get("CI_DEFAULT_BRANCH", ""),
+            "head_ref": env.get("CI_COMMIT_SHA", ""),
+        }
+
+    if env.get("BUILDKITE") == "true":
+        base = env.get("BUILDKITE_PULL_REQUEST_BASE_BRANCH") if env.get("BUILDKITE_PULL_REQUEST") != "false" else ""
+        return {
+            "provider": "buildkite",
+            "event": "pull_request" if base else "push",
+            "run_id": env.get("BUILDKITE_BUILD_ID", ""),
+            "base_ref": base or env.get("BUILDKITE_PIPELINE_DEFAULT_BRANCH", ""),
+            "head_ref": env.get("BUILDKITE_COMMIT", ""),
+        }
+
+    if env.get("JENKINS_URL"):
+        return {
+            "provider": "jenkins",
+            "event": "change_request" if env.get("CHANGE_ID") else "build",
+            "run_id": env.get("BUILD_ID", ""),
+            "base_ref": env.get("CHANGE_TARGET", ""),
+            "head_ref": env.get("GIT_COMMIT", ""),
+        }
+
+    return {
+        "provider": "local",
+        "event": "",
+        "run_id": "",
+        "base_ref": "",
+        "head_ref": "",
+    }
+
+
+def resolve_ref(
+    explicit: str | None,
+    env_name: str,
+    profile_name: str,
+    ci_context: dict[str, Any],
+    profile: dict[str, Any],
+    fallback: str,
+) -> str:
+    if explicit:
+        return explicit
+    env_value = os.environ.get(env_name)
+    if env_value:
+        return env_value
+    profile_value = profile.get(profile_name)
+    if isinstance(profile_value, str) and profile_value.strip():
+        return profile_value
+    ci_value = ci_context.get(profile_name)
+    if isinstance(ci_value, str) and ci_value.strip():
+        return ci_value
+    return fallback
+
+
+def run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def run_discovery(base: str, head: str, discovery_path: Path) -> None:
+    script = SCRIPT_DIR / "discover-diff.py"
+    proc = run(
+        [
+            sys.executable,
+            str(script),
+            "--base",
+            base,
+            "--head",
+            head,
+            "--output",
+            str(discovery_path),
+        ]
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        raise GateError(f"changed-file discovery failed: {detail}", code=2)
+
+
+def default_skipped_review(reason: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "mode": "deterministic_only",
+        "review_status": "skipped",
+        "skipped_reason": reason,
+        "verdict": "approve",
+        "summary": "AI review skipped; deterministic changed-file discovery and artifact generation completed.",
+        "findings": [],
+        "tests_reviewed": [],
+        "missing_tests": [],
+        "verification": {
+            "schema_valid": True,
+            "citations_valid": True,
+            "blocking_findings_verified": True,
+            "verifier_notes": reason,
+        },
+    }
+
+
+def normalize_review_metadata(path: Path, mode: str, status: str, skipped_reason: str | None = None) -> dict[str, Any]:
+    review = read_json(path)
+    changed = False
+    if "mode" not in review:
+        review["mode"] = mode
+        changed = True
+    if "review_status" not in review:
+        review["review_status"] = status
+        changed = True
+    if skipped_reason and "skipped_reason" not in review:
+        review["skipped_reason"] = skipped_reason
+        changed = True
+    if changed:
+        path.write_text(json.dumps(review, indent=2) + "\n")
+    return review
+
+
+def run_review_command(command: str, output_dir: Path, discovery_path: Path, feedback_path: Path, base: str, head: str, ci_context: dict[str, Any]) -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "HARNESSY_CODE_REVIEW_OUTPUT_DIR": str(output_dir),
+            "HARNESSY_CODE_REVIEW_DISCOVERY_JSON": str(discovery_path),
+            "HARNESSY_CODE_REVIEW_FEEDBACK_JSON": str(feedback_path),
+            "HARNESSY_CODE_REVIEW_BASE_REF": base,
+            "HARNESSY_CODE_REVIEW_HEAD_REF": head,
+            "HARNESSY_CODE_REVIEW_CI_PROVIDER": str(ci_context.get("provider", "")),
+            "HARNESSY_CODE_REVIEW_CI_RUN_ID": str(ci_context.get("run_id", "")),
+        }
+    )
+    proc = subprocess.run(command, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    if proc.returncode != 0:
+        detail = "\n".join(part for part in [proc.stdout.strip(), proc.stderr.strip()] if part)
+        raise GateError(f"review command failed: {detail}", code=3)
+    if not feedback_path.exists():
+        safe_command = shlex.split(command)[0] if command.strip() else "<empty>"
+        raise GateError(f"review command did not write {feedback_path}: {safe_command}", code=3)
+
+
+def validate_review(feedback_path: Path) -> dict[str, Any]:
+    script = SCRIPT_DIR / "validate-output.py"
+    proc = run([sys.executable, str(script), str(feedback_path), "--json"])
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        payload = {"ok": False, "errors": [(proc.stderr or proc.stdout).strip()]}
+    if proc.returncode != 0:
+        errors = payload.get("errors") or [(proc.stderr or "validation failed").strip()]
+        raise GateError("code review output validation failed: " + "; ".join(errors), code=2)
+    return payload
+
+
+def validate_evidence_bundle(evidence_path: Path) -> dict[str, Any]:
+    script = SCRIPT_DIR / "validate-evidence.py"
+    proc = run([sys.executable, str(script), str(evidence_path), "--json"])
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        payload = {"ok": False, "errors": [(proc.stderr or proc.stdout).strip()]}
+    if proc.returncode != 0:
+        errors = payload.get("errors") or [(proc.stderr or "evidence validation failed").strip()]
+        raise GateError("code review evidence validation failed: " + "; ".join(errors), code=2)
+    return payload
+
+
+def finding_counts(review: dict[str, Any]) -> dict[str, int]:
+    counts = {"critical": 0, "major": 0, "minor": 0, "suggestion": 0}
+    for finding in review.get("findings", []):
+        if isinstance(finding, dict) and finding.get("severity") in counts:
+            counts[finding["severity"]] += 1
+    return counts
+
+
+def has_blocking_findings(review: dict[str, Any]) -> bool:
+    return any(
+        isinstance(finding, dict) and finding.get("severity") in BLOCKING_SEVERITIES
+        for finding in review.get("findings", [])
+    )
+
+
+def render_markdown(review: dict[str, Any], discovery: dict[str, Any], ci_context: dict[str, Any]) -> str:
+    findings = review.get("findings") if isinstance(review.get("findings"), list) else []
+    tests_reviewed = review.get("tests_reviewed") if isinstance(review.get("tests_reviewed"), list) else []
+    missing_tests = review.get("missing_tests") if isinstance(review.get("missing_tests"), list) else []
+    verification = review.get("verification") if isinstance(review.get("verification"), dict) else {}
+
+    lines = [
+        "# Code Review Report",
+        "",
+        f"**Verdict:** `{review.get('verdict', '')}`",
+        "**Capability:** `harnessy.code_review`",
+        f"**Mode:** `{review.get('mode', 'ai_review')}`",
+        f"**Review status:** `{review.get('review_status', 'completed')}`",
+        f"**CI provider:** `{ci_context.get('provider', 'local')}`",
+        f"**Base:** `{discovery.get('base_ref', '')}`",
+        f"**Head:** `{discovery.get('head_ref', '')}`",
+        "",
+        "## Summary",
+        "",
+        str(review.get("summary", "")).strip(),
+        "",
+        "## Findings",
+        "",
+    ]
+
+    if findings:
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            location = finding.get("file", "")
+            if finding.get("line"):
+                location = f"{location}:{finding['line']}"
+            lines.extend(
+                [
+                    f"### {finding.get('id', 'CR-???')}: {finding.get('title', '')}",
+                    "",
+                    f"- Severity: `{finding.get('severity', '')}`",
+                    f"- Category: `{finding.get('category', '')}`",
+                    f"- Location: `{location}`",
+                    f"- Evidence: {finding.get('evidence', '')}",
+                    f"- Risk: {finding.get('risk', '')}",
+                    f"- Recommended fix: {finding.get('recommended_fix', '')}",
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["No findings.", ""])
+
+    lines.extend(["## Tests Reviewed", ""])
+    lines.extend([f"- {item}" for item in tests_reviewed] or ["No tests listed."])
+    lines.extend(["", "## Missing Tests", ""])
+    lines.extend([f"- {item}" for item in missing_tests] or ["No missing tests listed."])
+    lines.extend(
+        [
+            "",
+            "## Verification",
+            "",
+            f"- Schema valid: `{verification.get('schema_valid', False)}`",
+            f"- Citations valid: `{verification.get('citations_valid', False)}`",
+            f"- Blocking findings verified: `{verification.get('blocking_findings_verified', False)}`",
+        ]
+    )
+    if review.get("skipped_reason"):
+        lines.extend(["", "## Skipped Review", "", str(review["skipped_reason"]).strip()])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def first_line(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str):
+        match = re.search(r"\d+", value)
+        if match:
+            return int(match.group(0))
+    return None
+
+
+def sarif_level(severity: str) -> str:
+    if severity in {"critical", "major"}:
+        return "error"
+    if severity == "minor":
+        return "warning"
+    return "note"
+
+
+def render_sarif(review: dict[str, Any]) -> dict[str, Any]:
+    rules: dict[str, dict[str, Any]] = {}
+    results: list[dict[str, Any]] = []
+    for finding in review.get("findings", []):
+        if not isinstance(finding, dict):
+            continue
+        rule_id = str(finding.get("category") or finding.get("id") or "code-review")
+        rules.setdefault(
+            rule_id,
+            {
+                "id": rule_id,
+                "name": rule_id,
+                "shortDescription": {"text": rule_id.replace("_", " ").replace("-", " ").title()},
+            },
+        )
+        location: dict[str, Any] = {
+            "physicalLocation": {
+                "artifactLocation": {"uri": str(finding.get("file", ""))},
+            }
+        }
+        line = first_line(finding.get("line"))
+        if line:
+            location["physicalLocation"]["region"] = {"startLine": line}
+        results.append(
+            {
+                "ruleId": rule_id,
+                "level": sarif_level(str(finding.get("severity", ""))),
+                "message": {"text": f"{finding.get('title', '')}: {finding.get('risk', '')}".strip()},
+                "locations": [location],
+                "properties": {
+                    "harnessyFindingId": finding.get("id", ""),
+                    "severity": finding.get("severity", ""),
+                    "recommendedFix": finding.get("recommended_fix", ""),
+                    "evidence": finding.get("evidence", ""),
+                },
+            }
+        )
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Harnessy Code Review",
+                        "informationUri": "https://github.com/Flow-Research/harnessy",
+                        "rules": list(rules.values()),
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+
+
+def build_evidence(
+    discovery_path: Path,
+    feedback_path: Path,
+    markdown_path: Path,
+    sarif_path: Path | None,
+    output_root: Path,
+    run_id: str,
+    ci_context: dict[str, Any],
+    gate_result: str,
+    validation_result: str,
+    provider: str,
+) -> Path:
+    script = SCRIPT_DIR / "build-evidence.py"
+    args = [
+        sys.executable,
+        str(script),
+        "--discovery",
+        str(discovery_path),
+        "--review",
+        str(feedback_path),
+        "--run-id",
+        run_id,
+        "--output-root",
+        str(output_root),
+        "--markdown-report",
+        str(markdown_path),
+        "--validation-result",
+        validation_result,
+        "--provider",
+        provider,
+        "--ci-provider",
+        str(ci_context.get("provider", "local")),
+        "--ci-run-id",
+        str(ci_context.get("run_id", "")),
+        "--gate-result",
+        gate_result,
+        "--print-path",
+    ]
+    if sarif_path:
+        args.extend(["--sarif-report", str(sarif_path)])
+    proc = run(args)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        raise GateError(f"evidence build failed: {detail}", code=2)
+    return Path(proc.stdout.strip())
+
+
+def command_ci(args: argparse.Namespace) -> int:
+    ci_profile_payload = load_profile(Path(args.ci_profile))
+    profile = code_review_profile(ci_profile_payload)
+    ci_context = detect_ci_context(os.environ)
+    base = resolve_ref(args.base, "HARNESSY_CODE_REVIEW_BASE", "base_ref", ci_context, profile, "main")
+    head = resolve_ref(args.head, "HARNESSY_CODE_REVIEW_HEAD", "head_ref", ci_context, profile, "HEAD")
+    run_id = args.run_id or os.environ.get("HARNESSY_CODE_REVIEW_RUN_ID") or now_run_id()
+    output_root = Path(args.output_root or profile.get("output_root") or DEFAULT_OUTPUT_ROOT)
+    output_dir = output_root / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    formats = split_formats(args.format or profile.get("formats"))
+    discovery_path = output_dir / "discovery.json"
+    feedback_path = output_dir / "feedback.json"
+    markdown_path = output_dir / "REVIEW_REPORT.md"
+    sarif_path = output_dir / "review.sarif" if "sarif" in formats else None
+    provider = args.provider or str(profile.get("provider") or os.environ.get("HARNESSY_AI_PROVIDER") or "auto")
+    require_ai = boolish(args.require_ai, False) or boolish(os.environ.get("HARNESSY_CODE_REVIEW_REQUIRE_AI")) or boolish(profile.get("require_ai"))
+    review_command = args.review_command or os.environ.get("HARNESSY_CODE_REVIEW_COMMAND") or profile.get("review_command")
+    required_ai_missing = False
+
+    try:
+        run_discovery(base, head, discovery_path)
+        discovery = read_json(discovery_path)
+
+        if review_command:
+            run_review_command(str(review_command), output_dir, discovery_path, feedback_path, base, head, ci_context)
+            review = normalize_review_metadata(feedback_path, "ai_review", "completed")
+        elif require_ai:
+            reason = "AI review is required but no review command was configured."
+            feedback_path.write_text(json.dumps(default_skipped_review(reason), indent=2) + "\n")
+            review = read_json(feedback_path)
+            required_ai_missing = True
+        else:
+            reason = "No provider review command configured; CI ran deterministic discovery and artifact validation only."
+            feedback_path.write_text(json.dumps(default_skipped_review(reason), indent=2) + "\n")
+            review = read_json(feedback_path)
+
+        validate_review(feedback_path)
+        validation_result = "pass"
+
+        if "markdown" in formats:
+            markdown_path.write_text(render_markdown(review, discovery, ci_context))
+        if sarif_path:
+            sarif_path.write_text(json.dumps(render_sarif(review), indent=2) + "\n")
+
+        gate_result = "fail" if required_ai_missing or has_blocking_findings(review) else "pass"
+        evidence_path = build_evidence(
+            discovery_path,
+            feedback_path,
+            markdown_path,
+            sarif_path,
+            output_root,
+            run_id,
+            ci_context,
+            gate_result,
+            validation_result,
+            provider,
+        )
+        evidence_validation = validate_evidence_bundle(evidence_path)
+        summary = {
+            "ok": gate_result == "pass",
+            "gate_result": gate_result,
+            "exit_code": 3 if required_ai_missing else (1 if gate_result == "fail" else 0),
+            "run_id": run_id,
+            "base_ref": base,
+            "head_ref": head,
+            "ci_provider": ci_context.get("provider", "local"),
+            "mode": review.get("mode", "ai_review"),
+            "review_status": review.get("review_status", "completed"),
+            "verdict": review.get("verdict", ""),
+            "finding_counts": finding_counts(review),
+            "evidence_validation": evidence_validation,
+            "artifacts": {
+                "output_dir": str(output_dir),
+                "discovery": str(discovery_path),
+                "review_json": str(feedback_path),
+                "markdown_report": str(markdown_path) if markdown_path.exists() else "",
+                "sarif_report": str(sarif_path) if sarif_path and sarif_path.exists() else "",
+                "evidence": str(evidence_path),
+            },
+        }
+        if args.json:
+            print(json.dumps(summary, indent=2))
+        else:
+            print(f"Harnessy code review gate: {gate_result}")
+            print(f"Run: {run_id}")
+            print(f"Verdict: {summary['verdict']} ({summary['mode']}, {summary['review_status']})")
+            print(f"Artifacts: {output_dir}")
+        return int(summary["exit_code"])
+    except GateError as exc:
+        error_payload = {
+            "ok": False,
+            "gate_result": "fail",
+            "exit_code": exc.code,
+            "run_id": run_id,
+            "base_ref": base,
+            "head_ref": head,
+            "ci_provider": ci_context.get("provider", "local"),
+            "error": str(exc),
+            "artifacts": {
+                "output_dir": str(output_dir),
+                "discovery": str(discovery_path) if discovery_path.exists() else "",
+                "review_json": str(feedback_path) if feedback_path.exists() else "",
+            },
+        }
+        if args.json:
+            print(json.dumps(error_payload, indent=2))
+        else:
+            print(f"Harnessy code review gate failed: {exc}", file=sys.stderr)
+        return exc.code
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command")
+
+    ci = subparsers.add_parser("ci", help="Run the provider-neutral CI quality gate")
+    ci.add_argument("--base")
+    ci.add_argument("--head")
+    ci.add_argument("--run-id")
+    ci.add_argument("--ci-profile", default=str(DEFAULT_CI_PROFILE))
+    ci.add_argument("--output-root", default=None)
+    ci.add_argument("--format", default=None, help="Comma-separated report formats: json,markdown,sarif")
+    ci.add_argument("--provider", default=None)
+    ci.add_argument("--review-command", default=None, help="Command that writes $HARNESSY_CODE_REVIEW_FEEDBACK_JSON")
+    ci.add_argument("--require-ai", action="store_true")
+    ci.add_argument("--json", action="store_true")
+    ci.set_defaults(func=command_ci)
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        return 2
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

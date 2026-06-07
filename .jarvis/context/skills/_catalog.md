@@ -231,21 +231,21 @@ updated: 2026-03-16
 ---
 name: code-review
 type: opencode
-version: 0.1.0
+version: 0.4.0
 status: experimental
 owner: julian
 blast_radius: medium
-description: "Expert code reviewer ensuring implementations are simple, requirement-compliant, and architecturally sound."
+description: "Provider-neutral Harnessy code review capability with deterministic diff discovery, CI gate execution, rubrics, SARIF/Markdown output, output/evidence validation, and evidence capture."
 location: tools/flow-install/skills/code-review
 invoke: "/code-review"
 permissions: [write]
 data_categories: [pii]
 egress: []
 phase: P4
-tags: [review, engineering]
+tags: [review, engineering, capability, evidence, ci]
 depends_on: [engineer]
 created: 2026-03-16
-updated: 2026-03-16
+updated: 2026-06-07
 ---
 
 ---

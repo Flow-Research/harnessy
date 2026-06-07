@@ -17,6 +17,7 @@
 .jarvis/context/runbooks/
 .jarvis/context/specs/
 .jarvis/context/deployments/
+.jarvis/context/evidence/
 .jarvis/context/profiles/*.local.json
 .jarvis/context/profiles/local/
 .jarvis/context/docs/strategy/

@@ -1,0 +1,58 @@
+capability_id: harnessy.code_review
+capability_version: 0.3.0
+status: experimental
+summary: "Provider-neutral local-diff and CI code review with deterministic discovery, shared rubrics, schema validation, SARIF/Markdown reports, and evidence capture."
+
+default_input:
+  source_type: local_diff
+  base_ref: main
+  head_ref: HEAD
+  output_dir: .jarvis/context/evidence/code-review/<run-id>
+  qa_profile: .jarvis/context/profiles/qa.json
+  ci_profile: .jarvis/context/profiles/ci.json
+
+contracts:
+  input_schema: contracts/input.schema.json
+  output_schema: contracts/output.schema.json
+  evidence_schema: contracts/evidence.schema.json
+
+materials:
+  review_rubric: materials/review-rubric.md
+  severity_taxonomy: materials/severity-taxonomy.md
+  verifier_rubric: materials/verifier-rubric.md
+  report_template: materials/report-template.md
+
+scripts:
+  ci_gate: scripts/harness-code-review
+  discover_diff: scripts/discover-diff.py
+  validate_output: scripts/validate-output.py
+  build_evidence: scripts/build-evidence.py
+  validate_evidence: scripts/validate-evidence.py
+
+policy:
+  filesystem_read:
+    - repo
+  filesystem_write:
+    - .jarvis/context/evidence/code-review/
+  network_egress: false
+  secrets_access: false
+
+gates:
+  blocking_severities:
+    - critical
+    - major
+  ci_exit_policy: "Exit non-zero for critical or major findings, invalid output/evidence, failed evidence verification, configured provider failure, or required AI review that cannot run."
+  ci_default_mode: "Run deterministic discovery and artifact validation when no review command is configured; mark AI review as skipped."
+  ci_report_formats:
+    - json
+    - markdown
+    - sarif
+  require_file_line_for_blocking_findings: true
+  require_verifier_pass: true
+  docs_only_changes_should_not_block_without_concrete_risk: true
+
+projection_policy:
+  default: "Use the shared SKILL.md, command docs, rubrics, and deterministic scripts through each provider's native skill discovery."
+  provider_specific_projection_required: false
+  ci_entrypoint: "harness-code-review ci"
+  add_projection_when: "The provider has a native packaging, orchestration, annotation, or CI surface that materially improves review quality, CI integration, or user experience."

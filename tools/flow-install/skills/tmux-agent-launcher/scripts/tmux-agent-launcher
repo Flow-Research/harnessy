@@ -6,7 +6,7 @@ SCRIPT_NAME=$(basename "$0")
 usage() {
   cat <<'EOF'
 Usage:
-  tmux-agent-launcher --runner <claude|opencode|codex> <session-name> [options] [-- <runner-args>...]
+  tmux-agent-launcher --runner <claude|opencode|codex> [session-name] [options] [-- <runner-args>...]
   tmux-agent-launcher attach <session-name> [--dry-run] [--json]
   tmux-agent-launcher list [--json]
 
@@ -21,7 +21,8 @@ Options:
                     Shortcut for --permission-mode bypass
   --no-skip-permissions
                     Shortcut for --permission-mode default
-  --attach          Attach to the session after creating it
+  --attach          Attach to the session after creating it (default)
+  --no-attach       Leave the session detached after creating it
   --dry-run         Print the launch plan without creating a tmux session
   --json            Emit machine-readable JSON
   --help            Show this help text
@@ -139,9 +140,77 @@ append_shell_args() {
   done
 }
 
+sanitize_auto_session_segment() {
+  local raw="$1"
+  python3 - "$raw" <<'PY'
+import re
+import sys
+
+value = sys.argv[1].strip()
+value = re.sub(r"[^A-Za-z0-9_.-]+", "-", value)
+value = re.sub(r"-{2,}", "-", value)
+value = value.strip("-")
+print(value)
+PY
+}
+
+next_auto_session_index() {
+  local prefix="$1"
+  local session_lines=""
+
+  if command -v tmux >/dev/null 2>&1; then
+    session_lines=$(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  fi
+
+  python3 - "$prefix" "$session_lines" <<'PY'
+import re
+import sys
+
+prefix = sys.argv[1]
+sessions = sys.argv[2].splitlines()
+pattern = re.compile(r"^" + re.escape(prefix) + r"-(\d+)$")
+max_index = 0
+
+for session in sessions:
+    match = pattern.match(session)
+    if match:
+        max_index = max(max_index, int(match.group(1)))
+
+print(max_index + 1)
+PY
+}
+
+resolve_auto_session_name() {
+  local abs_cwd="$1"
+  local runner="$2"
+  local default_name
+  local requested_name
+  local normalized_name
+  local prefix
+  local next_index
+
+  default_name=$(basename "$abs_cwd")
+  requested_name="$default_name"
+
+  if [[ -t 0 ]]; then
+    printf 'Name [%s]: ' "$default_name" >&2
+    IFS= read -r requested_name || requested_name=""
+    if [[ -z "$requested_name" ]]; then
+      requested_name="$default_name"
+    fi
+  fi
+
+  normalized_name=$(sanitize_auto_session_segment "$requested_name")
+  [[ -n "$normalized_name" ]] || fail 2 "Auto session name is empty after normalization"
+
+  prefix="$normalized_name-$runner"
+  next_index=$(next_auto_session_index "$prefix")
+  printf '%s-%s\n' "$prefix" "$next_index"
+}
+
 RUNNER=""
 CWD=$(pwd)
-ATTACH=0
+ATTACH=1
 DRY_RUN=0
 JSON_MODE=0
 SESSION_NAME=""
@@ -190,6 +259,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --attach)
       ATTACH=1
+      shift
+      ;;
+    --no-attach)
+      ATTACH=0
       shift
       ;;
     --dry-run)
@@ -246,9 +319,8 @@ PY
   exit 0
 fi
 
-[[ -n "$SESSION_NAME" ]] || fail 2 "session name is required"
-
 if [[ "$MODE" == "attach" ]]; then
+  [[ -n "$SESSION_NAME" ]] || fail 2 "session name is required"
   require_command tmux
 
   if [[ "$DRY_RUN" == "0" ]]; then
@@ -264,6 +336,10 @@ if [[ "$MODE" == "attach" ]]; then
     printf 'Dry run: would attach to tmux session %s\n' "$SESSION_NAME"
   fi
   exit 0
+fi
+
+if [[ -z "$RUNNER" && -z "$SESSION_NAME" ]]; then
+  fail 2 "session name is required"
 fi
 
 [[ -n "$RUNNER" ]] || fail 2 "--runner is required"
@@ -286,6 +362,16 @@ esac
 RUNNER_BASE_COMMAND="$RUNNER_COMMAND"
 
 require_command python3
+
+if [[ ! -d "$CWD" ]]; then
+  fail 2 "Working directory does not exist: $CWD"
+fi
+
+ABS_CWD=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$CWD")
+
+if [[ -z "$SESSION_NAME" ]]; then
+  SESSION_NAME=$(resolve_auto_session_name "$ABS_CWD" "$RUNNER")
+fi
 
 if [[ -z "$PERMISSION_MODE" && -n "${TMUX_AGENT_LAUNCHER_PERMISSION_MODE:-}" ]]; then
   PERMISSION_MODE="$TMUX_AGENT_LAUNCHER_PERMISSION_MODE"
@@ -349,12 +435,6 @@ fi
 append_shell_args "${INJECTED_RUNNER_ARGS[@]-}"
 append_shell_args "${RUNNER_ARGS[@]-}"
 
-if [[ ! -d "$CWD" ]]; then
-  fail 2 "Working directory does not exist: $CWD"
-fi
-
-ABS_CWD=$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$CWD")
-
 TMUX_COMMAND=(tmux new-session -d -s "$SESSION_NAME" -c "$ABS_CWD" bash -lc "$RUNNER_COMMAND")
 
 if [[ "$JSON_MODE" == "1" ]]; then
@@ -391,7 +471,7 @@ if [[ "$JSON_MODE" == "1" ]]; then
     "$COMMAND_JSON"
 else
   if [[ "$DRY_RUN" == "1" ]]; then
-    printf 'Dry run: would launch %s in tmux session %s at %s (permission_mode=%s)\n' "$RUNNER" "$SESSION_NAME" "$ABS_CWD" "$PERMISSION_MODE"
+    printf 'Dry run: would launch %s in tmux session %s at %s (permission_mode=%s, attach=%s)\n' "$RUNNER" "$SESSION_NAME" "$ABS_CWD" "$PERMISSION_MODE" "$ATTACH"
   else
     printf 'Launched %s in tmux session %s at %s\n' "$RUNNER" "$SESSION_NAME" "$ABS_CWD"
   fi

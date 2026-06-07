@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import click
@@ -18,6 +19,12 @@ from jarvis.config import (
     load_config,
 )
 
+from .automation import (
+    build_whatsapp_automation_plan,
+    require_command,
+    start_whatsapp_tmux_stack,
+    tmux_launch_commands,
+)
 from .service import (
     ingest_archived_whatsapp_payload,
     ingest_whatsapp_inbox,
@@ -105,6 +112,144 @@ def setup_command(account: str, as_json: bool) -> None:
     console.print("Provider setup:")
     for index, step in enumerate(payload["steps"], start=1):
         console.print(f"  {index}. {step}")
+
+
+@whatsapp_cli.command(name="start")
+@click.option("--account", default=None, help="Named WhatsApp account from config")
+@click.option("--port", default=8787, help="Local port to bind")
+@click.option(
+    "--auto-ingest/--no-auto-ingest",
+    default=True,
+    help="Automatically ingest verified payloads into destinations",
+)
+@click.option(
+    "--dest",
+    "destinations",
+    multiple=True,
+    type=_DESTINATION_CHOICES,
+    help="Destination for auto-ingest (defaults to team-inbox)",
+)
+@click.option("--backend", default=None, help="Backend override for journal destination")
+@click.option(
+    "--layout",
+    type=click.Choice(["windows", "panes"]),
+    default="windows",
+    show_default=True,
+    help="Tmux layout for the webhook and tunnel processes",
+)
+@click.option(
+    "--verify-signatures/--no-verify-signatures",
+    default=True,
+    help="Verify Meta webhook signatures before accepting payloads",
+)
+@click.option("--session-name", default=None, help="Tmux session name to create")
+@click.option(
+    "--tunnel-name",
+    default=None,
+    help="Cloudflare named tunnel to run instead of creating a quick trycloudflare URL",
+)
+@click.option(
+    "--attach/--no-attach",
+    default=True,
+    help="Attach to the tmux session after launching",
+)
+@click.option("--dry-run", is_flag=True, help="Print the launch plan without creating sessions")
+@click.option("--json", "as_json", is_flag=True, help="Emit the launch plan as JSON")
+def start_command(
+    account: str | None,
+    port: int,
+    auto_ingest: bool,
+    destinations: tuple[str, ...],
+    backend: str | None,
+    layout: str,
+    verify_signatures: bool,
+    session_name: str | None,
+    tunnel_name: str | None,
+    attach: bool,
+    dry_run: bool,
+    as_json: bool,
+) -> None:
+    """Launch the WhatsApp webhook receiver and tunnel together in tmux."""
+
+    try:
+        cfg = load_config()
+        account_names = sorted(cfg.whatsapp.accounts.keys())
+        resolved_account = (
+            account
+            or cfg.whatsapp.default_account
+            or (account_names[0] if account_names else "personal")
+        )
+        resolved_destinations = list(destinations) or ["team-inbox"]
+        resolved_session_name = session_name or f"whatsapp-{resolved_account}"
+        plan = build_whatsapp_automation_plan(
+            session_name=resolved_session_name,
+            cwd=Path.cwd(),
+            layout=layout,
+            account=resolved_account,
+            port=port,
+            auto_ingest=auto_ingest,
+            destinations=resolved_destinations,
+            backend=backend,
+            verify_signatures=verify_signatures,
+            tunnel_name=tunnel_name,
+        )
+
+        if not dry_run and not as_json:
+            status = build_webhook_status(resolved_account)
+            missing = []
+            if verify_signatures and not status["app_secret_configured"]:
+                missing.append("Meta app secret")
+            if not status["verify_token_configured"]:
+                missing.append("webhook verify token")
+            if missing:
+                raise RuntimeError(
+                    "WhatsApp account is not ready to receive webhooks: "
+                    + ", ".join(missing)
+                    + ". Run `jarvis config whatsapp-setup`."
+                )
+            require_command("tmux")
+            require_command("cloudflared")
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise SystemExit(1) from exc
+
+    commands = tmux_launch_commands(plan)
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "session_name": plan.session_name,
+                    "cwd": str(plan.cwd),
+                    "layout": plan.layout,
+                    "webhook_command": plan.webhook_command,
+                    "tunnel_command": plan.tunnel_command,
+                    "tunnel_name": tunnel_name,
+                    "tmux_commands": commands,
+                    "dry_run": dry_run,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    if dry_run:
+        console.print(f"[cyan]Session:[/cyan] {plan.session_name}")
+        console.print(f"[dim]Webhook:[/dim] {plan.webhook_command}")
+        console.print(f"[dim]Tunnel:[/dim]  {plan.tunnel_command}")
+        return
+
+    try:
+        start_whatsapp_tmux_stack(plan, attach=attach)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise SystemExit(1) from exc
+
+    console.print(f"[green]Launched tmux session:[/green] {plan.session_name}")
+    if plan.layout == "windows":
+        console.print("[dim]Switch windows:[/dim] Ctrl-b then n / p")
+    else:
+        console.print("[dim]Switch panes:[/dim] Ctrl-b then arrow keys")
 
 
 @whatsapp_cli.group(name="webhook")

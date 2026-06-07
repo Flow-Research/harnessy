@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harnessy.local/schemas/code-review/evidence.schema.json",
+  "title": "Harnessy Code Review Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "capability_id",
+    "capability_version",
+    "provider",
+    "mode",
+    "review_status",
+    "ci_provider",
+    "base_ref",
+    "head_ref",
+    "changed_file_count",
+    "risk_surfaces",
+    "commands_run",
+    "output_schema_result",
+    "verifier_result",
+    "gate_result",
+    "verdict",
+    "artifacts",
+    "generated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "capability_id": {
+      "type": "string",
+      "const": "harnessy.code_review"
+    },
+    "capability_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "adapter": {
+      "type": ["string", "null"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["ai_review", "deterministic_only"]
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["completed", "skipped"]
+    },
+    "skipped_reason": {
+      "type": ["string", "null"]
+    },
+    "ci_provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ci_run_id": {
+      "type": "string"
+    },
+    "base_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "head_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changed_file_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "risk_surfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "output_schema_result": {
+      "type": "string",
+      "enum": ["pass", "fail"]
+    },
+    "verifier_result": {
+      "type": "string",
+      "enum": ["pass", "fail", "not_run"]
+    },
+    "gate_result": {
+      "type": "string",
+      "enum": ["pass", "fail"]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "comment", "request_changes"]
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

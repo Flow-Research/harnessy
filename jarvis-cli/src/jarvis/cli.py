@@ -672,6 +672,9 @@ def config_show() -> None:
         get_backend_token,
         get_config_path,
         get_fathom_api_key,
+        get_whatsapp_access_token,
+        get_whatsapp_app_secret,
+        get_whatsapp_verify_token,
         load_config,
         redact_token,
     )
@@ -741,6 +744,45 @@ def config_show() -> None:
             )
     else:
         console.print("    [dim](using FATHOM_API_KEY or JARVIS_FATHOM_API_KEY)[/dim]")
+
+    console.print("  [cyan]whatsapp[/cyan]")
+    if cfg.whatsapp.accounts:
+        if cfg.whatsapp.default_account:
+            console.print(f"    default_account: {cfg.whatsapp.default_account}")
+        for name, account in cfg.whatsapp.accounts.items():
+            console.print(f"    {name}: provider={account.provider}")
+            if account.phone_number_id:
+                console.print(f"      phone_number_id: {account.phone_number_id}")
+            if account.business_account_id:
+                console.print(f"      business_account_id: {account.business_account_id}")
+            console.print(f"      api_version: {account.api_version}")
+            try:
+                token = get_whatsapp_access_token(name)
+                console.print(f"      access token: {redact_token(token)} [green]✓[/green]")
+            except Exception:
+                console.print(
+                    f"      access token env {account.access_token_env_var}: [red]not set[/red]"
+                )
+            try:
+                get_whatsapp_app_secret(name)
+                console.print(
+                    f"      app secret env {account.app_secret_env_var}: [green]set[/green]"
+                )
+            except Exception:
+                console.print(
+                    f"      app secret env {account.app_secret_env_var}: [red]not set[/red]"
+                )
+            try:
+                get_whatsapp_verify_token(name)
+                console.print(
+                    f"      verify token env {account.verify_token_env_var}: [green]set[/green]"
+                )
+            except Exception:
+                console.print(
+                    f"      verify token env {account.verify_token_env_var}: [red]not set[/red]"
+                )
+    else:
+        console.print("    [dim](using JARVIS_WHATSAPP_* fallback env vars)[/dim]")
 
     # Validation
     console.print()
@@ -1000,6 +1042,152 @@ def config_fathom_setup(
     console.print()
     console.print("[green]✓ Fathom config updated[/green]")
     console.print("[dim]Run `jarvis config show` to verify account wiring.[/dim]")
+    if wrote_env:
+        console.print(
+            "[dim]Open a new shell or source your profile to activate the new env vars.[/dim]"
+        )
+
+
+@config.command(name="whatsapp-setup")
+@click.option("--env-file", default=None, help="Managed env file path to write")
+@click.option("--shell-profile", default=None, help="Shell profile to source the env file from")
+@click.option("--no-shell-profile", is_flag=True, help="Do not modify a shell profile")
+def config_whatsapp_setup(
+    env_file: str | None,
+    shell_profile: str | None,
+    no_shell_profile: bool,
+) -> None:
+    """Interactively configure WhatsApp accounts, env vars, and shell activation."""
+    from pathlib import Path
+
+    from jarvis.config import (
+        WhatsAppAccountConfig,
+        default_shell_profile_path,
+        default_whatsapp_env_file_path,
+        ensure_default_whatsapp_accounts,
+        ensure_shell_profile_sources_env,
+        generate_whatsapp_verify_token,
+        load_config,
+        render_whatsapp_env_file,
+        save_config,
+        write_env_file,
+    )
+
+    cfg = load_config(reload=True)
+    accounts = ensure_default_whatsapp_accounts(cfg)
+
+    console.print()
+    console.print("[bold]WhatsApp Setup[/bold]")
+    console.print("[dim]Press Enter to keep current values, or type new ones.[/dim]")
+    console.print()
+
+    default_account = click.prompt(
+        "Default account",
+        default=cfg.whatsapp.default_account or (accounts[0].name if accounts else "personal"),
+        show_default=True,
+    ).strip()
+    if default_account and default_account not in cfg.whatsapp.accounts:
+        cfg.whatsapp.accounts[default_account] = WhatsAppAccountConfig()
+    cfg.whatsapp.default_account = default_account or cfg.whatsapp.default_account
+    accounts = ensure_default_whatsapp_accounts(cfg)
+
+    for account in accounts:
+        console.print()
+        console.print(f"[cyan]{account.name}[/cyan]")
+        cfg_account = cfg.whatsapp.accounts[account.name]
+        phone_number_id = click.prompt(
+            "  Meta phone number ID",
+            default=account.phone_number_id or "",
+            show_default=bool(account.phone_number_id),
+        ).strip()
+        business_account_id = click.prompt(
+            "  WhatsApp Business Account ID",
+            default=account.business_account_id or "",
+            show_default=bool(account.business_account_id),
+        ).strip()
+        cfg_account.phone_number_id = phone_number_id or None
+        cfg_account.business_account_id = business_account_id or None
+
+        access_env_var = click.prompt(
+            "  Access token env var",
+            default=account.access_token_env_var,
+            show_default=True,
+        ).strip()
+        app_secret_env_var = click.prompt(
+            "  App secret env var",
+            default=account.app_secret_env_var,
+            show_default=True,
+        ).strip()
+        verify_token_env_var = click.prompt(
+            "  Verify token env var",
+            default=account.verify_token_env_var,
+            show_default=True,
+        ).strip()
+        account.access_token_env_var = access_env_var
+        account.app_secret_env_var = app_secret_env_var
+        account.verify_token_env_var = verify_token_env_var
+        cfg_account.access_token_env_var = access_env_var
+        cfg_account.app_secret_env_var = app_secret_env_var
+        cfg_account.verify_token_env_var = verify_token_env_var
+
+        account.access_token = click.prompt(
+            "  Meta access token (leave blank to skip writing)",
+            default="",
+            show_default=False,
+            hide_input=True,
+        ).strip()
+        account.app_secret = click.prompt(
+            "  Meta app secret (leave blank to skip writing)",
+            default="",
+            show_default=False,
+            hide_input=True,
+        ).strip()
+        verify_token = click.prompt(
+            "  Webhook verify token (leave blank to generate)",
+            default="",
+            show_default=False,
+            hide_input=True,
+        ).strip()
+        account.verify_token = verify_token or generate_whatsapp_verify_token()
+
+    save_config(cfg)
+
+    env_target = Path(env_file).expanduser() if env_file else default_whatsapp_env_file_path()
+    env_content = render_whatsapp_env_file(
+        [
+            account
+            for account in accounts
+            if account.access_token or account.app_secret or account.verify_token
+        ]
+    )
+    wrote_env = False
+    if env_content.strip() and click.confirm(
+        f"Write secrets to managed env file at {env_target}?",
+        default=True,
+    ):
+        write_env_file(env_target, env_content)
+        wrote_env = True
+        console.print(f"[green]✓[/green] Wrote env file: {env_target}")
+
+    if not no_shell_profile:
+        profile_target = (
+            Path(shell_profile).expanduser() if shell_profile else default_shell_profile_path()
+        )
+        if click.confirm(
+            f"Ensure {profile_target} sources the env file?",
+            default=wrote_env,
+        ):
+            changed = ensure_shell_profile_sources_env(profile_target, env_target)
+            if changed:
+                console.print(f"[green]✓[/green] Updated shell profile: {profile_target}")
+            else:
+                console.print(
+                    f"[dim]Shell profile already sources env file: {profile_target}[/dim]"
+                )
+
+    console.print()
+    console.print("[green]✓ WhatsApp config updated[/green]")
+    console.print("[dim]Run `jarvis whatsapp webhook status --json` to verify wiring.[/dim]")
     if wrote_env:
         console.print(
             "[dim]Open a new shell or source your profile to activate the new env vars.[/dim]"
@@ -1342,6 +1530,21 @@ def _generate_docs() -> dict:
                         "examples": [
                             "jarvis config fathom-setup",
                             "jarvis config fathom-setup --shell-profile ~/.zshrc",
+                        ],
+                    },
+                    "whatsapp-setup": {
+                        "description": (
+                            "Interactively configure WhatsApp accounts, env vars, "
+                            "and shell activation"
+                        ),
+                        "options": {
+                            "--env-file": "Managed env file path to write",
+                            "--shell-profile": "Shell profile to source the env file from",
+                            "--no-shell-profile": "Do not modify a shell profile",
+                        },
+                        "examples": [
+                            "jarvis config whatsapp-setup",
+                            "jarvis config whatsapp-setup --shell-profile ~/.zshrc",
                         ],
                     },
                 },
@@ -1797,6 +2000,46 @@ def _generate_docs() -> dict:
                         "examples": [
                             "jarvis whatsapp setup --account personal",
                             "jarvis whatsapp setup --account personal --json",
+                        ],
+                    },
+                    "start": {
+                        "description": (
+                            "Launch the WhatsApp webhook receiver and Cloudflare "
+                            "tunnel in tmux"
+                        ),
+                        "options": {
+                            "--account": "Named WhatsApp account from config",
+                            "--port": "Local port to bind",
+                            "--auto-ingest / --no-auto-ingest": (
+                                "Automatically ingest verified payloads"
+                            ),
+                            "--dest": (
+                                "Destination for auto-ingest: team-inbox, "
+                                "private-context, journal, memory"
+                            ),
+                            "--backend": (
+                                "Backend override when auto-ingesting to journal"
+                            ),
+                            "--layout": "Tmux layout: windows or panes",
+                            "--verify-signatures / --no-verify-signatures": (
+                                "Verify X-Hub-Signature-256 before accepting payloads"
+                            ),
+                            "--session-name": "Tmux session name to create",
+                            "--tunnel-name": (
+                                "Cloudflare named tunnel to run instead of a quick URL"
+                            ),
+                            "--attach / --no-attach": (
+                                "Attach to the tmux session after launch"
+                            ),
+                            "--dry-run": "Print the launch plan without creating sessions",
+                            "--json": "Emit the launch plan as JSON",
+                        },
+                        "examples": [
+                            "jarvis whatsapp start --account personal --dry-run --json",
+                            (
+                                "jarvis whatsapp start --account personal "
+                                "--auto-ingest --dest team-inbox --no-attach"
+                            ),
                         ],
                     },
                     "webhook serve": {

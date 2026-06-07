@@ -13,6 +13,7 @@ from .defaults import (
 )
 from .fathom_setup import default_env_file_path
 from .schema import JarvisConfig, WhatsAppAccountConfig, get_config_path
+from .whatsapp_setup import default_whatsapp_env_file_path
 
 
 class ConfigError(Exception):
@@ -226,6 +227,8 @@ def get_whatsapp_access_token(account: str | None = None) -> str:
 
     acct = get_whatsapp_account_config(account)
     token = os.environ.get(acct.access_token_env_var)
+    if not token:
+        token = _load_managed_whatsapp_env_var(acct.access_token_env_var)
     if token:
         return token
     target_account = account or get_config().whatsapp.default_account
@@ -255,6 +258,8 @@ def get_whatsapp_app_secret(account: str | None = None) -> str:
 
     acct = get_whatsapp_account_config(account)
     secret = os.environ.get(acct.app_secret_env_var)
+    if not secret:
+        secret = _load_managed_whatsapp_env_var(acct.app_secret_env_var)
     if secret:
         return secret
     target_account = account or get_config().whatsapp.default_account
@@ -282,6 +287,8 @@ def get_whatsapp_verify_token(account: str | None = None) -> str:
 
     acct = get_whatsapp_account_config(account)
     token = os.environ.get(acct.verify_token_env_var)
+    if not token:
+        token = _load_managed_whatsapp_env_var(acct.verify_token_env_var)
     if token:
         return token
     target_account = account or get_config().whatsapp.default_account
@@ -327,9 +334,20 @@ def get_whatsapp_phone_number_id(account: str | None = None) -> str:
 def _load_managed_env_var(name: str) -> str | None:
     """Read a single exported variable from the managed Fathom env file."""
 
+    return _load_managed_env_var_from_file(name, default_env_file_path())
+
+
+def _load_managed_whatsapp_env_var(name: str) -> str | None:
+    """Read a single exported variable from the managed WhatsApp env file."""
+
+    return _load_managed_env_var_from_file(name, default_whatsapp_env_file_path())
+
+
+def _load_managed_env_var_from_file(name: str, env_file: Path) -> str | None:
+    """Read a single exported variable from a managed shell env file."""
+
     if not name:
         return None
-    env_file = default_env_file_path()
     if not env_file.exists():
         return None
     for raw_line in env_file.read_text(encoding="utf-8").splitlines():

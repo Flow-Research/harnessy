@@ -99,6 +99,17 @@ Every reusable script should:
 
 ## Placement Rules
 
+### Capability artifact placement
+
+Capabilities should avoid repo sprawl by default.
+
+- Reuse existing Harnessy roots for generated artifacts before adding a new directory.
+- Put run evidence, traces, reports, and generated review artifacts under `.jarvis/context/evidence/<capability>/<run-id>/` unless a profile defines a more specific output root.
+- Put skill-owned package assets under the skill directory, for example `tools/flow-install/skills/<skill-name>/`.
+- Do not create new top-level output folders unless the workflow is a user-facing project artifact and the folder is explicitly documented.
+- Before adding any generated output path, update `.gitignore` or the relevant profile so raw evidence, logs, packages, caches, and temporary artifacts are not accidentally committed.
+- If a capability needs durable committed summaries, commit a sanitized summary in an existing docs or QA location instead of raw run output.
+
 ### Root scripts
 
 Use `scripts/` only for repository-level lifecycle tooling such as setup, registration, validation, sync, or bootstrap flows.

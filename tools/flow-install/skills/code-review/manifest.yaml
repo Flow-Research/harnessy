@@ -1,10 +1,10 @@
 name: code-review
 type: opencode
-version: 0.1.0
+version: 0.4.0
 owner: julian
 status: experimental
 blast_radius: medium
-description: "Expert code reviewer ensuring implementations are simple, requirement-compliant, and architecturally sound."
+description: "Provider-neutral Harnessy code review capability with deterministic diff discovery, CI gate execution, rubrics, SARIF/Markdown output, output/evidence validation, and evidence capture."
 permissions: [write]
 data_categories: [pii]
 egress: []
@@ -22,8 +22,11 @@ traces:
   enabled: true
   gates:
     quality:
+      - discovery_gate
       - simplicity_gate
       - correctness_gate
       - architecture_gate
+      - schema_gate
+      - verifier_gate
     human:
       - review_approval

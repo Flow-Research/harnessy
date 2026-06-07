@@ -293,6 +293,12 @@ jarvis meeting fathom webhook ingest-inbox --account work
 # Show the Meta Cloud API config shape and setup checklist
 jarvis whatsapp setup --account personal
 
+# Configure local account metadata, env vars, and shell activation
+jarvis config whatsapp-setup
+
+# Launch the receiver and Cloudflare tunnel in a tmux stack
+jarvis whatsapp start --account personal --dry-run --json
+
 # Run a local receiver behind an HTTPS tunnel
 jarvis whatsapp webhook serve --account personal --port 8787
 

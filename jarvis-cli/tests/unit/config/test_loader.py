@@ -291,9 +291,7 @@ class TestGetWhatsAppConfigValues:
         yield
         clear_config_cache()
 
-    def test_named_account_env_vars(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_named_account_env_vars(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
             """
@@ -318,6 +316,40 @@ whatsapp:
         assert get_whatsapp_app_secret("personal") == "secret"
         assert get_whatsapp_verify_token("personal") == "verify"
         assert get_whatsapp_phone_number_id("personal") == "phone_123"
+
+    def test_named_account_managed_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+whatsapp:
+  default_account: personal
+  accounts:
+    personal:
+      provider: meta
+      phone_number_id: "phone_123"
+      access_token_env_var: "WA_TOKEN_PERSONAL"
+      app_secret_env_var: "WA_APP_SECRET_PERSONAL"
+      verify_token_env_var: "WA_VERIFY_PERSONAL"
+"""
+        )
+        managed_env = tmp_path / "whatsapp.zsh"
+        managed_env.write_text(
+            'export WA_TOKEN_PERSONAL="token"\n'
+            'export WA_APP_SECRET_PERSONAL="secret"\n'
+            'export WA_VERIFY_PERSONAL="verify"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "jarvis.config.loader.default_whatsapp_env_file_path",
+            lambda: managed_env,
+        )
+        load_config(config_path=config_file, reload=True)
+
+        assert get_whatsapp_access_token() == "token"
+        assert get_whatsapp_app_secret("personal") == "secret"
+        assert get_whatsapp_verify_token("personal") == "verify"
 
     def test_unknown_account_raises(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.yaml"
