@@ -17,16 +17,32 @@ def setup_obsidian_vault(domain_root: Path, schema: WikiDomain) -> None:  # noqa
     """Write .obsidian/ config files to the wiki/ directory.
 
     Creates:
-    - wiki/.obsidian/community-plugins.json — recommended plugins list
     - wiki/.obsidian/graph.json — color groups for concepts, queries, summaries
     - wiki/.obsidian/app.json — basic editor/display settings
+    - wiki/RECOMMENDED-PLUGINS.md — suggested (not auto-installed) plugins
+
+    Note: we deliberately do NOT write community-plugins.json. In Obsidian that
+    file lists plugins that are *installed and enabled*; writing names there makes
+    Obsidian try to load plugins the user never installed, which surfaces errors.
+    Recommendations belong in a plain note instead.
     """
     obsidian_dir = domain_root / "wiki" / ".obsidian"
     obsidian_dir.mkdir(parents=True, exist_ok=True)
 
-    # Community plugins list (not installed, just noted as recommended)
-    community_plugins = ["obsidian-marp", "dataview", "graph-analysis"]
-    _write_json(obsidian_dir / "community-plugins.json", community_plugins)
+    # Recommended plugins as a human-readable note (NOT community-plugins.json).
+    recommended = ["obsidian-marp", "dataview", "graph-analysis"]
+    readme_lines = [
+        "# Recommended Obsidian plugins",
+        "",
+        "These community plugins pair well with this vault. Install them from",
+        "Settings → Community plugins → Browse (they are not installed automatically):",
+        "",
+        *[f"- `{name}`" for name in recommended],
+        "",
+    ]
+    (domain_root / "wiki" / "RECOMMENDED-PLUGINS.md").write_text(
+        "\n".join(readme_lines), encoding="utf-8"
+    )
 
     # Graph view color groups
     graph_config = {

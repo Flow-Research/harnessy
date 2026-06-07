@@ -47,7 +47,7 @@ _WEBHOOK_TRIGGER_CHOICES = [
     "my_shared_with_team_recordings",
     "shared_team_recordings",
 ]
-_DESTINATION_CHOICES = ["private-context", "wiki", "journal", "memory"]
+_DESTINATION_CHOICES = ["private-context", "wiki", "obsidian", "journal", "memory"]
 _JOURNAL_SPACE_HELP = (
     "Backend space/workspace ID for the journal destination; overrides the backend default"
 )
@@ -132,6 +132,8 @@ def fathom_webhook_group() -> None:
     help="Destination to write to (defaults to private-context)",
 )
 @click.option("--wiki-domain", default=None, help="Wiki domain when using the wiki destination")
+@click.option("--vault", default=None, help="Obsidian vault path for the obsidian destination")
+@click.option("--folder", default="Meetings", help="Vault subfolder for the obsidian destination")
 @click.option("--journal-space", "journal_space_id", default=None, help=_JOURNAL_SPACE_HELP)
 @click.option("--enrich-ai/--no-enrich-ai", default=True, help="Use AI to fill missing sections")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result as JSON")
@@ -145,6 +147,8 @@ def ingest_command(
     tags: tuple[str, ...],
     destinations: tuple[str, ...],
     wiki_domain: str | None,
+    vault: str | None,
+    folder: str,
     journal_space_id: str | None,
     enrich_ai: bool,
     as_json: bool,
@@ -165,6 +169,8 @@ def ingest_command(
             tags=list(tags) or None,
             destinations=list(destinations),
             wiki_domain=wiki_domain,
+            vault=vault,
+            folder=folder,
             journal_space_id=journal_space_id,
             enrich_ai=enrich_ai,
         )

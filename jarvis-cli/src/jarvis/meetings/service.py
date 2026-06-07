@@ -18,7 +18,12 @@ from jarvis.wiki.parser import slug_from_title
 
 from .fathom import FathomClient, parse_fathom_json_text, parse_fathom_payload
 from .models import MeetingIngestResult, MeetingRecord
-from .parser import meeting_filename, parse_meeting_document, render_meeting_markdown
+from .parser import (
+    meeting_filename,
+    parse_meeting_document,
+    render_meeting_markdown,
+    render_obsidian_meeting_markdown,
+)
 from .webhook import list_inbox_files, load_archived_payload, move_inbox_file
 
 console = Console()
@@ -40,6 +45,8 @@ def ingest_meeting(
     destinations: list[str] | None = None,
     wiki_domain: str | None = None,
     journal_space_id: str | None = None,
+    vault: str | None = None,
+    folder: str = "Meetings",
     enrich_ai: bool = True,
 ) -> MeetingIngestResult:
     """Ingest a meeting transcript-like source into one or more destinations."""
@@ -62,6 +69,8 @@ def ingest_meeting(
         wiki_domain=wiki_domain,
         backend=backend,
         journal_space_id=journal_space_id,
+        vault=vault,
+        folder=folder,
     )
 
 
@@ -331,6 +340,8 @@ def write_meeting_record(
     wiki_domain: str | None = None,
     backend: str | None = None,
     journal_space_id: str | None = None,
+    vault: str | None = None,
+    folder: str = "Meetings",
 ) -> MeetingIngestResult:
     """Write a normalized meeting record to one or more destinations."""
 
@@ -346,6 +357,11 @@ def write_meeting_record(
             if not wiki_domain:
                 raise ValueError("--wiki-domain is required when using the wiki destination")
             path = write_wiki_meeting(wiki_domain, meeting, rendered)
+            result.written_paths.append(str(path))
+        elif destination == "obsidian":
+            if not vault:
+                raise ValueError("--vault is required when using the obsidian destination")
+            path = write_obsidian_meeting(vault, meeting, folder=folder)
             result.written_paths.append(str(path))
         elif destination == "journal":
             entry = write_journal_entry(
@@ -505,6 +521,25 @@ def write_wiki_meeting(domain: str, meeting: MeetingRecord, rendered: str) -> Pa
         raise FileNotFoundError(f"Wiki domain not found: {domain}")
     notes_dir = domain_root / "raw" / "notes"
     notes_dir.mkdir(parents=True, exist_ok=True)
+    path = unique_path(notes_dir / meeting_filename(meeting))
+    path.write_text(rendered, encoding="utf-8")
+    return path
+
+
+def write_obsidian_meeting(vault: str, meeting: MeetingRecord, *, folder: str = "Meetings") -> Path:
+    """Write a finished, Obsidian-formatted meeting note directly into a vault.
+
+    Unlike the ``wiki`` destination (which stages raw input for ``wiki compile``),
+    this writes a publish-ready note with YAML frontmatter, tags, checkboxes, and
+    wikilinks straight into the user's real Obsidian vault.
+    """
+
+    vault_root = Path(vault).expanduser()
+    if not vault_root.exists():
+        raise FileNotFoundError(f"Obsidian vault not found: {vault_root}")
+    notes_dir = vault_root / folder if folder else vault_root
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    rendered = render_obsidian_meeting_markdown(meeting)
     path = unique_path(notes_dir / meeting_filename(meeting))
     path.write_text(rendered, encoding="utf-8")
     return path
