@@ -338,6 +338,21 @@ def write_meeting_record(
     rendered = render_meeting_markdown(meeting)
     result = MeetingIngestResult(meeting=meeting, destinations=resolved_destinations)
 
+    if "journal" in resolved_destinations:
+        if not (journal_space_id or "").strip():
+            raise ValueError(
+                "Meeting journal writes require --journal-space so Jarvis can enforce "
+                "project-to-space routing."
+            )
+        skip_reason = journal_destination_skip_reason(meeting, journal_space_id)
+        if skip_reason is not None:
+            # Skip only the journal destination for this meeting instead of failing the
+            # whole ingest. This keeps one unroutable meeting from jamming an automated
+            # poll: other destinations still capture it and the poll cursor can advance.
+            resolved_destinations = [d for d in resolved_destinations if d != "journal"]
+            result.destinations = resolved_destinations
+            result.journal_skipped_reason = skip_reason
+
     for destination in resolved_destinations:
         if destination == "private-context":
             path = write_private_context_meeting(meeting, rendered)
@@ -362,6 +377,49 @@ def write_meeting_record(
             raise ValueError(f"Unsupported destination: {destination}")
 
     return result
+
+
+def journal_destination_skip_reason(
+    meeting: MeetingRecord,
+    journal_space_id: str | None,
+) -> str | None:
+    """Return why the journal destination should be skipped for this meeting, or None.
+
+    Skipping (rather than raising and failing the whole ingest) keeps a single
+    unroutable meeting from jamming an automated poll: the meeting is still captured by
+    its other destinations and the poll cursor can advance past it. Recoverable cases:
+
+    - the meeting has no routed project, so project-to-space routing cannot be enforced;
+    - the meeting's project is not allowed in the target journal space's guard.
+
+    A missing ``journal_space_id`` is a caller-level misconfiguration, not a per-meeting
+    condition, so it is enforced by the caller and not treated as a skip here.
+    """
+
+    project_slug = safe_project_slug(meeting.project)
+    if not project_slug:
+        return "no routed project (pass --project or --auto-route to journal it)"
+
+    target_space = (journal_space_id or "").strip()
+    if not target_space:
+        return None
+
+    guard = _find_matching_journal_guard(_resolve_private_context_root(), target_space)
+    if guard is None:
+        return None
+
+    allowed = {
+        safe_project_slug(str(project))
+        for project in _guard_values(guard, "allowed_projects", "allowed")
+    }
+    allowed.discard("")
+    if allowed and project_slug not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        return (
+            f"project '{project_slug}' not allowed in journal space "
+            f"'{target_space}' (allowed: {allowed_text})"
+        )
+    return None
 
 
 def enrich_meeting_record(meeting: MeetingRecord) -> MeetingRecord:
@@ -797,11 +855,7 @@ def _discover_project_route_rules(root: Path) -> dict[str, list[str]]:
 def _read_meeting_route_config(path: Path) -> dict[str, list[str]]:
     """Read optional private meeting route rules."""
 
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-
+    data = _read_meeting_route_config_data(path)
     raw_routes = data.get("routes") if isinstance(data, dict) else data
     rules: dict[str, list[str]] = {}
     if isinstance(raw_routes, dict):
@@ -825,6 +879,67 @@ def _read_meeting_route_config(path: Path) -> dict[str, list[str]]:
             elif isinstance(keywords, str):
                 rules[project] = [keywords]
     return rules
+
+
+def _find_matching_journal_guard(root: Path, journal_space_id: str) -> dict[str, object] | None:
+    """Return the configured guard for a journal space target, if one exists."""
+
+    config_path = root / _MEETING_ROUTE_CONFIG
+    if not config_path.exists():
+        return None
+
+    data = _read_meeting_route_config_data(config_path)
+    raw_guards = data.get("journal_guards") or data.get("journal_guard")
+    guards = raw_guards if isinstance(raw_guards, list) else [raw_guards]
+    target = _normalize_guard_value(journal_space_id)
+    for guard in guards:
+        if not isinstance(guard, dict):
+            continue
+        candidates = _guard_values(
+            guard,
+            "space",
+            "space_id",
+            "space_ids",
+            "space_name",
+            "space_names",
+            "spaces",
+            "journal_space",
+            "journal_spaces",
+        )
+        if any(_normalize_guard_value(candidate) == target for candidate in candidates):
+            return guard
+    return None
+
+
+def _read_meeting_route_config_data(path: Path) -> dict[str, object]:
+    """Read meeting route config as a mapping for callers that need extra sections."""
+
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {"routes": data}
+
+
+def _guard_values(guard: dict[str, object], *keys: str) -> list[str]:
+    """Return normalized string values from one or more guard keys."""
+
+    values: list[str] = []
+    for key in keys:
+        raw_value = guard.get(key)
+        if raw_value is None:
+            continue
+        if isinstance(raw_value, list):
+            values.extend(str(item) for item in raw_value)
+        else:
+            values.append(str(raw_value))
+    return values
+
+
+def _normalize_guard_value(value: str) -> str:
+    """Normalize guard identifiers while preserving opaque IDs."""
+
+    return re.sub(r"\s+", " ", value.strip().lower())
 
 
 def _merge_route_rules(
@@ -857,8 +972,8 @@ def _meeting_route_text(meeting: MeetingRecord) -> str:
         " ".join(meeting.decisions),
         " ".join(meeting.action_items),
         " ".join(meeting.open_questions),
-        meeting.raw_markdown[:4000],
-        meeting.transcript[:4000],
+        meeting.raw_markdown[:20000],
+        meeting.transcript[:20000],
     ]
     return _normalize_route_text("\n".join(part for part in parts if part))
 

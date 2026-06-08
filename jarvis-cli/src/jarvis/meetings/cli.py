@@ -49,7 +49,7 @@ _WEBHOOK_TRIGGER_CHOICES = [
 ]
 _DESTINATION_CHOICES = ["private-context", "wiki", "journal", "memory"]
 _JOURNAL_SPACE_HELP = (
-    "Backend space/workspace ID for the journal destination; overrides the backend default"
+    "Backend space/workspace ID for the journal destination; required with --dest journal"
 )
 
 

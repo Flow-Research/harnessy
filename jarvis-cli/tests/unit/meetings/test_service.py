@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pytest
+
 from jarvis.meetings.models import MeetingRecord
 from jarvis.meetings.service import (
     MEETING_JOURNAL_TITLE_PREFIX,
@@ -119,6 +121,95 @@ class TestWriteMeetingMemory:
         assert note.exists()
 
 
+class TestMeetingJournalGuards:
+    """Meeting journal writes should be scoped before backend sync."""
+
+    def test_journal_destination_requires_explicit_space(self) -> None:
+        with pytest.raises(ValueError, match="--journal-space"):
+            write_meeting_record(_meeting_record(), destinations=["journal"])
+
+    def test_journal_destination_skipped_when_project_missing(self) -> None:
+        meeting = _meeting_record().model_copy(update={"project": ""})
+
+        result = write_meeting_record(
+            meeting,
+            destinations=["journal"],
+            journal_space_id="Flow",
+        )
+
+        assert result.journal_entry_id is None
+        assert result.journal_skipped_reason is not None
+        assert "routed project" in result.journal_skipped_reason
+        assert "journal" not in result.destinations
+
+    def test_guarded_journal_skips_disallowed_project_keeping_other_destinations(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("jarvis.meetings.service._USERNAME", "default")
+        # A disallowed project must never attempt the journal write.
+        monkeypatch.setattr(
+            "jarvis.meetings.service.write_journal_entry",
+            lambda *args, **kwargs: pytest.fail("journal should be skipped"),
+        )
+        root = tmp_path / ".jarvis" / "context" / "private" / "default"
+        root.mkdir(parents=True)
+        (root / "meeting-routes.yaml").write_text(
+            "journal_guards:\n"
+            "  - space_names:\n"
+            "      - Flow\n"
+            "    space_ids:\n"
+            "      - flow-space-id\n"
+            "    allowed_projects:\n"
+            "      - flow\n"
+            "      - garden\n",
+            encoding="utf-8",
+        )
+        meeting = _meeting_record().model_copy(update={"project": "adtf"})
+
+        result = write_meeting_record(
+            meeting,
+            destinations=["private-context", "journal"],
+            journal_space_id="flow-space-id",
+        )
+
+        assert result.journal_entry_id is None
+        assert result.journal_skipped_reason is not None
+        assert "not allowed" in result.journal_skipped_reason
+        assert "journal" not in result.destinations
+        # The meeting is still captured by its other destination.
+        assert result.written_paths
+
+    def test_guarded_journal_allows_allowed_project(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("jarvis.meetings.service._USERNAME", "default")
+        monkeypatch.setattr(
+            "jarvis.meetings.service.write_journal_entry",
+            lambda *args, **kwargs: "entry-123",
+        )
+        root = tmp_path / ".jarvis" / "context" / "private" / "default"
+        root.mkdir(parents=True)
+        (root / "meeting-routes.yaml").write_text(
+            "journal_guards:\n"
+            "  - space_names:\n"
+            "      - Flow\n"
+            "    space_ids:\n"
+            "      - flow-space-id\n"
+            "    allowed_projects:\n"
+            "      - flow\n",
+            encoding="utf-8",
+        )
+        meeting = _meeting_record().model_copy(update={"project": "flow"})
+
+        result = write_meeting_record(
+            meeting,
+            destinations=["journal"],
+            journal_space_id="Flow",
+        )
+
+        assert result.journal_entry_id == "entry-123"
+
+
 class TestMeetingAutoRoute:
     """Meeting auto-routing should only infer clear private project matches."""
 
@@ -190,6 +281,38 @@ class TestMeetingAutoRoute:
         )
 
         assert infer_meeting_project(meeting) == ""
+
+    def test_considers_decisive_route_terms_deep_in_fathom_markdown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("jarvis.meetings.service._USERNAME", "default")
+        root = tmp_path / ".jarvis" / "context" / "private" / "default"
+        root.mkdir(parents=True)
+        (root / "meeting-routes.yaml").write_text(
+            "routes:\n"
+            "  - project: adtf\n"
+            "    keywords:\n"
+            "      - automated judging platform\n"
+            "      - judging rubric\n"
+            "  - project: flow\n"
+            "    keywords:\n"
+            "      - flow community\n",
+            encoding="utf-8",
+        )
+        meeting = _meeting_record().model_copy(
+            update={
+                "project": "",
+                "summary": "Discussed mentor recommendations.",
+                "action_items": ["Review mentors from the Flow community."],
+                "raw_markdown": (
+                    ("filler " * 900)
+                    + "Automated judging platform demo. Judging rubric finalized."
+                ),
+            }
+        )
+
+        assert infer_meeting_project(meeting) == "adtf"
 
 
 class TestMeetingJournalTitle:

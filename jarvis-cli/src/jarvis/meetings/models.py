@@ -34,3 +34,4 @@ class MeetingIngestResult(BaseModel):
     destinations: list[str] = Field(default_factory=list)
     written_paths: list[str] = Field(default_factory=list)
     journal_entry_id: str | None = None
+    journal_skipped_reason: str | None = None
