@@ -232,7 +232,9 @@ jarvis text-hygiene clean README.md \
 Personal patterns are loaded from
 `.jarvis/context/private/${FLOW_USER:-${USER}}/style/ai-speak-patterns.yaml`
 when present. The cleaner skips YAML frontmatter, fenced code blocks, and inline
-code.
+code. Rules default to `action: clean`; set `action: flag` for patterns that
+should fail/report during hygiene checks but must be rewritten by a human rather
+than removed automatically.
 
 ### Journal Commands
 

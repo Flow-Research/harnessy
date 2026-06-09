@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.table import Table
 
 RuleKind = Literal["phrase", "regex"]
+RuleAction = Literal["clean", "flag"]
 
 DEFAULT_PATTERN_CONFIG: dict[str, Any] = {
     "version": 1,
@@ -96,6 +97,7 @@ class HygieneRule:
     replacement: str = ""
     flags: tuple[str, ...] = ()
     note: str | None = None
+    action: RuleAction = "clean"
 
     def compiled(self) -> re.Pattern[str]:
         """Compile this rule into a regex pattern."""
@@ -123,6 +125,7 @@ class HygieneFinding:
     match: str
     replacement: str
     note: str | None = None
+    action: RuleAction = "clean"
 
     def as_dict(self) -> dict[str, object]:
         """Return a JSON-serializable representation."""
@@ -133,6 +136,7 @@ class HygieneFinding:
             "match": self.match,
             "replacement": self.replacement,
             "note": self.note,
+            "action": self.action,
         }
 
 
@@ -476,22 +480,24 @@ def _process_segment(
 ) -> tuple[str, list[HygieneFinding]]:
     updated = segment
     findings: list[HygieneFinding] = []
+    changed = False
     for rule in rules:
         pattern = rule.compiled()
-        if write:
+        if write and rule.action == "clean":
 
             def replace(match: re.Match[str]) -> str:
                 findings.append(_finding(path, line_no, rule, match.group(0)))
                 return rule.replacement
 
-            updated = pattern.sub(replace, updated)
+            updated, count = pattern.subn(replace, updated)
+            changed = changed or count > 0
         else:
             findings.extend(
                 _finding(path, line_no, rule, match.group(0))
                 for match in pattern.finditer(updated)
             )
 
-    if write and findings:
+    if write and changed:
         updated = _normalize_spacing(updated)
     return updated, findings
 
@@ -504,6 +510,7 @@ def _finding(path: Path, line_no: int, rule: HygieneRule, match: str) -> Hygiene
         match=match,
         replacement=rule.replacement,
         note=rule.note,
+        action=rule.action,
     )
 
 
@@ -573,6 +580,15 @@ def _parse_rule(raw_rule: dict[str, Any]) -> HygieneRule:
         flags = tuple(str(flag) for flag in raw_flags)
     else:
         raise ValueError(f"text hygiene rule `{raw_rule.get('id')}` flags must be a list")
+    action_text = str(raw_rule.get("action", "clean")).strip().lower()
+    if action_text == "clean":
+        action: RuleAction = "clean"
+    elif action_text == "flag":
+        action = "flag"
+    else:
+        raise ValueError(
+            f"text hygiene rule `{raw_rule.get('id')}` action must be clean or flag"
+        )
     return HygieneRule(
         id=str(raw_rule["id"]),
         kind=kind,
@@ -580,6 +596,7 @@ def _parse_rule(raw_rule: dict[str, Any]) -> HygieneRule:
         replacement=str(raw_rule.get("replacement", "")),
         flags=flags,
         note=str(raw_rule["note"]) if raw_rule.get("note") is not None else None,
+        action=action,
     )
 
 
