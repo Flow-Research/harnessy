@@ -1160,7 +1160,7 @@ def deploy_systemd_live(args: argparse.Namespace, profiles: Profiles, package_re
         *ssh_client_options(args, env),
         str(local_package),
         f"{destination}:{remote_package}",
-    ], timeout=120)
+    ], timeout=900)
     if scp.returncode != 0:
         raise SystemExit(f"SCP package upload failed: {scp.stderr.strip() or scp.stdout.strip()}")
 
@@ -1235,7 +1235,7 @@ def deploy_static_live(args: argparse.Namespace, profiles: Profiles, package_res
         *ssh_client_options(args, env),
         str(local_package),
         f"{destination}:{remote_package}",
-    ], timeout=120)
+    ], timeout=900)
     if scp.returncode != 0:
         raise SystemExit(f"SCP package upload failed: {scp.stderr.strip() or scp.stdout.strip()}")
 
