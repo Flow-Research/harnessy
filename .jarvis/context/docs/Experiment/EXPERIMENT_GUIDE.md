@@ -530,3 +530,11 @@ report += f"\n## Custom Metrics\n{json.dumps(custom, indent=2)}"
 **Author:** Harnessy Core Team
 **Last Updated:** 2026-05-04
 **Experiment Version:** 1.0
+
+
+bash tests/harness/run-regression-recovery-experiment.sh \
+  --skill engineer \
+  --injected-failure missing-step \
+  --with-recovery true \
+  --llm-provider gemini \
+  --output-dir .experiments

@@ -10,7 +10,7 @@ Given a broken skill and failure context, it uses an LLM to:
 4. Record the improvement
 
 Supported LLM providers:
-- google-genai (Gemini) — FREE tier available
+- google-generativeai (Gemini) — FREE tier available
 - anthropic (Claude) — Paid
 - openai (GPT) — Paid but has free trial credits
 
@@ -54,13 +54,6 @@ class SkillRepair:
     
     def _init_gemini(self, api_key: Optional[str], model: Optional[str]):
         """Initialize Google Gemini (free tier available)."""
-        try:
-            from google import genai
-        except ImportError:
-            raise RuntimeError(
-                "google-genai not installed. Run: pip install google-genai"
-            )
-        
         api_key = api_key or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise RuntimeError(
@@ -68,8 +61,28 @@ class SkillRepair:
                 "Get free key at: https://aistudio.google.com/app/apikey"
             )
         
-        self.client = genai.Client(api_key=api_key)
-        self.model = model or "gemini-2.0-flash"
+        # Try new google.genai API first
+        try:
+            import google.genai as genai
+            # New API: create client directly with API key
+            self.client = genai.Client(api_key=api_key)
+            self.model = model or "gemini-2.0-flash"
+            self.is_new_genai = True
+            print(f"[*] Initialized google.genai (new API)", file=sys.stderr)
+        except (ImportError, AttributeError):
+            # Fall back to old google.generativeai API
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                self.client = genai.GenerativeModel(model or "gemini-2.0-flash")
+                self.model = model or "gemini-2.0-flash"
+                self.is_new_genai = False
+                print(f"[*] Initialized google.generativeai (deprecated API)", file=sys.stderr)
+            except ImportError:
+                raise RuntimeError(
+                    "Neither google-genai nor google-generativeai installed. "
+                    "Run: pip install google-genai or pip install google-generativeai"
+                )
     
     def _init_claude(self, api_key: Optional[str], model: Optional[str]):
         """Initialize Anthropic Claude (paid)."""
@@ -86,6 +99,7 @@ class SkillRepair:
         
         self.client = Anthropic(api_key=api_key)
         self.model = model or "claude-opus-4-1-20250805"
+        self.is_new_genai = False  # Not using Gemini
     
     def _init_gpt(self, api_key: Optional[str], model: Optional[str]):
         """Initialize OpenAI GPT (paid, but free trial credits available)."""
@@ -102,6 +116,7 @@ class SkillRepair:
         
         self.client = OpenAI(api_key=api_key)
         self.model = model or "gpt-4o-mini"
+        self.is_new_genai = False  # Not using Gemini
 
     def analyze_failure(
         self,
@@ -186,11 +201,17 @@ Be precise. The old_text must match exactly."""
 
         try:
             if self.provider == "gemini":
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt
-                )
-                response_text = response.text
+                if self.is_new_genai:
+                    # New google.genai API
+                    response = self.client.models.generate_content(
+                        model=f"models/{self.model}",
+                        contents=prompt
+                    )
+                    response_text = response.text
+                else:
+                    # Old google.generativeai API
+                    response = self.client.generate_content(prompt)
+                    response_text = response.text
             elif self.provider == "claude":
                 response = self.client.messages.create(
                     model=self.model,
