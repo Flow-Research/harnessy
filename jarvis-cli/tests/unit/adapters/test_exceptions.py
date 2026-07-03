@@ -83,9 +83,7 @@ class TestRateLimitError:
 
     def test_create_with_retry_after(self) -> None:
         """Test creating error with retry_after."""
-        error = RateLimitError(
-            "Rate limit exceeded", backend="notion", retry_after=30.0
-        )
+        error = RateLimitError("Rate limit exceeded", backend="notion", retry_after=30.0)
         assert error.retry_after == 30.0
         assert "notion" in str(error)
 

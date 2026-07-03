@@ -103,7 +103,7 @@ TIER2 = [
 
 SKIP = {"skill-feedback",  # IS the feedback system — tracing itself would be circular
         "issue-flow",  # already instrumented manually with full protocol
-        "_shared", "community-skills-install", "alpine-dev-container"}
+        "_shared", "alpine-dev-container"}
 
 
 # ─── Templates ───────────────────────────────────────────────────────────────

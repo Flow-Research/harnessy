@@ -49,6 +49,40 @@ content:
 analytics:
   enabled: false
   metrics_file: "~/.jarvis/metrics.json"
+
+# Fathom meeting ingestion
+fathom:
+  # Optional: choose a default named account for `jarvis meeting fathom ...`
+  # default_account: work
+
+  # Configure named accounts when you use multiple Google/Fathom identities.
+  # Keep secrets in environment variables, not in this file.
+  # accounts:
+  #   work:
+  #     email: "you@work.com"
+  #     api_key_env_var: "FATHOM_API_KEY_WORK"
+  #     webhook_secret_env_var: "FATHOM_WEBHOOK_SECRET_WORK"
+  #   personal:
+  #     email: "you@gmail.com"
+  #     api_key_env_var: "FATHOM_API_KEY_PERSONAL"
+  #     webhook_secret_env_var: "FATHOM_WEBHOOK_SECRET_PERSONAL"
+
+# WhatsApp channel integration
+whatsapp:
+  # Optional: choose a default named account for `jarvis whatsapp ...`
+  # default_account: personal
+
+  # Meta WhatsApp Cloud API is the canonical provider. Keep secrets in
+  # environment variables, not in this file.
+  # accounts:
+  #   personal:
+  #     provider: meta
+  #     phone_number_id: "1234567890"
+  #     business_account_id: "9876543210"
+  #     access_token_env_var: "JARVIS_WHATSAPP_META_TOKEN_PERSONAL"
+  #     app_secret_env_var: "JARVIS_WHATSAPP_META_APP_SECRET_PERSONAL"
+  #     verify_token_env_var: "JARVIS_WHATSAPP_VERIFY_TOKEN_PERSONAL"
+  #     api_version: "v24.0"
 """
 
 # Valid backend names

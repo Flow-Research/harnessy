@@ -52,9 +52,10 @@ hand-edited when the runtime owns them.
 
 Harnessy resolves QA configuration from a repo-local JSON profile. Default lookup order:
 
-1. `.harnessy/qa-profile.json`
-2. `.flow/qa-profile.json`
-3. `qa/qa-profile.json`
+1. `.jarvis/context/profiles/qa.json`
+2. `.harnessy/qa-profile.json` (legacy compatibility)
+3. `.flow/qa-profile.json` (legacy compatibility)
+4. `qa/qa-profile.json` (legacy compatibility)
 
 The profile must define:
 
@@ -76,6 +77,24 @@ The profile may also define:
 The QA profile is the canonical runtime input. Adapter metadata in files such as
 `.flow/delivery-profile.json` may enrich codegen or validation, but does not
 replace the QA profile as the source of truth.
+
+New Harnessy-managed repositories should create only
+`.jarvis/context/profiles/qa.json`. Older profile paths remain supported so
+existing repos can migrate without breaking deterministic QA commands.
+
+## Testing Strategy
+
+Harnessy testing is integration-first. The shared testing strategy lives in
+`.jarvis/context/docs/standards/testing-strategy.md` and establishes:
+
+- Testcontainers as the preferred app-level integration runtime
+- Docker Compose as the fallback for full multi-service environments
+- mocks by documented exception, not as the default test design
+- mock-heavy tests as warning-level false-green risks in v1
+
+The QA profile may define `testEnvironment` metadata so agents and CI can
+discover integration dependencies, container runtime preference, and allowed
+mock exceptions.
 
 ## Feature Catalog Contract
 

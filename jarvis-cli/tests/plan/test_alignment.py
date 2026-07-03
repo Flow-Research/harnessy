@@ -1,18 +1,17 @@
 """Tests for alignment scoring functionality."""
 
-import pytest
 from datetime import date, datetime
 
-from jarvis.models import Task, Priority
+from jarvis.models import Priority, Task
 from jarvis.models.plan import (
+    ExtractedGoal,
     FocusMode,
     FocusSummary,
-    ExtractedGoal,
     PlanContext,
 )
 from jarvis.plan.alignment import (
-    calculate_alignment,
     build_task_reality,
+    calculate_alignment,
 )
 
 
@@ -182,10 +181,7 @@ class TestBuildTaskReality:
         today = date.today()
 
         # Create 8 tasks for today
-        tasks = [
-            make_task(f"Task {i}", task_id=str(i), scheduled_date=today)
-            for i in range(8)
-        ]
+        tasks = [make_task(f"Task {i}", task_id=str(i), scheduled_date=today) for i in range(8)]
         context = make_context()
         alignment = calculate_alignment(tasks, context)
 

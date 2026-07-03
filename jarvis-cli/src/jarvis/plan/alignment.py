@@ -7,6 +7,7 @@ stated focus and goals using a multi-signal approach (FR-03.A).
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 
 from ..models import Task
 from ..models.plan import (
@@ -15,18 +16,37 @@ from ..models.plan import (
     TaskCategory,
     TaskReality,
 )
-from datetime import date
-
 
 # Category definitions with emojis
 CATEGORY_CONFIG: dict[str, dict[str, str | list[str]]] = {
-    "research": {"emoji": "🔬", "keywords": ["research", "experiment", "analysis", "study", "paper", "thesis"]},
-    "business": {"emoji": "💼", "keywords": ["business", "meeting", "client", "sales", "revenue", "pitch"]},
-    "development": {"emoji": "💻", "keywords": ["dev", "code", "implement", "build", "fix", "bug", "feature"]},
-    "admin": {"emoji": "📝", "keywords": ["admin", "email", "invoice", "report", "form", "document"]},
-    "maintenance": {"emoji": "🔧", "keywords": ["maintain", "update", "clean", "organize", "backup", "review"]},
-    "learning": {"emoji": "📚", "keywords": ["learn", "course", "read", "tutorial", "practice", "skill"]},
-    "personal": {"emoji": "🏠", "keywords": ["personal", "health", "family", "errand", "appointment"]},
+    "research": {
+        "emoji": "🔬",
+        "keywords": ["research", "experiment", "analysis", "study", "paper", "thesis"],
+    },
+    "business": {
+        "emoji": "💼",
+        "keywords": ["business", "meeting", "client", "sales", "revenue", "pitch"],
+    },
+    "development": {
+        "emoji": "💻",
+        "keywords": ["dev", "code", "implement", "build", "fix", "bug", "feature"],
+    },
+    "admin": {
+        "emoji": "📝",
+        "keywords": ["admin", "email", "invoice", "report", "form", "document"],
+    },
+    "maintenance": {
+        "emoji": "🔧",
+        "keywords": ["maintain", "update", "clean", "organize", "backup", "review"],
+    },
+    "learning": {
+        "emoji": "📚",
+        "keywords": ["learn", "course", "read", "tutorial", "practice", "skill"],
+    },
+    "personal": {
+        "emoji": "🏠",
+        "keywords": ["personal", "health", "family", "errand", "appointment"],
+    },
     "other": {"emoji": "📦", "keywords": []},
 }
 
@@ -270,13 +290,69 @@ def _extract_keywords_from_goals(goals: list) -> set[str]:
 
     # Common words to ignore
     stopwords = {
-        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-        "of", "with", "by", "from", "this", "that", "these", "those", "is",
-        "are", "was", "were", "be", "been", "being", "have", "has", "had",
-        "do", "does", "did", "will", "would", "could", "should", "may",
-        "might", "must", "shall", "can", "need", "dare", "ought", "used",
-        "my", "your", "his", "her", "its", "our", "their", "what", "which",
-        "who", "whom", "when", "where", "why", "how", "all", "each", "every",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "this",
+        "that",
+        "these",
+        "those",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "every",
     }
 
     for goal in goals:

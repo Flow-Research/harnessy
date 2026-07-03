@@ -169,8 +169,7 @@ def _result_to_markdown(result: PrioritizationResult) -> str:
                 badge_str = f" [{badge}]" if badge else ""
                 rationale_str = f" — {item.rationale}" if not shared_rationale else ""
                 lines.append(
-                    f"- **{title}**{badge_str}{rationale_str} "
-                    f"| [Link]({item.content.item.url})"
+                    f"- **{title}**{badge_str}{rationale_str} | [Link]({item.content.item.url})"
                 )
             lines.append("")
     return "\n".join(lines)

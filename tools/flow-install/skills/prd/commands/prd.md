@@ -62,6 +62,10 @@ When critical information is missing:
 1. Follow the format in `templates/product_spec.md` exactly
 2. Fill in all 15 sections with substantive content
 3. Generate `product_spec.md` in the **same folder** as the brainstorm.md
+4. Run text hygiene before delivery:
+   ```bash
+   jarvis text-hygiene clean path/to/product_spec.md --report
+   ```
 
 ## Feedback Capture
 
@@ -174,3 +178,4 @@ Before delivering the product_spec.md, verify:
 - [ ] No orphaned [NEEDS INPUT] tags for critical items
 - [ ] Terminology is consistent throughout
 - [ ] Document is readable by engineers, designers, AND stakeholders
+- [ ] `jarvis text-hygiene clean product_spec.md --report` has been run

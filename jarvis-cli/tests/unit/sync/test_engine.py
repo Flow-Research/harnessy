@@ -51,12 +51,30 @@ class RecordingAdapter:
             raise RuntimeError("simulated")
         return self._id("page")
 
-    def update_page_content(
-        self, space_id: str, object_id: str, body_markdown: str
-    ) -> None:
+    def update_page_content(self, space_id: str, object_id: str, body_markdown: str) -> None:
         self.calls.append(("update_page_content", (space_id, object_id, body_markdown), {}))
         if self.raise_on == "update_page_content":
             raise RuntimeError("simulated")
+
+    def upload_file_in(
+        self, space_id: str, parent_collection_id: str | None, file_path: Path
+    ) -> str:
+        self.calls.append(("upload_file_in", (space_id, parent_collection_id, file_path), {}))
+        if self.raise_on == "upload_file_in":
+            raise RuntimeError("simulated")
+        return self._id("file")
+
+    def delete_object(self, space_id: str, object_id: str) -> bool:
+        self.calls.append(("delete_object", (space_id, object_id), {}))
+        if self.raise_on == "delete_object":
+            raise RuntimeError("simulated")
+        return True
+
+    def delete_file(self, space_id: str, file_id: str) -> bool:
+        self.calls.append(("delete_file", (space_id, file_id), {}))
+        if self.raise_on == "delete_file":
+            raise RuntimeError("simulated")
+        return True
 
 
 def _build_tree(root: Path, layout: dict[str, str | None]) -> None:
@@ -131,6 +149,293 @@ class TestFirstRun:
         assert result.created == 1
         # The state still records the operation; new ids are empty strings in dry-run.
         assert result.state.objects["a.md"].object_id == ""
+
+    def test_uploads_unsupported_files_by_default(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"keep.md": "ok"})
+        (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+        )
+
+        assert result.created == 2
+        assert result.skipped == 0
+        assert any(o.kind == "create_file" and o.relpath == "image.png" for o in result.operations)
+        assert result.state.objects["image.png"].kind == "file"
+        upload_calls = [c for c in adapter.calls if c[0] == "upload_file_in"]
+        assert len(upload_calls) == 1
+        assert upload_calls[0][1][2] == tmp_path / "image.png"
+
+    def test_reports_unsupported_files_without_writes_in_warn_mode(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"keep.md": "ok"})
+        (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            unsupported_mode="warn",
+        )
+
+        assert result.created == 1
+        assert result.skipped == 1
+        assert any(
+            o.kind == "skip_unsupported" and o.relpath == "image.png" for o in result.operations
+        )
+        assert any("skip_unsupported image.png" in w for w in result.warnings)
+        assert "image.png" not in result.state.objects
+        assert not any("image.png" in str(call) for call in adapter.calls)
+
+    def test_unchanged_uploaded_file_skips_by_hash(self, tmp_path: Path) -> None:
+        image = tmp_path / "image.png"
+        image.write_bytes(b"\x89PNG\r\n")
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "image.png": ObjectRecord(
+                    object_id="file_old",
+                    kind="file",
+                    content_sha256=_file_sha(image),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert result.unchanged == 1
+        assert result.operations[0].kind == "skip_file_unchanged"
+        assert adapter.calls == []
+
+    def test_modified_uploaded_file_reuploads_and_deletes_old(self, tmp_path: Path) -> None:
+        image = tmp_path / "image.png"
+        image.write_bytes(b"new bytes")
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "image.png": ObjectRecord(
+                    object_id="file_old",
+                    kind="file",
+                    content_sha256=_sha("old bytes"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert result.updated == 1
+        assert result.operations[0].kind == "update_file"
+        assert [c[0] for c in adapter.calls] == ["upload_file_in", "delete_file"]
+        assert result.state.objects["image.png"].object_id == "file_1"
+
+    def test_stub_page_replaced_by_uploaded_file_deletes_old_page(self, tmp_path: Path) -> None:
+        image = tmp_path / "image.png"
+        image.write_bytes(b"\x89PNG\r\n")
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "image.png": ObjectRecord(
+                    object_id="page_old_stub",
+                    kind="page",
+                    content_sha256=_sha("old stub"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert result.updated == 1
+        assert result.operations[0].kind == "update_file"
+        assert [c[0] for c in adapter.calls] == ["upload_file_in", "delete_object"]
+        assert adapter.calls[1][1] == ("space_xyz", "page_old_stub")
+        assert result.state.objects["image.png"].kind == "file"
+
+    def test_file_object_replaced_by_text_page_deletes_old_file(self, tmp_path: Path) -> None:
+        source = tmp_path / "data.bin"
+        source.write_text("now readable as text", encoding="utf-8")
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "data.bin": ObjectRecord(
+                    object_id="file_old",
+                    kind="file",
+                    content_sha256=_sha("old binary"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=[".bin"],
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert result.created == 1
+        assert result.operations[0].kind == "create_page"
+        assert [c[0] for c in adapter.calls] == ["create_page_in", "delete_file"]
+        assert adapter.calls[1][1] == ("space_xyz", "file_old")
+        assert result.state.objects["data.bin"].kind == "page"
+
+    def test_file_object_replaced_by_collection_deletes_old_file(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"assets": None, "assets/readme.md": "ok"})
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "assets": ObjectRecord(
+                    object_id="file_old_assets",
+                    kind="file",
+                    content_sha256=_sha("old file"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert result.created == 2
+        assert [c[0] for c in adapter.calls] == [
+            "create_collection_in",
+            "delete_file",
+            "create_page_in",
+        ]
+        assert adapter.calls[1][1] == ("space_xyz", "file_old_assets")
+        assert adapter.calls[2][1][1] == "col_1"
+        assert result.state.objects["assets"].kind == "collection"
+
+    def test_unsupported_mode_error_records_error(self, tmp_path: Path) -> None:
+        (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            unsupported_mode="error",
+        )
+
+        assert result.created == 0
+        assert result.skipped == 1
+        assert any("unsupported_file image.png" in e for e in result.errors)
+        assert "image.png" not in result.state.objects
+        assert adapter.calls == []
+
+    def test_unsupported_mode_stub_creates_metadata_page(self, tmp_path: Path) -> None:
+        (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            unsupported_mode="stub",
+        )
+
+        assert result.created == 1
+        assert result.stubbed == 1
+        assert result.operations[0].kind == "create_stub_page"
+        assert "image.png" in result.state.objects
+        create_call = adapter.calls[0]
+        assert create_call[0] == "create_page_in"
+        assert create_call[1][2] == "image.png"
+        assert "Relative path: `image.png`" in create_call[1][3]
+        assert "SHA-256" in create_call[1][3]
+
+    def test_directory_names_keep_dots(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"release.v1": None, "release.v1/notes.md": "ok"})
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+        )
+
+        assert result.created == 2
+        collection_calls = [c for c in adapter.calls if c[0] == "create_collection_in"]
+        assert collection_calls[0][1][2] == "release.v1"
 
 
 class TestIncrementalRun:
@@ -285,10 +590,69 @@ class TestIncrementalRun:
         assert any(o.relpath == "page-a.md" for o in delete_ops)
         # Orphan should NOT be in the resulting state.
         assert "page-a.md" not in result.state.objects
+        delete_calls = [c for c in adapter.calls if c[0] == "delete_object"]
+        assert any(c[1][1] == "page_old_a" for c in delete_calls)
+
+    def test_failed_prune_preserves_orphan_in_state(self, tmp_path: Path) -> None:
+        _build_tree(
+            tmp_path,
+            {
+                "subdir": None,
+                "subdir/page-b.md": "inside",
+            },
+        )
+        adapter = RecordingAdapter(raise_on="delete_object")
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=self._initial_state(),
+            prune=True,
+        )
+        assert any("delete_orphan page-a.md" in e for e in result.errors)
+        assert "page-a.md" in result.state.objects
+
+    def test_unsupported_existing_path_is_not_pruned(self, tmp_path: Path) -> None:
+        (tmp_path / "page-a.md").write_text("hello", encoding="utf-8")
+        (tmp_path / "subdir").mkdir()
+        (tmp_path / "subdir" / "page-b.md").write_text("inside", encoding="utf-8")
+        (tmp_path / "archive.pdf").write_bytes(b"%PDF-1.4")
+
+        state = self._initial_state()
+        state.objects["archive.pdf"] = ObjectRecord(
+            object_id="page_old_archive",
+            kind="page",
+            content_sha256=_sha("old archive stub"),
+            last_synced_at=now_iso(),
+        )
+
+        adapter = RecordingAdapter()
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=state,
+            prune=True,
+            unsupported_mode="warn",
+        )
+
+        assert result.skipped == 1
+        assert "archive.pdf" in result.state.objects
+        assert result.state.objects["archive.pdf"].object_id == "page_old_archive"
+        assert not any(
+            call == ("delete_object", ("space_xyz", "page_old_archive"), {})
+            for call in adapter.calls
+        )
 
 
 class TestErrorRecovery:
-    def test_collection_failure_logged_not_fatal(self, tmp_path: Path) -> None:
+    def test_collection_failure_blocks_descendants(self, tmp_path: Path) -> None:
         _build_tree(tmp_path, {"sub": None, "sub/x.md": "x"})
         adapter = RecordingAdapter(raise_on="create_collection_in")
         result = run_sync(
@@ -300,14 +664,88 @@ class TestErrorRecovery:
             adapter=adapter,
         )
         assert any("create_collection sub" in e for e in result.errors)
-        # The page should still attempt to create, parented to the root since
-        # the collection's id was never recorded.
+        # Do not create children at the wrong parent when their directory failed.
         page_calls = [c for c in adapter.calls if c[0] == "create_page_in"]
-        assert page_calls, "page creation should have been attempted"
-        assert page_calls[0][1][1] == "root_obj"  # fell back to root
+        assert page_calls == []
+        assert any(o.kind == "skip_blocked" and o.relpath == "sub/x.md" for o in result.operations)
+        assert any("skip_blocked sub/x.md" in w for w in result.warnings)
+        assert "sub/x.md" not in result.state.objects
+
+    def test_failed_page_update_preserves_prior_mapping(self, tmp_path: Path) -> None:
+        _build_tree(tmp_path, {"note.md": "new"})
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "note.md": ObjectRecord(
+                    object_id="page_old",
+                    kind="page",
+                    content_sha256=_sha("old"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter(raise_on="update_page_content")
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert any("update_page note.md" in e for e in result.errors)
+        assert result.state.objects["note.md"].object_id == "page_old"
+        assert result.state.objects["note.md"].content_sha256 == _sha("old")
+
+    def test_failed_file_update_preserves_prior_mapping(self, tmp_path: Path) -> None:
+        image = tmp_path / "image.png"
+        image.write_bytes(b"new")
+        ts = now_iso()
+        prior_state = SyncState(
+            preset="t",
+            destination_object_id="root_obj",
+            space_id="space_xyz",
+            last_synced_at=ts,
+            objects={
+                "image.png": ObjectRecord(
+                    object_id="file_old",
+                    kind="file",
+                    content_sha256=_sha("old"),
+                    last_synced_at=ts,
+                )
+            },
+        )
+
+        adapter = RecordingAdapter(raise_on="upload_file_in")
+        result = run_sync(
+            preset_name="t",
+            source=tmp_path,
+            destination=_link(),
+            include_extensions=EXTS,
+            ignore=IGNORE,
+            adapter=adapter,
+            prior_state=prior_state,
+        )
+
+        assert any("update_file image.png" in e for e in result.errors)
+        assert result.state.objects["image.png"].object_id == "file_old"
+        assert result.state.objects["image.png"].content_sha256 == _sha("old")
 
 
 def _sha(s: str) -> str:
     from jarvis.sync.state import compute_content_sha256
 
     return compute_content_sha256(s)
+
+
+def _file_sha(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()

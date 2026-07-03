@@ -8,7 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 SuggestionStatus = Literal["pending", "accepted", "rejected", "applied", "failed"]
 
 

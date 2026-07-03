@@ -14,7 +14,7 @@ Interact with Anytype's local-first REST API from Claude Code. Manage spaces, ob
 Anytype runs a local HTTP API on your machine (no cloud). The desktop app listens on `127.0.0.1:31009`; `anytype-cli` on `127.0.0.1:31012`.
 
 ## Inputs
-- Command group (auth, search, spaces, objects, types, properties, tags, lists, members)
+- Command group (auth, search, spaces, objects, files, types, properties, tags, lists, members)
 - Subcommand (list, get, create, update, delete, etc.)
 - Space ID (required for most operations)
 - Object/type/property IDs as needed
@@ -53,6 +53,7 @@ Based on the user's request, read and follow the relevant command doc:
 - `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/search.md` — Global and space-scoped search
 - `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/spaces.md` — Space CRUD
 - `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/objects.md` — Object CRUD
+- `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/files.md` — Native file upload, download, and delete
 - `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/types.md` — Type CRUD + templates
 - `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/properties.md` — Property CRUD
 - `${AGENTS_SKILLS_ROOT}/anytype-skill/commands/tags.md` — Tag CRUD on select/multi-select properties

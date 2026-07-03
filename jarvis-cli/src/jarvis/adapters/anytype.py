@@ -4,11 +4,14 @@ This adapter wraps the existing AnyTypeClient to provide a Protocol-compliant
 interface for the backend abstraction layer.
 """
 
+import time
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from ..anytype_client import AnyTypeClient
 from ..config.schema import JarvisConfig
+from ..knowledge_body import strip_duplicate_title_heading
 from ..models import (
     BackendObject,
     JournalEntry,
@@ -25,6 +28,32 @@ from .exceptions import (
     NotFoundError,
     ValidationError,
 )
+
+_RATE_LIMIT_MARKERS = (
+    "maximum request limit",
+    "rate limit",
+    "rate-limit",
+    "too many requests",
+    "429",
+)
+
+
+def _looks_rate_limited(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _RATE_LIMIT_MARKERS)
+
+
+def _with_anytype_retries(operation):
+    max_attempts = 6
+    for attempt in range(max_attempts):
+        try:
+            return operation()
+        except Exception as exc:
+            if _looks_rate_limited(exc) and attempt < max_attempts - 1:
+                time.sleep(min(2**attempt, 20))
+                continue
+            raise
+    raise RuntimeError("unreachable retry state")
 
 
 class AnyTypeAdapter:
@@ -142,10 +171,7 @@ class AnyTypeAdapter:
         self._ensure_connected()
         try:
             space_tuples = self._client.get_spaces()
-            return [
-                Space(id=sid, name=sname, backend="anytype")
-                for sid, sname in space_tuples
-            ]
+            return [Space(id=sid, name=sname, backend="anytype") for sid, sname in space_tuples]
         except RuntimeError as e:
             raise ConnectionError(str(e), backend="anytype")
 
@@ -399,17 +425,14 @@ class AnyTypeAdapter:
         if title is not None:
             self._validate_title(title)
 
-        # Get current task first
-        current = self.get_task(space_id, task_id)
+        # Verify the task exists before building a partial update.
+        self.get_task(space_id, task_id)
 
         # Build updates dict for the generic update_object method
         updates: dict[str, object] = {}
 
         if title is not None:
             updates["name"] = title
-
-        if due_date is not None:
-            updates["due_date"] = due_date.isoformat()
 
         if priority is not None:
             updates["priority"] = priority.value
@@ -427,9 +450,15 @@ class AnyTypeAdapter:
             try:
                 self.update_object(space_id, task_id, updates)
             except Exception as e:
-                raise ConnectionError(
-                    f"Failed to update task: {e}", backend="anytype"
-                )
+                raise ConnectionError(f"Failed to update task: {e}", backend="anytype")
+
+        if due_date is not None:
+            try:
+                updated = self._client.update_task_date(space_id, task_id, due_date)
+            except RuntimeError as e:
+                raise ConnectionError(f"Failed to update task due date: {e}", backend="anytype")
+            if not updated:
+                raise ConnectionError("Failed to update task due date", backend="anytype")
 
         # Return updated task (refetch to get latest state)
         return self.get_task(space_id, task_id)
@@ -468,6 +497,7 @@ class AnyTypeAdapter:
         content: str,
         title: str | None = None,
         entry_date: date | None = None,
+        tags: list[str] | None = None,
     ) -> JournalEntry:
         """Create a new journal entry.
 
@@ -479,6 +509,8 @@ class AnyTypeAdapter:
             content: Entry content (markdown)
             title: Optional title
             entry_date: Date for entry (defaults to today)
+            tags: Optional list of tag names. AnyType journal pages do not
+                currently persist tags through this adapter.
 
         Returns:
             Created JournalEntry object.
@@ -492,6 +524,7 @@ class AnyTypeAdapter:
 
         entry_date = entry_date or date.today()
         final_title = title or f"Entry {entry_date.day}"
+        content = strip_duplicate_title_heading(content, final_title)
 
         try:
             hierarchy = JournalHierarchy(self._client, space_id)
@@ -510,6 +543,7 @@ class AnyTypeAdapter:
             title=final_title,
             content=content,
             entry_date=entry_date,
+            tags=tags or [],
             created_at=now,
             path=f"Journal/{entry_date.year}/{entry_date.strftime('%B')}/{final_title}",
         )
@@ -546,9 +580,8 @@ class AnyTypeAdapter:
                 title=getattr(obj, "name", "Untitled"),
                 content=content,
                 entry_date=entry_date or date.today(),
-                created_at=self._client._parse_datetime(
-                    props.get("created_date")
-                ) or datetime.now(),
+                created_at=self._client._parse_datetime(props.get("created_date"))
+                or datetime.now(),
             )
         except Exception as e:
             error_msg = str(e).lower()
@@ -602,16 +635,17 @@ class AnyTypeAdapter:
                     if entry_date is None:
                         continue  # Skip non-journal pages
 
-                    entries.append(JournalEntry(
-                        id=obj.id,
-                        space_id=space_id,
-                        title=getattr(obj, "name", "Untitled"),
-                        content=content,
-                        entry_date=entry_date,
-                        created_at=self._client._parse_datetime(
-                            props.get("created_date")
-                        ) or datetime.now(),
-                    ))
+                    entries.append(
+                        JournalEntry(
+                            id=obj.id,
+                            space_id=space_id,
+                            title=getattr(obj, "name", "Untitled"),
+                            content=content,
+                            entry_date=entry_date,
+                            created_at=self._client._parse_datetime(props.get("created_date"))
+                            or datetime.now(),
+                        )
+                    )
                 except Exception:
                     continue
 
@@ -652,8 +686,8 @@ class AnyTypeAdapter:
         """
         self._ensure_connected()
 
-        # Verify entry exists
-        current = self.get_journal_entry(space_id, entry_id)
+        # Verify the entry exists before building a partial update.
+        self.get_journal_entry(space_id, entry_id)
 
         # Build updates via generic object update
         updates: dict[str, object] = {}
@@ -740,16 +774,17 @@ class AnyTypeAdapter:
                     if entry_date is None:
                         continue
 
-                    entries.append(JournalEntry(
-                        id=obj.id,
-                        space_id=space_id,
-                        title=getattr(obj, "name", "Untitled"),
-                        content=content,
-                        entry_date=entry_date,
-                        created_at=self._client._parse_datetime(
-                            props.get("created_date")
-                        ) or datetime.now(),
-                    ))
+                    entries.append(
+                        JournalEntry(
+                            id=obj.id,
+                            space_id=space_id,
+                            title=getattr(obj, "name", "Untitled"),
+                            content=content,
+                            entry_date=entry_date,
+                            created_at=self._client._parse_datetime(props.get("created_date"))
+                            or datetime.now(),
+                        )
+                    )
                 except Exception:
                     continue
 
@@ -968,13 +1003,19 @@ class AnyTypeAdapter:
         # Note: UpdateObjectRequest uses "markdown" key, not "body"
         has_body_update = False
         if "body" in updates:
-            update_payload["markdown"] = str(updates.pop("body"))
+            update_payload["markdown"] = strip_duplicate_title_heading(
+                str(updates.pop("body")), str(new_name)
+            )
             has_body_update = True
         elif "content" in updates:
-            update_payload["markdown"] = str(updates.pop("content"))
+            update_payload["markdown"] = strip_duplicate_title_heading(
+                str(updates.pop("content")), str(new_name)
+            )
             has_body_update = True
         elif "markdown" in updates:
-            update_payload["markdown"] = str(updates.pop("markdown"))
+            update_payload["markdown"] = strip_duplicate_title_heading(
+                str(updates.pop("markdown")), str(new_name)
+            )
             has_body_update = True
 
         # Process property updates
@@ -995,9 +1036,7 @@ class AnyTypeAdapter:
                     # Apply the update to this property
                     new_val = updates[prop_key]
                     fmt = prop.get("format", "")
-                    prop_copy = self._apply_property_update(
-                        prop_copy, fmt, new_val
-                    )
+                    prop_copy = self._apply_property_update(prop_copy, fmt, new_val)
                     updated_keys.add(prop_key)
 
                 properties.append(prop_copy)
@@ -1024,20 +1063,14 @@ class AnyTypeAdapter:
                 original_version = api.headers.get("Anytype-Version")
                 api.headers["Anytype-Version"] = "2025-11-08"
                 try:
-                    api.updateObject(
-                        space_id, object_id, update_payload
-                    )
+                    api.updateObject(space_id, object_id, update_payload)
                 finally:
                     if original_version:
                         api.headers["Anytype-Version"] = original_version
             else:
-                api.updateObject(
-                    space_id, object_id, update_payload
-                )
+                api.updateObject(space_id, object_id, update_payload)
         except Exception as e:
-            raise ConnectionError(
-                f"Failed to update object: {e}", backend="anytype"
-            )
+            raise ConnectionError(f"Failed to update object: {e}", backend="anytype")
 
         # Re-fetch and return updated object
         return self.get_object(space_id, object_id)
@@ -1047,10 +1080,8 @@ class AnyTypeAdapter:
     # =========================================================================
     #
     # These methods power `jarvis sync`. They use the SDK's high-level
-    # `Space.create_object` / `update_object` plus the lower-level
-    # `apiEndpoints.addObjectsToList` to attach a created object as a child
-    # of a target Collection. The Anytype API treats Collections as "lists"
-    # at the endpoint layer (POST /spaces/{spaceId}/lists/{listId}/objects).
+    # `Space.create_object` / `update_object` and the shared AnyTypeClient
+    # collection-link helper so new children reliably appear inside Collections.
 
     def create_collection_in(
         self,
@@ -1078,15 +1109,52 @@ class AnyTypeAdapter:
         try:
             space = self._client._client.get_space(space_id)
             type_collection = space.get_type_byname("Collection")
-            obj = AnytypeObject(name=name, type=type_collection)
-            created = space.create_object(obj)
+
             if parent_collection_id:
-                space._apiEndpoints.addObjectsToList(
-                    space_id, parent_collection_id, {"objects": [created.id]}
-                )
+                try:
+                    existing_child = _with_anytype_retries(
+                        lambda: self._client._find_child_by_name(
+                            space_id, parent_collection_id, name
+                        )
+                    )
+                except Exception:
+                    existing_child = None
+                if existing_child:
+                    return str(existing_child)
+
+            existing = self._find_exact_collection_by_name(space, type_collection, name)
+            if existing:
+                if parent_collection_id:
+                    self._attach_to_collection(space_id, parent_collection_id, existing)
+                return existing
+
+            obj = AnytypeObject(name=name, type=type_collection)
+            created = _with_anytype_retries(lambda: space.create_object(obj))
+            if parent_collection_id:
+                self._attach_to_collection(space_id, parent_collection_id, str(created.id))
             return str(created.id)
         except Exception as e:
             raise ConnectionError(str(e), backend="anytype")
+
+    def _find_exact_collection_by_name(
+        self, space: object, type_collection: object, name: str
+    ) -> str | None:
+        """Find one exact-name Collection in a space.
+
+        This is intentionally conservative. It only reuses a Collection when
+        there is exactly one exact-name match, which lets interrupted sync runs
+        recover orphaned folder Collections without blindly creating duplicates.
+        """
+        try:
+            results = _with_anytype_retries(
+                lambda: space.search(query=name, type=type_collection, limit=10)
+            ) or []
+        except Exception:
+            return None
+        matches = [str(obj.id) for obj in results if getattr(obj, "name", "") == name]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def create_page_in(
         self,
@@ -1117,15 +1185,47 @@ class AnyTypeAdapter:
             space = self._client._client.get_space(space_id)
             type_page = space.get_type_byname("Page")
             obj = AnytypeObject(name=name, type=type_page)
-            obj.body = body_markdown
-            created = space.create_object(obj)
+            obj.body = strip_duplicate_title_heading(body_markdown, name)
+            created = _with_anytype_retries(lambda: space.create_object(obj))
             if parent_collection_id:
-                space._apiEndpoints.addObjectsToList(
-                    space_id, parent_collection_id, {"objects": [created.id]}
-                )
+                self._attach_to_collection(space_id, parent_collection_id, str(created.id))
             return str(created.id)
         except Exception as e:
             raise ConnectionError(str(e), backend="anytype")
+
+    def upload_file_in(
+        self,
+        space_id: str,
+        parent_collection_id: str | None,
+        file_path: Path,
+    ) -> str:
+        """Upload a native Anytype file object, optionally inside a Collection."""
+        self._ensure_connected()
+        try:
+            file_object_id = self._client.upload_file(space_id, file_path)
+            if parent_collection_id:
+                self._attach_to_collection(space_id, parent_collection_id, file_object_id)
+            return file_object_id
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def _attach_to_collection(
+        self, space_id: str, parent_collection_id: str, object_id: str
+    ) -> None:
+        """Attach a created object to a Collection or fail the sync operation."""
+        try:
+            attached = self._client._add_to_collection(space_id, parent_collection_id, object_id)
+        except Exception as e:
+            raise ConnectionError(
+                f"Failed to attach object '{object_id}' to Collection "
+                f"'{parent_collection_id}': {e}",
+                backend="anytype",
+            ) from e
+        if not attached:
+            raise ConnectionError(
+                f"Failed to attach object '{object_id}' to Collection '{parent_collection_id}'",
+                backend="anytype",
+            )
 
     def update_page_content(
         self,
@@ -1148,8 +1248,25 @@ class AnyTypeAdapter:
         try:
             space = self._client._client.get_space(space_id)
             obj = space.get_object(object_id)
-            obj.body = body_markdown
-            space.update_object(obj)
+
+            api = self._client._client._apiEndpoints
+            original_version = api.headers.get("Anytype-Version")
+            api.headers["Anytype-Version"] = "2025-11-08"
+            name = str(getattr(obj, "name", ""))
+            try:
+                api.updateObject(
+                    space_id,
+                    object_id,
+                    {
+                        "name": name,
+                        "markdown": strip_duplicate_title_heading(body_markdown, name),
+                    },
+                )
+            finally:
+                if original_version:
+                    api.headers["Anytype-Version"] = original_version
+                else:
+                    api.headers.pop("Anytype-Version", None)
         except Exception as e:
             msg = str(e).lower()
             if any(p in msg for p in ["not found", "does not exist"]):
@@ -1160,6 +1277,59 @@ class AnyTypeAdapter:
                     resource_id=object_id,
                 )
             raise ConnectionError(str(e), backend="anytype")
+
+    def delete_object(self, space_id: str, object_id: str) -> bool:
+        """Delete an object from Anytype for sync pruning.
+
+        Anytype currently performs a soft delete at the API layer. Returning a
+        boolean keeps the sync engine conservative: failed deletes stay in sync
+        state and can be retried later.
+        """
+        self._ensure_connected()
+        try:
+            return bool(self._client.delete_object(space_id, object_id))
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def delete_file(self, space_id: str, file_id: str) -> bool:
+        """Delete a native Anytype file object for sync pruning/replacement."""
+        self._ensure_connected()
+        try:
+            return bool(self._client.delete_file(space_id, file_id))
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def list_collection_objects(self, space_id: str, collection_id: str) -> list[BackendObject]:
+        """List objects currently linked inside a Collection/List."""
+        self._ensure_connected()
+        try:
+            raw_objects = self._client.list_collection_objects(space_id, collection_id)
+            return [self._raw_object_to_backend_object(raw, space_id) for raw in raw_objects]
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def remove_from_collection(
+        self, space_id: str, collection_id: str, object_id: str
+    ) -> bool:
+        """Remove an object from a Collection/List without deleting it."""
+        self._ensure_connected()
+        try:
+            return bool(self._client.remove_from_collection(space_id, collection_id, object_id))
+        except Exception as e:
+            raise ConnectionError(str(e), backend="anytype")
+
+    def validate_collection(self, space_id: str, object_id: str) -> None:
+        """Ensure a sync destination is a Collection/list-like object."""
+        obj = self.get_object(space_id, object_id)
+        type_name = (obj.object_type or "").lower()
+        type_key = (obj.type_key or "").lower()
+        if type_name == "collection" or "collection" in type_key:
+            return
+        raise ValidationError(
+            f"Object '{object_id}' is a {obj.object_type or 'Unknown'}; "
+            "jarvis sync needs an Anytype Collection as the destination.",
+            backend="anytype",
+        )
 
     def _apply_property_update(
         self, prop: dict[str, Any], fmt: str, new_value: object
@@ -1183,7 +1353,10 @@ class AnyTypeAdapter:
         elif fmt == "checkbox":
             if isinstance(new_value, str):
                 prop["checkbox"] = new_value.lower() in (
-                    "true", "yes", "1", "on",
+                    "true",
+                    "yes",
+                    "1",
+                    "on",
                 )
             else:
                 prop["checkbox"] = bool(new_value)
@@ -1196,9 +1369,7 @@ class AnyTypeAdapter:
         elif fmt == "multi_select":
             # Accept comma-separated string or list
             if isinstance(new_value, str):
-                tags = [
-                    t.strip() for t in new_value.split(",") if t.strip()
-                ]
+                tags = [t.strip() for t in new_value.split(",") if t.strip()]
             elif isinstance(new_value, list):
                 tags = [str(t) for t in new_value]
             else:
@@ -1216,9 +1387,7 @@ class AnyTypeAdapter:
 
         return prop
 
-    def _anytype_object_to_backend_object(
-        self, obj: Any, space_id: str
-    ) -> BackendObject:
+    def _anytype_object_to_backend_object(self, obj: Any, space_id: str) -> BackendObject:
         """Convert a raw AnyType API object to a BackendObject.
 
         Args:
@@ -1234,14 +1403,8 @@ class AnyTypeAdapter:
             type_name = obj_type.get("name", "Unknown")
             type_key = obj_type.get("key", "")
         else:
-            type_name = (
-                getattr(obj_type, "name", "Unknown")
-                if obj_type
-                else "Unknown"
-            )
-            type_key = (
-                getattr(obj_type, "key", "") if obj_type else ""
-            )
+            type_name = getattr(obj_type, "name", "Unknown") if obj_type else "Unknown"
+            type_key = getattr(obj_type, "key", "") if obj_type else ""
 
         # Icon
         icon_obj = getattr(obj, "icon", None)
@@ -1313,10 +1476,24 @@ class AnyTypeAdapter:
             raw=raw_json,
         )
 
+    def _raw_object_to_backend_object(self, raw: dict[str, Any], space_id: str) -> BackendObject:
+        """Convert a raw Anytype REST object dict to a lightweight BackendObject."""
+        raw_type = raw.get("type") if isinstance(raw.get("type"), dict) else {}
+        return BackendObject(
+            id=str(raw.get("id") or raw.get("object_id") or ""),
+            space_id=space_id,
+            name=str(raw.get("name") or "Untitled"),
+            object_type=str(raw_type.get("name") or raw.get("object_type") or "Unknown"),
+            type_key=str(raw_type.get("key") or raw.get("type_key") or ""),
+            description=str(raw.get("description") or ""),
+            snippet=str(raw.get("snippet") or ""),
+            content=str(raw.get("markdown") or raw.get("body") or ""),
+            backend="anytype",
+            raw=raw,
+        )
+
     @staticmethod
-    def _extract_property_value(
-        prop: dict[str, Any], fmt: str
-    ) -> Any:
+    def _extract_property_value(prop: dict[str, Any], fmt: str) -> Any:
         """Extract the value from a property dict based on its format.
 
         Args:
@@ -1340,12 +1517,7 @@ class AnyTypeAdapter:
         elif fmt == "multi_select":
             tags = prop.get("multi_select", []) or []
             if isinstance(tags, list):
-                return [
-                    t.get("name", str(t))
-                    if isinstance(t, dict)
-                    else str(t)
-                    for t in tags
-                ]
+                return [t.get("name", str(t)) if isinstance(t, dict) else str(t) for t in tags]
             return []
         elif fmt == "url":
             return prop.get("url")
@@ -1484,6 +1656,7 @@ class AnyTypeAdapter:
 
         # Try to extract from name (e.g., "15. Entry title" or "Entry 15")
         import re
+
         match = re.search(r"^(\d{1,2})[\.\s]", name)
         if match:
             # This is likely a journal entry with day prefix

@@ -1,10 +1,30 @@
+import socket
+
 import pytest
 
 from jarvis.reading_list.parser import extract_reading_items
 from jarvis.reading_list.source_loader import load_source_document
 
 
-@pytest.mark.integration
+def anytype_available() -> bool:
+    """Check whether the local AnyType desktop API is reachable."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            return sock.connect_ex(("localhost", 31009)) == 0
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not anytype_available(),
+        reason="AnyType desktop app not running on localhost:31009",
+    ),
+]
+
+
 def test_load_real_anytype_reading_list() -> None:
     target = (
         "https://object.any.coop/"

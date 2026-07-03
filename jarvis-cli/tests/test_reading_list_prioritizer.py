@@ -1,4 +1,4 @@
-from jarvis.reading_list.models import FetchedContent, ReadingItem, classify_item_type, Topic
+from jarvis.reading_list.models import FetchedContent, ReadingItem, Topic, classify_item_type
 from jarvis.reading_list.prioritizer import prioritize_items
 
 

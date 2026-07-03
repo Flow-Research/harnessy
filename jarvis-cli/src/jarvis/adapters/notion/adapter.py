@@ -8,6 +8,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from ...config import JarvisConfig, get_backend_token
+from ...knowledge_body import strip_duplicate_title_heading
 from ...models import (
     BackendObject,
     JournalEntry,
@@ -71,7 +72,7 @@ class NotionAdapter:
             config: Optional Jarvis config. If None, uses default config.
         """
         self._config = config
-        self._client: "Client | None" = None
+        self._client: Client | None = None
         self._connected = False
 
     @property
@@ -111,8 +112,7 @@ class NotionAdapter:
             from notion_client.errors import APIResponseError
         except ImportError as e:
             raise ConnectionError(
-                "notion-client package is not installed. "
-                "Install with: pip install notion-client",
+                "notion-client package is not installed. Install with: pip install notion-client",
                 backend=self.backend_name,
             ) from e
 
@@ -187,9 +187,7 @@ class NotionAdapter:
             ValidationError: If title is invalid.
         """
         if not title or not title.strip():
-            raise ValidationError(
-                "Title cannot be empty", backend=self.backend_name, field="title"
-            )
+            raise ValidationError("Title cannot be empty", backend=self.backend_name, field="title")
         if len(title) > MAX_TITLE_LENGTH:
             raise ValidationError(
                 f"Title exceeds maximum length of {MAX_TITLE_LENGTH} characters",
@@ -228,9 +226,7 @@ class NotionAdapter:
         error_message = str(error)
 
         if error.status == 401:
-            raise AuthError(
-                "Notion authentication failed", backend=self.backend_name
-            ) from error
+            raise AuthError("Notion authentication failed", backend=self.backend_name) from error
         elif error.status == 404:
             raise NotFoundError(error_message, backend=self.backend_name) from error
         elif error.status == 429:
@@ -524,9 +520,7 @@ class NotionAdapter:
         properties: dict[str, Any] = {}
 
         if title is not None:
-            properties[mappings.get("title", "Name")] = {
-                "title": [{"text": {"content": title}}]
-            }
+            properties[mappings.get("title", "Name")] = {"title": [{"text": {"content": title}}]}
 
         if due_date is not None:
             properties[mappings.get("due_date", "Due Date")] = {
@@ -612,6 +606,7 @@ class NotionAdapter:
         content: str,
         title: str | None = None,
         entry_date: date | None = None,
+        tags: list[str] | None = None,
     ) -> JournalEntry:
         """Create a new journal entry.
 
@@ -620,6 +615,7 @@ class NotionAdapter:
             content: Entry content (markdown).
             title: Optional title.
             entry_date: Date for entry (defaults to today).
+            tags: Optional list of tag names.
 
         Returns:
             Created JournalEntry object.
@@ -638,10 +634,12 @@ class NotionAdapter:
             title = title.replace("\n", " ")
 
         entry_date = entry_date or date.today()
+        content = strip_duplicate_title_heading(content, title)
 
         properties = journal_to_notion_properties(
             title=title,
             entry_date=entry_date,
+            tags=tags,
             mappings=notion_config.property_mappings,
         )
 
@@ -813,9 +811,7 @@ class NotionAdapter:
             # Update title if provided
             if title is not None:
                 properties = {
-                    mappings.get("title", "Name"): {
-                        "title": [{"text": {"content": title}}]
-                    }
+                    mappings.get("title", "Name"): {"title": [{"text": {"content": title}}]}
                 }
                 self._client.pages.update(page_id=entry_id, properties=properties)  # type: ignore[union-attr]
 
@@ -957,18 +953,13 @@ class NotionAdapter:
                 database_id=notion_config.task_database_id
             )
 
-            tags_property = response["properties"].get(
-                mappings.get("tags", "Tags"), {}
-            )
+            tags_property = response["properties"].get(mappings.get("tags", "Tags"), {})
 
             if tags_property.get("type") != "multi_select":
                 return []
 
             options = tags_property.get("multi_select", {}).get("options", [])
-            return [
-                Tag(id=opt["id"], name=opt["name"], color=opt.get("color"))
-                for opt in options
-            ]
+            return [Tag(id=opt["id"], name=opt["name"], color=opt.get("color")) for opt in options]
         except APIResponseError as e:
             self._handle_api_error(e)
             raise
@@ -1038,7 +1029,6 @@ class NotionAdapter:
             NotFoundError: If object doesn't exist.
             ConnectionError: If not connected.
         """
-        from datetime import datetime
 
         from notion_client.errors import APIResponseError
 
@@ -1093,6 +1083,7 @@ class NotionAdapter:
         notion_updates: dict[str, Any] = {}
         icon_update = None
         body_content: str | None = None
+        effective_title = self._notion_page_title(page)
 
         for key, new_value in updates.items():
             # Handle special keys
@@ -1123,9 +1114,9 @@ class NotionAdapter:
 
             prop_data = page_properties[key]
             prop_type = prop_data.get("type", "")
-            notion_updates[key] = self._build_notion_property_update(
-                prop_type, new_value
-            )
+            if prop_type == "title":
+                effective_title = str(new_value)
+            notion_updates[key] = self._build_notion_property_update(prop_type, new_value)
 
         try:
             update_kwargs: dict[str, Any] = {"page_id": object_id}
@@ -1140,10 +1131,8 @@ class NotionAdapter:
 
             # Update body/content (replace all blocks)
             if body_content is not None:
-                existing_blocks = (
-                    self._client.blocks.children.list(  # type: ignore[union-attr]
-                        block_id=object_id
-                    )
+                existing_blocks = self._client.blocks.children.list(  # type: ignore[union-attr]
+                    block_id=object_id
                 )
                 for block in existing_blocks.get("results", []):
                     self._client.blocks.delete(  # type: ignore[union-attr]
@@ -1151,6 +1140,7 @@ class NotionAdapter:
                     )
 
                 if body_content:
+                    body_content = strip_duplicate_title_heading(body_content, effective_title)
                     blocks = content_to_notion_blocks(body_content)
                     if blocks:
                         self._client.blocks.children.append(  # type: ignore[union-attr]
@@ -1163,9 +1153,7 @@ class NotionAdapter:
             self._handle_api_error(e)
             raise
 
-    def _build_notion_property_update(
-        self, prop_type: str, value: object
-    ) -> dict[str, Any]:
+    def _build_notion_property_update(self, prop_type: str, value: object) -> dict[str, Any]:
         """Build a Notion API property update payload.
 
         Args:
@@ -1187,8 +1175,12 @@ class NotionAdapter:
         elif prop_type == "checkbox":
             if isinstance(value, str):
                 return {
-                    "checkbox": value.lower() in (
-                        "true", "yes", "1", "on",
+                    "checkbox": value.lower()
+                    in (
+                        "true",
+                        "yes",
+                        "1",
+                        "on",
                     )
                 }
             return {"checkbox": bool(value)}
@@ -1196,9 +1188,7 @@ class NotionAdapter:
             return {"select": {"name": str(value)}}
         elif prop_type == "multi_select":
             if isinstance(value, str):
-                tags = [
-                    t.strip() for t in value.split(",") if t.strip()
-                ]
+                tags = [t.strip() for t in value.split(",") if t.strip()]
             elif isinstance(value, list):
                 tags = [str(t) for t in value]
             else:
@@ -1214,9 +1204,7 @@ class NotionAdapter:
             # Best effort: treat as rich_text
             return {"rich_text": [{"text": {"content": str(value)}}]}
 
-    def _notion_page_to_backend_object(
-        self, page: Any, space_id: str
-    ) -> BackendObject:
+    def _notion_page_to_backend_object(self, page: Any, space_id: str) -> BackendObject:
         """Convert a Notion page API response to BackendObject.
 
         Args:
@@ -1246,9 +1234,7 @@ class NotionAdapter:
             if prop_data.get("type") == "title":
                 title_arr = prop_data.get("title", [])
                 if title_arr:
-                    name = "".join(
-                        t.get("plain_text", "") for t in title_arr
-                    )
+                    name = "".join(t.get("plain_text", "") for t in title_arr)
                 break
 
         # Icon
@@ -1262,13 +1248,9 @@ class NotionAdapter:
         properties: list[ObjectProperty] = []
         for prop_name, prop_data in page_properties.items():
             prop_type = prop_data.get("type", "")
-            fmt = self._NOTION_FORMAT_MAP.get(
-                prop_type, PropertyFormat.UNKNOWN
-            )
+            fmt = self._NOTION_FORMAT_MAP.get(prop_type, PropertyFormat.UNKNOWN)
             is_system = prop_type in self._NOTION_SYSTEM_TYPES
-            value = self._extract_notion_property_value(
-                prop_data, prop_type
-            )
+            value = self._extract_notion_property_value(prop_data, prop_type)
 
             properties.append(
                 ObjectProperty(
@@ -1287,17 +1269,13 @@ class NotionAdapter:
         created_str = page.get("created_time")
         if created_str:
             try:
-                created_at = datetime.fromisoformat(
-                    created_str.replace("Z", "+00:00")
-                )
+                created_at = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 pass
         updated_str = page.get("last_edited_time")
         if updated_str:
             try:
-                updated_at = datetime.fromisoformat(
-                    updated_str.replace("Z", "+00:00")
-                )
+                updated_at = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 pass
 
@@ -1306,10 +1284,7 @@ class NotionAdapter:
             space_id=space_id,
             name=name,
             object_type=object_type,
-            type_key=(
-                parent.get("database_id", "")
-                or parent.get("page_id", "")
-            ),
+            type_key=(parent.get("database_id", "") or parent.get("page_id", "")),
             icon=icon,
             properties=properties,
             created_at=created_at,
@@ -1319,9 +1294,16 @@ class NotionAdapter:
         )
 
     @staticmethod
-    def _extract_notion_property_value(
-        prop_data: dict, prop_type: str
-    ) -> Any:
+    def _notion_page_title(page: Any) -> str:
+        page_properties = page.get("properties", {})
+        for prop_data in page_properties.values():
+            if prop_data.get("type") == "title":
+                title_arr = prop_data.get("title", [])
+                return "".join(t.get("plain_text", "") for t in title_arr)
+        return ""
+
+    @staticmethod
+    def _extract_notion_property_value(prop_data: dict, prop_type: str) -> Any:
         """Extract a display value from a Notion property.
 
         Args:
@@ -1333,18 +1315,10 @@ class NotionAdapter:
         """
         if prop_type == "title":
             arr = prop_data.get("title", [])
-            return (
-                "".join(t.get("plain_text", "") for t in arr)
-                if arr
-                else None
-            )
+            return "".join(t.get("plain_text", "") for t in arr) if arr else None
         elif prop_type == "rich_text":
             arr = prop_data.get("rich_text", [])
-            return (
-                "".join(t.get("plain_text", "") for t in arr)
-                if arr
-                else None
-            )
+            return "".join(t.get("plain_text", "") for t in arr) if arr else None
         elif prop_type == "number":
             return prop_data.get("number")
         elif prop_type == "date":
@@ -1357,9 +1331,7 @@ class NotionAdapter:
             return sel.get("name") if sel else None
         elif prop_type == "multi_select":
             options = prop_data.get("multi_select", [])
-            return (
-                [o.get("name", "") for o in options] if options else []
-            )
+            return [o.get("name", "") for o in options] if options else []
         elif prop_type == "url":
             return prop_data.get("url")
         elif prop_type == "email":
@@ -1378,16 +1350,10 @@ class NotionAdapter:
             return user.get("name") or user.get("id")
         elif prop_type == "relation":
             relations = prop_data.get("relation", [])
-            return (
-                [r.get("id", "") for r in relations]
-                if relations
-                else []
-            )
+            return [r.get("id", "") for r in relations] if relations else []
         elif prop_type == "files":
             files = prop_data.get("files", [])
-            return (
-                [f.get("name", "") for f in files] if files else []
-            )
+            return [f.get("name", "") for f in files] if files else []
         elif prop_type == "formula":
             formula = prop_data.get("formula", {})
             f_type = formula.get("type")

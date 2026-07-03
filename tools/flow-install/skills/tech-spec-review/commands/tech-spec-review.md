@@ -242,7 +242,11 @@ Escalate to **Major** or **Critical** when the spec introduces:
 ### Output
 
 1. Write finalized `technical_spec.md`
-2. Produce review summary
+2. Run text hygiene before delivery:
+   ```bash
+   jarvis text-hygiene clean path/to/technical_spec.md --report
+   ```
+3. Produce review summary
 
 ## Behavioral Rules
 
@@ -291,4 +295,3 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
 
 After completion, ask: **"Any feedback on this tech-spec-review run? (skip to finish)"**
 If provided, capture via trace_capture.py with gate "run_retrospective" and gate-type "retrospective".
-

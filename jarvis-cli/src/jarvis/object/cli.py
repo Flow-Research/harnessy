@@ -18,12 +18,15 @@ from jarvis.adapters import AdapterRegistry
 from jarvis.adapters.base import KnowledgeBaseAdapter
 from jarvis.adapters.exceptions import (
     AuthError,
-    ConnectionError as AdapterConnectionError,
     NotFoundError,
+)
+from jarvis.adapters.exceptions import (
+    ConnectionError as AdapterConnectionError,
+)
+from jarvis.adapters.exceptions import (
     ValidationError as AdapterValidationError,
 )
 from jarvis.models import BackendObject
-from jarvis.state import save_selected_space
 
 console = Console()
 
@@ -78,10 +81,8 @@ def _get_adapter(backend: str | None = None) -> KnowledgeBaseAdapter:
     return AdapterRegistry.get_adapter(backend)
 
 
-def _get_space(
-    adapter: KnowledgeBaseAdapter, space_arg: str | None
-) -> tuple[str, str]:
-    """Get space ID from argument or saved selection."""
+def _get_space(adapter: KnowledgeBaseAdapter, space_arg: str | None) -> tuple[str, str]:
+    """Get space ID from an explicit argument or the interactive selection flow."""
     from jarvis.cli import select_space
 
     spaces = adapter.list_spaces()
@@ -89,7 +90,6 @@ def _get_space(
     if space_arg:
         for space in spaces:
             if space_arg.lower() in space.name.lower() or space_arg == space.id:
-                save_selected_space(space.id)
                 return space.id, space.name
         console.print(f"[yellow]Space '{space_arg}' not found.[/yellow]")
         raise SystemExit(1)
@@ -109,8 +109,7 @@ def _display_object(obj: BackendObject) -> None:
     console.print()
     console.print(
         Panel(
-            f"[bold]{title}[/bold]\n"
-            f"[dim]Type: {obj.object_type}  |  Backend: {obj.backend}[/dim]",
+            f"[bold]{title}[/bold]\n[dim]Type: {obj.object_type}  |  Backend: {obj.backend}[/dim]",
             border_style="cyan",
         )
     )
@@ -168,9 +167,7 @@ def _display_object(obj: BackendObject) -> None:
         preview = obj.content[:500]
         if len(obj.content) > 500:
             preview += "\n..."
-        console.print(
-            Panel(preview, title="Content Preview", border_style="dim", width=80)
-        )
+        console.print(Panel(preview, title="Content Preview", border_style="dim", width=80))
         console.print()
 
 
@@ -225,7 +222,8 @@ def _interactive_update(
             prop = obj.get_property(key)
             if prop is None:
                 console.print(f"[red]Property '{key}' not found.[/red]")
-                console.print("[dim]Available keys: " + ", ".join(p.key for p in editable) + "[/dim]")
+                available_keys = ", ".join(p.key for p in editable)
+                console.print(f"[dim]Available keys: {available_keys}[/dim]")
                 continue
             if prop.is_system:
                 console.print(f"[red]'{key}' is a system property and cannot be edited.[/red]")
@@ -309,6 +307,7 @@ def get_object(
 
         if raw:
             import json
+
             console.print(json.dumps(obj.raw, indent=2, default=str))
         else:
             _display_object(obj)
@@ -333,9 +332,16 @@ def get_object(
 @click.option("--space", default=None, help="Space name or ID to use")
 @click.option("--backend", default=None, help="Backend to use (anytype, notion)")
 @click.option("--set", "set_values", multiple=True, help="Set property: key=value (repeatable)")
-@click.option("--body", "body_text", default=None, help="Replace body/content with this markdown text")
 @click.option(
-    "--body-file", "body_file", default=None,
+    "--body",
+    "body_text",
+    default=None,
+    help="Replace body/content with this markdown text",
+)
+@click.option(
+    "--body-file",
+    "body_file",
+    default=None,
     type=click.Path(exists=True),
     help="Replace body/content with contents of this file",
 )
@@ -428,7 +434,9 @@ def edit_object(
 @click.option("--set", "set_values", multiple=True, help="Set property: key=value")
 @click.option("--body", "body_text", default=None, help="Replace body/content markdown")
 @click.option(
-    "--body-file", "body_file", default=None,
+    "--body-file",
+    "body_file",
+    default=None,
     type=click.Path(exists=True),
     help="Replace body/content from file",
 )
@@ -501,6 +509,7 @@ def quick_object(
 
         if raw:
             import json
+
             console.print(json.dumps(obj.raw, indent=2, default=str))
         else:
             _display_object(obj)

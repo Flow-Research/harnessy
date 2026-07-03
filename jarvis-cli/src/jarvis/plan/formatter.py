@@ -112,10 +112,13 @@ def format_task_reality(reality: TaskReality, console: Console) -> None:
     if reality.tasks_by_category:
         content_lines.append("By Category:")
         for category in reality.tasks_by_category:
-            pct = (category.task_count / reality.total_tasks * 100) if reality.total_tasks > 0 else 0
+            pct = (
+                (category.task_count / reality.total_tasks * 100) if reality.total_tasks > 0 else 0
+            )
             alignment = "✓ Aligned" if category.is_aligned else "⚠️ Potential conflict"
             content_lines.append(
-                f"  {category.emoji} {category.name}: {category.task_count} tasks ({pct:.0f}%) {alignment}"
+                f"  {category.emoji} {category.name}: {category.task_count} tasks "
+                f"({pct:.0f}%) {alignment}"
             )
 
     content_lines.append("")
@@ -165,7 +168,7 @@ def format_gap_analysis(gaps: GapAnalysis, console: Console) -> None:
     if gaps.goals_without_tasks:
         content_lines.append("[bold]Goals without tasks:[/bold]")
         for goal in gaps.goals_without_tasks[:5]:  # Limit to 5
-            content_lines.append(f"  • \"{goal.text[:50]}\" — No task found")
+            content_lines.append(f'  • "{goal.text[:50]}" — No task found')
         if len(gaps.goals_without_tasks) > 5:
             content_lines.append(f"  ... and {len(gaps.goals_without_tasks) - 5} more")
         content_lines.append("")
@@ -270,9 +273,18 @@ def _format_context_warning(quality: str, console: Console) -> None:
     console.print()
 
     warnings = {
-        "partial": "[yellow]ℹ️ Partial context: Some context files missing. Run 'jarvis context status' for details.[/yellow]",
-        "minimal": "[yellow]⚠️ Minimal context: Limited personalization. Run 'jarvis init' to set up context files.[/yellow]",
-        "none": "[red]⚠️ No context files found. Run 'jarvis init --global' to enable personalized planning.[/red]",
+        "partial": (
+            "[yellow]ℹ️ Partial context: Some context files missing. "
+            "Run 'jarvis context status' for details.[/yellow]"
+        ),
+        "minimal": (
+            "[yellow]⚠️ Minimal context: Limited personalization. "
+            "Run 'jarvis init' to set up context files.[/yellow]"
+        ),
+        "none": (
+            "[red]⚠️ No context files found. Run 'jarvis init --global' "
+            "to enable personalized planning.[/red]"
+        ),
     }
 
     if quality in warnings:
@@ -299,7 +311,8 @@ def format_plan_for_file(plan: WeeklyPlan) -> str:
     # Focus Summary
     lines.append("## Focus Summary")
     lines.append("")
-    lines.append(f"**Mode:** {plan.focus_summary.mode_emoji} {plan.focus_summary.mode.value.title()}")
+    mode_label = plan.focus_summary.mode.value.title()
+    lines.append(f"**Mode:** {plan.focus_summary.mode_emoji} {mode_label}")
     if plan.focus_summary.until_date:
         lines.append(f"**Until:** {plan.focus_summary.until_date.strftime('%B %d, %Y')}")
     if plan.focus_summary.primary_goal:
@@ -318,9 +331,15 @@ def format_plan_for_file(plan: WeeklyPlan) -> str:
         lines.append("| Category | Tasks | Alignment |")
         lines.append("|----------|-------|-----------|")
         for cat in plan.task_reality.tasks_by_category:
-            pct = (cat.task_count / plan.task_reality.total_tasks * 100) if plan.task_reality.total_tasks > 0 else 0
+            pct = (
+                (cat.task_count / plan.task_reality.total_tasks * 100)
+                if plan.task_reality.total_tasks > 0
+                else 0
+            )
             alignment = "✓ Aligned" if cat.is_aligned else "⚠️ Conflict"
-            lines.append(f"| {cat.emoji} {cat.name} | {cat.task_count} ({pct:.0f}%) | {alignment} |")
+            lines.append(
+                f"| {cat.emoji} {cat.name} | {cat.task_count} ({pct:.0f}%) | {alignment} |"
+            )
         lines.append("")
 
     lines.append(f"**Alignment Score:** {plan.task_reality.alignment_percent}%")

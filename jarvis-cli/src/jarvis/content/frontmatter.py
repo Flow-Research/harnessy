@@ -31,7 +31,7 @@ def parse_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
         return {}, text
 
     yaml_block = text[3:end].strip()
-    body = text[end + 3:].lstrip("\n")
+    body = text[end + 3 :].lstrip("\n")
 
     try:
         fm = yaml.safe_load(yaml_block) or {}

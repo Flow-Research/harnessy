@@ -102,6 +102,12 @@ Before writing the final output, verify:
 
 Write `design_spec.md` to the same directory as `product_spec.md`.
 
+Then run text hygiene before delivery:
+
+```bash
+jarvis text-hygiene clean path/to/design_spec.md --report
+```
+
 ## Community Skill Enhancers
 
 These community skills can be invoked during generation to enhance quality. They are optional — use when the context matches.

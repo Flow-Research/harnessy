@@ -3,7 +3,7 @@ name: test-quality-validator
 description: "Validate generated or hand-written tests for coverage completeness, correctness, and false-green risks using the canonical QA runtime, regression artifacts, and optional delivery-profile rules."
 disable-model-invocation: false
 allowed-tools: Read, Grep, Glob, Bash, Write
-argument-hint: "[--epic <epic_name>] [--suite <X>] [--api-only] [--browser-only] [--profile .flow/delivery-profile.json]"
+argument-hint: "[--epic <epic_name>] [--suite <X>] [--api-only] [--browser-only] [--profile .jarvis/context/profiles/qa.json]"
 ---
 
 # Test Quality Validator
@@ -14,9 +14,8 @@ Validate that generated or maintained tests are complete, trustworthy, and align
 
 ## Required contract
 
-- canonical QA profile, typically `.harnessy/qa-profile.json`
-- optional regression adapter paths and validator rules from `.flow/delivery-profile.json`
-- role inventory and validator rules from `.flow/delivery-profile.json` when present
+- canonical QA profile, typically `.jarvis/context/profiles/qa.json`
+- optional regression adapter paths, role inventory, validator rules, and mock policy from the active profile
 
 - Template paths are resolved from `${AGENTS_SKILLS_ROOT}/test-quality-validator/`.
 
@@ -28,6 +27,7 @@ Validate that generated or maintained tests are complete, trustworthy, and align
 4. Role and authorization coverage.
 5. Canonical QA contract compliance: `@qa-spec` / `@qa-suite` headers, canonical ID format, and `Status: implemented` scenarios must align with tests.
 6. Persistence-sensitive browser scenarios preserve `DB Assert:` coverage or document why DB validation is unavailable in the target environment.
+7. Mock-heavy tests and internal DB/client/auth/service mocks are warning-level false-green risks unless the QA profile documents an allowed external boundary or exception.
 
 ## Steps
 
@@ -45,7 +45,7 @@ qa drift --profile <qa-profile> --json
 3. Parse criteria with `${AGENTS_SKILLS_ROOT}/spec-to-regression/scripts/extract-criteria.ts` when acceptance-criteria coverage is in scope.
 4. Parse API regression scenarios with `${AGENTS_SKILLS_ROOT}/api-integration-codegen/scripts/parse-api-regression.ts`.
 5. Run `${AGENTS_SKILLS_ROOT}/test-quality-validator/scripts/validate-coverage.ts` with the optional delivery profile.
-6. Run `${AGENTS_SKILLS_ROOT}/test-quality-validator/scripts/validate-correctness.ts` against the project's browser/API suites with the optional delivery profile.
+6. Run `${AGENTS_SKILLS_ROOT}/test-quality-validator/scripts/validate-correctness.ts` against the project's browser/API suites with the optional profile.
 7. Synthesize the drift defects and validator output into a single quality report.
 8. Flag browser suites that appear to have been generated only from source assumptions when no walkthrough artifacts, accessible selectors, or stable selector rationale are present.
 

@@ -47,12 +47,17 @@ PROJECT_ROOT = detect_project_root()
 _USERNAME = os.environ.get("FLOW_USER", os.environ.get("USER", "default"))
 PRIVATE_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "private", _USERNAME)
 DOCS_DIR = os.path.join(PROJECT_ROOT, ".jarvis", "context", "docs")
+PROJECTS_DIR = os.path.join(PROJECT_ROOT, "projects")
 GOAL_AGENT_DIR = os.path.join(PROJECT_ROOT, ".goal-agent")
 AUTOFLOW_STATE = os.path.join(PROJECT_ROOT, ".jarvis", "context", "autoflow", "state.json")
 CRON_YAML = os.path.join(PROJECT_ROOT, ".jarvis", "cron.yaml")
 JARVIS_PLANS = os.path.expanduser("~/.jarvis/plans")
 JARVIS_WIKIS = os.path.expanduser("~/.jarvis/wikis")
-LAST_CRAWL = os.path.expanduser("~/.agents/life/.last-crawl.json")
+AGENTS_LIFE_DIR = os.path.expanduser(os.environ.get("AGENTS_LIFE_DIR", "~/.agents/life"))
+LIFE_PRIORITIES_FILE = os.path.expanduser(
+    os.environ.get("LIFE_PRIORITIES_FILE", os.path.join(AGENTS_LIFE_DIR, "priorities.md"))
+)
+LAST_CRAWL = os.path.join(AGENTS_LIFE_DIR, ".last-crawl.json")
 NOTES_DIR = os.path.join(PRIVATE_DIR, "notes")
 
 
@@ -76,6 +81,22 @@ def read_json(path):
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def file_modified_iso(path):
+    try:
+        return datetime.datetime.fromtimestamp(
+            os.path.getmtime(path),
+            tz=datetime.timezone.utc,
+        ).isoformat()
+    except OSError:
+        return None
+
+
+def file_hash(text):
+    if text is None:
+        return None
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
 def run_cmd(args, cwd=None):
@@ -119,11 +140,28 @@ def scan_dir(dirpath):
 
 def collect_priorities():
     """Parse priorities.md — extract table rows, constraints, personal notes."""
-    text = read_file(os.path.join(PRIVATE_DIR, "priorities.md"))
+    priorities_path = os.path.join(PRIVATE_DIR, "priorities.md")
+    text = read_file(priorities_path)
     if text is None:
         return None
 
-    result = {"raw": text, "table": [], "constraints": [], "personal": [], "standing_instructions": []}
+    external_text = read_file(LIFE_PRIORITIES_FILE)
+    result = {
+        "raw": text,
+        "source_path": os.path.relpath(priorities_path, PROJECT_ROOT),
+        "source_modified": file_modified_iso(priorities_path),
+        "external_path": LIFE_PRIORITIES_FILE,
+        "external_exists": external_text is not None,
+        "external_modified": file_modified_iso(LIFE_PRIORITIES_FILE),
+        "external_differs": external_text is not None and file_hash(external_text) != file_hash(text),
+        "external_older": False,
+        "table": [],
+        "constraints": [],
+        "personal": [],
+        "standing_instructions": [],
+    }
+    if result["external_modified"] and result["source_modified"]:
+        result["external_older"] = result["external_modified"] < result["source_modified"]
 
     # Extract markdown table rows (skip header + separator)
     in_table = False
@@ -220,6 +258,81 @@ def collect_projects():
     return projects
 
 
+def discover_project_context_vaults():
+    """Find nested Harnessy/Jarvis context vaults under projects/*."""
+    vaults = []
+    seen = set()
+    if not os.path.isdir(PROJECTS_DIR):
+        return vaults
+
+    try:
+        project_entries = sorted(os.listdir(PROJECTS_DIR))
+    except OSError:
+        return vaults
+
+    for slug in project_entries:
+        if slug.startswith("."):
+            continue
+        project_root = os.path.join(PROJECTS_DIR, slug)
+        if not os.path.isdir(project_root):
+            continue
+
+        for context_path in (
+            os.path.join(project_root, "dev", ".jarvis", "context"),
+            os.path.join(project_root, ".jarvis", "context"),
+        ):
+            if not os.path.isdir(context_path):
+                continue
+            realpath = os.path.realpath(context_path)
+            if realpath in seen:
+                continue
+            seen.add(realpath)
+            vaults.append(
+                {
+                    "project": slug,
+                    "path": context_path,
+                    "relative_path": os.path.relpath(context_path, PROJECT_ROOT),
+                }
+            )
+
+    return vaults
+
+
+def collect_project_context_vaults():
+    """Collect compact state from nested project .jarvis/context vaults."""
+    vaults = {}
+    lookback_days = int(os.environ.get("LIFE_ORCHESTRATOR_MEETING_LOOKBACK_DAYS", "5"))
+    meeting_limit = int(os.environ.get("LIFE_ORCHESTRATOR_VAULT_MEETINGS_LIMIT", "5"))
+    today = datetime.date.today()
+    cutoff = today - datetime.timedelta(days=max(lookback_days - 1, 0))
+
+    for vault in discover_project_context_vaults():
+        context_path = vault["path"]
+        files, newest = scan_dir(context_path)
+        project = vault["project"]
+        vaults[project] = {
+            "project": project,
+            "path": vault["relative_path"],
+            "file_count": len(files),
+            "newest_modified": (
+                datetime.datetime.fromtimestamp(newest, tz=datetime.timezone.utc).isoformat()
+                if newest > 0
+                else None
+            ),
+            "status_md": read_file(os.path.join(context_path, "status.md")),
+            "roadmap_md": read_file(os.path.join(context_path, "roadmap.md")),
+            "decisions_md": read_file(os.path.join(context_path, "decisions.md")),
+            "recent_meetings": _collect_meetings_under(
+                context_path,
+                cutoff=cutoff,
+                default_project=project,
+                limit=meeting_limit,
+            ),
+        }
+
+    return vaults
+
+
 def collect_git():
     """Recent commits, current branch, uncommitted changes."""
     return {
@@ -265,12 +378,13 @@ def collect_cron():
 
 
 def collect_notes():
-    """Read recent daily notes (today + yesterday) from private/notes/."""
+    """Read recent daily notes from private/notes/."""
+    lookback_days = int(os.environ.get("LIFE_ORCHESTRATOR_NOTES_LOOKBACK_DAYS", "5"))
     today = datetime.date.today()
-    yesterday = today - datetime.timedelta(days=1)
     notes = {}
 
-    for day in (today, yesterday):
+    for offset in range(max(lookback_days, 0)):
+        day = today - datetime.timedelta(days=offset)
         year = day.strftime("%Y")
         month = day.strftime("%b")
         dd = day.strftime("%d")
@@ -280,6 +394,199 @@ def collect_notes():
             notes[day.isoformat()] = content
 
     return notes if notes else None
+
+
+def collect_recent_meetings():
+    """Read compact summaries for recent root and project-vault meeting notes.
+
+    Meeting folders can contain full transcripts and long Fathom summaries. The
+    daily brief only needs enough signal to notice new decisions and action
+    items, so keep this date-bounded and section-based.
+    """
+    lookback_days = int(os.environ.get("LIFE_ORCHESTRATOR_MEETING_LOOKBACK_DAYS", "5"))
+    limit = int(os.environ.get("LIFE_ORCHESTRATOR_RECENT_MEETINGS_LIMIT", "12"))
+    today = datetime.date.today()
+    cutoff = today - datetime.timedelta(days=max(lookback_days - 1, 0))
+    meetings = []
+
+    if os.path.isdir(PRIVATE_DIR):
+        meetings.extend(
+            _collect_meetings_under(
+                PRIVATE_DIR,
+                cutoff=cutoff,
+                default_project="",
+                limit=None,
+            )
+        )
+
+    for vault in discover_project_context_vaults():
+        meetings.extend(
+            _collect_meetings_under(
+                vault["path"],
+                cutoff=cutoff,
+                default_project=vault["project"],
+                limit=None,
+            )
+        )
+
+    deduped = {}
+    for meeting in meetings:
+        deduped[meeting["path"]] = meeting
+
+    meetings = list(deduped.values())
+    meetings.sort(key=lambda item: (item["date"], item["path"]), reverse=True)
+    return meetings[:limit]
+
+
+def _collect_meetings_under(context_root, cutoff, default_project="", limit=None):
+    meetings = []
+    for root, _dirs, filenames in os.walk(context_root):
+        rel_root = os.path.relpath(root, context_root)
+        if "meetings" not in rel_root.split(os.sep):
+            continue
+        for fname in filenames:
+            if not fname.endswith(".md") or fname.startswith("."):
+                continue
+            path = os.path.join(root, fname)
+            text = read_file(path) or ""
+            meeting_date = _extract_meeting_date(text, path)
+            if meeting_date < cutoff:
+                continue
+            rel_path = os.path.relpath(path, PROJECT_ROOT)
+            project = _extract_meeting_project(text, path, context_root, default_project)
+            meetings.append(
+                {
+                    "date": meeting_date.isoformat(),
+                    "project": project,
+                    "title": _extract_markdown_title(text) or os.path.splitext(fname)[0],
+                    "source_ref": _extract_metadata_value(text, "Source Ref"),
+                    "path": rel_path,
+                    "summary": _compact_text(
+                        _extract_first_section(
+                            text,
+                            (
+                                "Executive Summary",
+                                "One-Line Summary",
+                                "Summary",
+                                "Key Takeaways",
+                                "Meeting Purpose",
+                            ),
+                        ),
+                        max_chars=1200,
+                    ),
+                    "action_items": _extract_bullets_from_sections(
+                        text,
+                        ("Action Items", "Next Steps", "Concrete Follow-Ups", "Action Checklist"),
+                        max_items=8,
+                    ),
+                }
+            )
+
+    meetings.sort(key=lambda item: (item["date"], item["path"]), reverse=True)
+    if limit is not None:
+        return meetings[:limit]
+    return meetings
+
+
+def _extract_markdown_title(text):
+    for line in text.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return ""
+
+
+def _extract_metadata_value(text, key):
+    key_re = re.escape(key)
+    patterns = (
+        rf"^\s*-\s*{key_re}:\s*(.+?)\s*$",
+        rf"^\s*\*\*{key_re}:\*\*\s*(.+?)\s*$",
+    )
+    for line in text.splitlines()[:80]:
+        for pattern in patterns:
+            match = re.match(pattern, line)
+            if match:
+                return match.group(1).strip()
+    return ""
+
+
+def _extract_meeting_project(text, path, context_root, default_project=""):
+    metadata_project = _extract_metadata_value(text, "Project")
+    if metadata_project:
+        return metadata_project
+    try:
+        parts = os.path.relpath(path, context_root).split(os.sep)
+    except ValueError:
+        return default_project
+    if len(parts) > 1 and parts[0] != "meetings" and parts[1] == "meetings":
+        return parts[0]
+    return default_project
+
+
+def _extract_meeting_date(text, path):
+    raw = _extract_metadata_value(text, "Date")
+    if raw:
+        try:
+            return datetime.date.fromisoformat(raw[:10])
+        except ValueError:
+            pass
+    try:
+        return datetime.datetime.fromtimestamp(os.path.getmtime(path)).date()
+    except OSError:
+        return datetime.date.today()
+
+
+def _extract_first_section(text, headings):
+    for heading in headings:
+        section = _extract_markdown_section(text, heading)
+        if section:
+            return section
+    return ""
+
+
+def _extract_markdown_section(text, heading):
+    pattern = re.compile(rf"^##+\s+{re.escape(heading)}\s*$", re.MULTILINE)
+    match = pattern.search(text)
+    if not match:
+        return ""
+    start = match.end()
+    next_heading = re.search(r"^##\s+", text[start:], flags=re.MULTILINE)
+    end = start + next_heading.start() if next_heading else len(text)
+    return text[start:end].strip()
+
+
+def _extract_bullets_from_sections(text, headings, max_items=8):
+    bullets = []
+    seen = set()
+    for heading in headings:
+        section = _extract_markdown_section(text, heading)
+        for line in section.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("- ", "* ")):
+                bullet = _clean_markdown_inline(stripped[2:].strip())
+                key = re.sub(r"\s+", " ", bullet).lower()
+                if not bullet or key in seen:
+                    continue
+                seen.add(key)
+                bullets.append(bullet)
+                if len(bullets) >= max_items:
+                    return bullets
+    return bullets
+
+
+def _compact_text(text, max_chars=1200):
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    compact = _clean_markdown_inline("\n".join(lines))
+    if len(compact) <= max_chars:
+        return compact
+    return compact[: max_chars - 3].rstrip() + "..."
+
+
+def _clean_markdown_inline(text):
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = text.replace("**", "")
+    text = text.replace("\\~", "~")
+    text = re.sub(r"^\[[ xX]\]\s+", "", text)
+    return text.strip()
 
 
 def collect_wiki_updates():
@@ -505,7 +812,9 @@ def main():
     state = {
         "priorities": collect_priorities(),
         "projects": collect_projects(),
+        "project_context_vaults": collect_project_context_vaults(),
         "notes": collect_notes(),
+        "recent_meetings": collect_recent_meetings(),
         "git": collect_git(),
         "agents": collect_agents(),
         "tmux_sessions": collect_tmux(),

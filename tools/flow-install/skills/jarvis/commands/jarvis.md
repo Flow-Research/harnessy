@@ -47,6 +47,19 @@ Here is the complete command documentation from Jarvis:
 
 This skill depends on live `jarvis docs --json` output, but the human-written guidance in this file must still be updated whenever important CLI commands are added, changed, or removed. Keep `src/jarvis/cli.py`, `jarvis-cli/AGENTS.md`, and this file in sync, then refresh installed artifacts with `pnpm skills:register` and `uv tool install --force ./jarvis-cli`.
 
+## High-Signal Command Families
+
+Use `jarvis docs --json` as the source of truth, but these command families are common enough to keep in mind:
+
+- `jarvis meeting ...`: ingest files, stdin, URLs, Fathom recordings, or Fathom webhook inbox payloads into private context, memory, wiki, or journal destinations.
+- `jarvis whatsapp ...`: capture Meta WhatsApp Cloud API webhooks into a local inbox, ingest them into local-first threads/private context/journal/memory, send service-window replies, send approved templates, and review thread status.
+- `jarvis reading-list ...` / `jarvis rl`: organize, prioritize, extract, and cache reading-list sources.
+- `jarvis content ...`: manage Flow-style content pieces. Use `jarvis content package <piece>` to write `journal.md`, `jarvis content verify <piece> --require <text> --forbid <text>` to enforce canonical wording and configured text hygiene patterns, `jarvis content publish-draft <piece>` to clean/package/verify/sync/dedupe, and `jarvis content audit-anytype <piece>` to check a synced AnyType Collection for duplicate links.
+- `jarvis text-hygiene ...`: check or clean configured AI-speak phrase and regex patterns from generated Markdown/text. Use `jarvis text-hygiene check <path>` for gates and `jarvis text-hygiene clean <path> --report` after generating README, PRD, design, technical, review, brief, or content draft artifacts.
+- `jarvis sync ...`: sync local folders into an AnyType Collection. Directories become Collections, Markdown/text files become Pages, and other files upload as native AnyType file objects by default. Use `jarvis sync run --source <path> --destination <object_id:space_id> --dry-run` first, then rerun without `--dry-run`; add `--yes` for non-interactive writes, `--prune` when deleted local files should be deleted from AnyType, and repeated `--include-extension` flags to add extra text file types. Handle non-text or non-UTF-8 files with `--unsupported-mode upload|warn|stub|error`; `upload` is the default, while `stub` creates metadata placeholder Pages without uploading the binary content. Use `jarvis sync dedupe --preset <name> --dry-run` then rerun with `--yes` to remove duplicate Collection links while keeping the object IDs recorded in sync state.
+- `jarvis object ...` / `jarvis o`: inspect or edit arbitrary backend objects.
+- `jarvis journal ...` / `jarvis j`: write, list, read, search, and summarize journal entries.
+
 ## User Request
 
 $ARGUMENTS
@@ -223,10 +236,36 @@ jarvis android run ./builds/demo.apk --avd Medium_Phone_API_36.1 --reinstall
 | List spaces | `jarvis spaces` |
 | Write journal entry | `jarvis journal write` or `jarvis j` |
 | Journal a file (full content) | `jarvis j --file path/to/file.md` |
+| Package a content piece for Journal | `jarvis content package <piece>` |
+| Verify canonical content wording | `jarvis content verify <piece> --require <text> --forbid <text>` |
+| Publish/sync/dedupe a content draft | `jarvis content publish-draft <piece>` |
+| Audit duplicate content links in AnyType | `jarvis content audit-anytype <piece>` |
+| Check generated text for AI-speak patterns | `jarvis text-hygiene check <path>` |
+| Clean AI-speak patterns from generated text | `jarvis text-hygiene clean <path> --report` |
+| Remove duplicate sync links | `jarvis sync dedupe --preset <name> --dry-run` |
 | List journal entries | `jarvis journal list` |
 | Read journal entry | `jarvis journal read` |
 | Search journal | `jarvis journal search` |
 | Get journal insights | `jarvis journal insights` |
+| Ingest meeting transcript / notes into private project context (`private/<user>/<project>/meetings/YYYY/Mon/dd-title.md`) | `jarvis meeting ingest <file> --project <slug> --dest private-context` |
+| Absorb meeting takeaways into private memory | `jarvis meeting ingest <file> --dest memory` |
+| Auto-route meeting notes to the matching private project | `jarvis meeting ingest <file> --auto-route --dest private-context --dest memory` |
+| List Fathom meetings | `jarvis meeting fathom list` |
+| Pull Fathom meeting by ID | `jarvis meeting fathom ingest` |
+| Pull today's/recent/unpulled Fathom meetings as a fallback | `jarvis meeting fathom ingest-today` |
+| Incrementally poll configured Fathom accounts | `jarvis meeting fathom poll` |
+| Create/delete/check Fathom webhooks | `jarvis meeting fathom webhook create/delete/status` |
+| Launch Fathom webhook + tunnel tmux stack | `jarvis meeting fathom start` |
+| Run Fathom webhook receiver | `jarvis meeting fathom webhook serve` |
+| Ingest Fathom webhook inbox | `jarvis meeting fathom webhook ingest-inbox` |
+| Show WhatsApp Meta Cloud API setup guidance | `jarvis whatsapp setup --account personal` |
+| Run WhatsApp webhook receiver | `jarvis whatsapp webhook serve --account personal --port 8787` |
+| Check WhatsApp webhook inbox and config | `jarvis whatsapp webhook status --account personal --json` |
+| Ingest WhatsApp webhook inbox | `jarvis whatsapp webhook ingest-inbox --account personal --dest team-inbox` |
+| Send WhatsApp service-window reply | `jarvis whatsapp send --account personal --to +234... --text "Got it"` |
+| Send approved WhatsApp template | `jarvis whatsapp send-template --account personal --to +234... --template daily_brief` |
+| Review WhatsApp local threads | `jarvis whatsapp threads list`; `jarvis whatsapp threads read <thread-id>` |
+| Configure Fathom accounts and env activation | `jarvis config fathom-setup` |
 | Show context status | `jarvis context status` |
 | Edit context file | `jarvis context edit` |
 | Prioritize a reading list (CLI AI) | `jarvis reading-list organize` or `jarvis rl` |

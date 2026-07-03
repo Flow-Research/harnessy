@@ -9,7 +9,7 @@ from datetime import date
 from ..adapters.base import KnowledgeBaseAdapter
 from ..adapters.exceptions import NotSupportedError
 from ..models import JournalEntry
-from .adapter_service import get_adapter, ensure_connected, check_capability
+from .adapter_service import check_capability, ensure_connected, get_adapter
 
 
 class JournalService:

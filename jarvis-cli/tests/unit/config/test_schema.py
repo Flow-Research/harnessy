@@ -9,8 +9,12 @@ from jarvis.config.schema import (
     AnalyticsConfig,
     AnyTypeConfig,
     BackendsConfig,
+    FathomAccountConfig,
+    FathomConfig,
     JarvisConfig,
     NotionConfig,
+    WhatsAppAccountConfig,
+    WhatsAppConfig,
     get_config_dir,
     get_config_path,
 )
@@ -115,6 +119,39 @@ class TestAnalyticsConfig:
         assert config.metrics_file == "/custom/path.json"
 
 
+class TestFathomConfig:
+    """Test cases for Fathom account configuration."""
+
+    def test_fathom_config_defaults(self) -> None:
+        config = FathomConfig()
+        assert config.default_account is None
+        assert config.accounts == {}
+
+    def test_fathom_account_can_store_webhook_metadata(self) -> None:
+        account = FathomAccountConfig(
+            webhook_id="wh_123",
+            webhook_destination_url="https://fathom.example.com",
+        )
+        assert account.webhook_id == "wh_123"
+        assert account.webhook_destination_url == "https://fathom.example.com"
+
+
+class TestWhatsAppConfig:
+    """Test cases for WhatsApp channel configuration."""
+
+    def test_whatsapp_config_defaults(self) -> None:
+        config = WhatsAppConfig()
+        assert config.default_account is None
+        assert config.accounts == {}
+
+    def test_whatsapp_account_defaults_to_meta(self) -> None:
+        account = WhatsAppAccountConfig(phone_number_id="123", business_account_id="456")
+        assert account.provider == "meta"
+        assert account.phone_number_id == "123"
+        assert account.business_account_id == "456"
+        assert account.api_version == "v24.0"
+
+
 class TestJarvisConfig:
     """Test cases for JarvisConfig root model."""
 
@@ -124,6 +161,8 @@ class TestJarvisConfig:
         assert config.version == 1
         assert config.active_backend == "anytype"
         assert config.analytics.enabled is False
+        assert config.fathom.accounts == {}
+        assert config.whatsapp.accounts == {}
 
     def test_create_config_with_notion_backend(self) -> None:
         """Test config with Notion as active backend."""

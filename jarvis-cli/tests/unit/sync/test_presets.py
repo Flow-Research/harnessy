@@ -21,6 +21,7 @@ class TestPresetValidation:
         assert p.source is None
         assert p.destination is None
         assert ".md" in p.options.include_extensions
+        assert p.options.unsupported_mode == "upload"
 
     def test_valid_full(self) -> None:
         p = Preset(

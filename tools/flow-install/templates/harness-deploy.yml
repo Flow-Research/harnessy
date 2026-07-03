@@ -1,0 +1,89 @@
+name: Harnessy Deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        type: choice
+        required: true
+        default: canary
+        options:
+          - canary
+          - production
+      action:
+        description: "Deployment action"
+        type: choice
+        required: true
+        default: deploy
+        options:
+          - deploy
+          - rollback
+      run_id:
+        description: "Existing run id for rollback/status"
+        required: false
+        type: string
+
+concurrency:
+  group: harness-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Harnessy command shims
+        run: |
+          node tools/flow-install/index.mjs --skills --yes
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Plan deployment
+        run: harness-deploy plan --json
+      - name: Run CI gates
+        run: harness-deploy check --json
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Harnessy command shims
+        run: |
+          node tools/flow-install/index.mjs --skills --yes
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Package
+        run: harness-deploy package --env "${{ github.event.inputs.environment || 'production' }}" --json
+      - name: Deploy or rollback
+        env:
+          HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+        run: |
+          ACTION="${{ github.event.inputs.action || 'deploy' }}"
+          ENVIRONMENT="${{ github.event.inputs.environment || 'production' }}"
+          RUN_ID="${{ github.event.inputs.run_id || '' }}"
+          if [ "$ACTION" = "rollback" ]; then
+            harness-deploy rollback --env "$ENVIRONMENT" ${RUN_ID:+--rollback-target "$RUN_ID"} --json
+          else
+            harness-deploy deploy --env "$ENVIRONMENT" --json
+          fi

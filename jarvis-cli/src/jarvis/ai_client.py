@@ -25,9 +25,7 @@ class AIClient:
         try:
             from anthropic import Anthropic
         except ImportError:
-            raise RuntimeError(
-                "anthropic package not installed. Run: uv pip install anthropic"
-            )
+            raise RuntimeError("anthropic package not installed. Run: uv pip install anthropic")
 
         self.client = Anthropic(api_key=api_key)
         self.model = model
@@ -194,9 +192,7 @@ class AIClient:
                         )
                     )
                 except (KeyError, ValueError) as e:
-                    console.print(
-                        f"[yellow]Warning: Invalid suggestion format: {e}[/yellow]"
-                    )
+                    console.print(f"[yellow]Warning: Invalid suggestion format: {e}[/yellow]")
                     continue
 
             return suggestions

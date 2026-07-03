@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-WalkKind = Literal["file", "directory"]
+WalkKind = Literal["file", "directory", "unsupported_file"]
 
 
 @dataclass(frozen=True)
@@ -21,14 +21,16 @@ class WalkItem:
 
     relpath: str  # POSIX-style, relative to the walk root
     kind: WalkKind
-    content: str | None  # None for directories
+    content: str | None  # None for directories and unsupported files
     abspath: Path
+    skip_reason: str | None = None
 
 
 def walk(
     source: Path,
     include_extensions: list[str],
     ignore: list[str],
+    include_unsupported: bool = False,
 ) -> Iterator[WalkItem]:
     """Yield items under ``source`` in preorder.
 
@@ -36,16 +38,28 @@ def walk(
     - If ``source`` is a directory, walk it preorder: each directory is yielded
       before its contents. Files whose extension isn't in ``include_extensions``
       are skipped silently. Any path matching an ignore glob is skipped.
+    - If ``include_unsupported`` is True, unsupported files are yielded as
+      ``unsupported_file`` items so callers can report them instead of silently
+      skipping them.
     """
     source = source.resolve()
     if source.is_file():
-        if _has_extension(source, include_extensions) and not _matches_any(
-            source.name, ignore
-        ):
+        if _matches_any(source.name, ignore):
+            return
+        if not _has_extension(source, include_extensions):
+            if include_unsupported:
+                yield _unsupported(source.name, source, "extension is not included")
+            return
+        content, reason = _try_read_text(source, strict=include_unsupported)
+        if reason is not None:
+            if include_unsupported:
+                yield _unsupported(source.name, source, reason)
+            return
+        if content is not None:
             yield WalkItem(
                 relpath=source.name,
                 kind="file",
-                content=_read_text(source),
+                content=content,
                 abspath=source,
             )
         return
@@ -53,7 +67,7 @@ def walk(
     if not source.is_dir():
         return
 
-    yield from _walk_dir(source, source, include_extensions, ignore)
+    yield from _walk_dir(source, source, include_extensions, ignore, include_unsupported)
 
 
 def _walk_dir(
@@ -61,6 +75,7 @@ def _walk_dir(
     current: Path,
     include_extensions: list[str],
     ignore: list[str],
+    include_unsupported: bool,
 ) -> Iterator[WalkItem]:
     # Sort directories first, then files, by lowercase name. Stable across runs.
     entries = sorted(current.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
@@ -70,12 +85,21 @@ def _walk_dir(
             continue
         if entry.is_dir():
             yield WalkItem(relpath=rel, kind="directory", content=None, abspath=entry)
-            yield from _walk_dir(root, entry, include_extensions, ignore)
-        elif entry.is_file() and _has_extension(entry, include_extensions):
+            yield from _walk_dir(root, entry, include_extensions, ignore, include_unsupported)
+        elif entry.is_file():
+            if not _has_extension(entry, include_extensions):
+                if include_unsupported:
+                    yield _unsupported(rel, entry, "extension is not included")
+                continue
+            content, reason = _try_read_text(entry, strict=include_unsupported)
+            if reason is not None:
+                if include_unsupported:
+                    yield _unsupported(rel, entry, reason)
+                continue
             yield WalkItem(
                 relpath=rel,
                 kind="file",
-                content=_read_text(entry),
+                content=content,
                 abspath=entry,
             )
 
@@ -91,5 +115,27 @@ def _matches_any(name_or_path: str, patterns: list[str]) -> bool:
 
 def _read_text(path: Path) -> str:
     # We promised markdown/text only — utf-8 decode is the right default.
-    # Surrogateescape lets us not crash on stray bytes; the engine logs and skips.
+    # The legacy non-reporting mode preserves old behavior by replacing stray bytes.
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _try_read_text(path: Path, *, strict: bool) -> tuple[str | None, str | None]:
+    """Return text content or a reason the file cannot be safely synced as text."""
+    if not strict:
+        return _read_text(path), None
+    try:
+        return path.read_text(encoding="utf-8"), None
+    except UnicodeDecodeError:
+        return None, "not valid UTF-8 text"
+    except OSError as e:
+        return None, str(e)
+
+
+def _unsupported(relpath: str, abspath: Path, reason: str) -> WalkItem:
+    return WalkItem(
+        relpath=relpath,
+        kind="unsupported_file",
+        content=None,
+        abspath=abspath,
+        skip_reason=reason,
+    )

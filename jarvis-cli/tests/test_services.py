@@ -15,17 +15,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jarvis.adapters.exceptions import NotSupportedError
-from jarvis.models import Task, JournalEntry, Priority
+from jarvis.models import JournalEntry, Priority, Task
 from jarvis.services.adapter_service import (
-    get_adapter,
-    ensure_connected,
-    connected_adapter,
-    get_default_space,
     check_capability,
+    connected_adapter,
+    ensure_connected,
+    get_adapter,
+    get_default_space,
 )
-from jarvis.services.task_service import TaskService
 from jarvis.services.journal_service import JournalService
-
+from jarvis.services.task_service import TaskService
 
 # --- Fixtures ---
 
@@ -166,9 +165,7 @@ class TestAdapterService:
         assert result == "saved-space-id"
 
     @patch("jarvis.state.get_selected_space")
-    def test_get_default_space_falls_back_if_invalid(
-        self, mock_get_selected, mock_adapter
-    ):
+    def test_get_default_space_falls_back_if_invalid(self, mock_get_selected, mock_adapter):
         """Test get_default_space falls back to adapter default if saved is invalid."""
         mock_get_selected.return_value = "nonexistent-space"
         mock_adapter.list_spaces.return_value = [MagicMock(id="other-space")]
@@ -290,9 +287,7 @@ class TestTaskService:
         mock_adapter.disconnect.assert_called_once()
 
     @patch("jarvis.services.task_service.get_adapter")
-    def test_create_task_uses_default_space(
-        self, mock_get_adapter, mock_adapter, sample_task
-    ):
+    def test_create_task_uses_default_space(self, mock_get_adapter, mock_adapter, sample_task):
         """Test create_task uses default space when not specified."""
         mock_get_adapter.return_value = mock_adapter
         mock_adapter.create_task.return_value = sample_task
@@ -306,9 +301,7 @@ class TestTaskService:
         assert result == sample_task
 
     @patch("jarvis.services.task_service.get_adapter")
-    def test_create_task_uses_provided_space(
-        self, mock_get_adapter, mock_adapter, sample_task
-    ):
+    def test_create_task_uses_provided_space(self, mock_get_adapter, mock_adapter, sample_task):
         """Test create_task uses provided space_id."""
         mock_get_adapter.return_value = mock_adapter
         mock_adapter.create_task.return_value = sample_task
@@ -323,9 +316,7 @@ class TestTaskService:
         assert call_kwargs["space_id"] == "custom-space"
 
     @patch("jarvis.services.task_service.get_adapter")
-    def test_create_task_passes_all_params(
-        self, mock_get_adapter, mock_adapter, sample_task
-    ):
+    def test_create_task_passes_all_params(self, mock_get_adapter, mock_adapter, sample_task):
         """Test create_task passes all parameters to adapter."""
         mock_get_adapter.return_value = mock_adapter
         mock_adapter.create_task.return_value = sample_task
@@ -478,9 +469,7 @@ class TestJournalService:
         mock_get_adapter.assert_called_once_with(None)
 
     @patch("jarvis.services.journal_service.get_adapter")
-    def test_create_entry_uses_defaults(
-        self, mock_get_adapter, mock_adapter, sample_journal_entry
-    ):
+    def test_create_entry_uses_defaults(self, mock_get_adapter, mock_adapter, sample_journal_entry):
         """Test create_entry uses default space and today's date."""
         mock_get_adapter.return_value = mock_adapter
         mock_adapter.create_journal_entry.return_value = sample_journal_entry
@@ -534,9 +523,7 @@ class TestJournalService:
         assert result == sample_journal_entry
 
     @patch("jarvis.services.journal_service.get_adapter")
-    def test_get_entries_with_filters(
-        self, mock_get_adapter, mock_adapter, sample_journal_entry
-    ):
+    def test_get_entries_with_filters(self, mock_get_adapter, mock_adapter, sample_journal_entry):
         """Test get_entries passes all filter parameters."""
         mock_get_adapter.return_value = mock_adapter
         mock_adapter.get_journal_entries.return_value = [sample_journal_entry]
@@ -622,9 +609,7 @@ class TestJournalService:
         assert result is True
 
     @patch("jarvis.services.journal_service.get_adapter")
-    def test_check_journal_capability_raises(
-        self, mock_get_adapter, mock_adapter_no_journal
-    ):
+    def test_check_journal_capability_raises(self, mock_get_adapter, mock_adapter_no_journal):
         """Test capability check raises NotSupportedError."""
         mock_get_adapter.return_value = mock_adapter_no_journal
         service = JournalService()

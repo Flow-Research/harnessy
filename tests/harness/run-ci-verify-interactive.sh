@@ -27,7 +27,7 @@ CONTAINER_NAME="harnessy-verify-interactive"
 
 # Collect flags to pass through
 VERIFY_FLAGS=()
-DOCKER_ENV=(-e SKIP_COMMUNITY=1)
+DOCKER_ENV=()
 for arg in "$@"; do
   case "$arg" in
     --with-opencode)

@@ -14,7 +14,7 @@ import { log, pathExists, promptConfirm, readFileSafe } from "./utils.mjs";
 
 const FLOW_CONTEXT_START = "<!-- flow-context:start -->";
 const FLOW_CONTEXT_END = "<!-- flow-context:end -->";
-export const CONTEXT_AGENTS_VERSION = "1.1.0";
+export const CONTEXT_AGENTS_VERSION = "1.3.0";
 
 const generateManagedSection = (installPaths) => `${FLOW_CONTEXT_START}
 ## Harnessy Protocol
@@ -28,14 +28,17 @@ This repo is Harnessy-managed. Use this file as the canonical Harnessy agent pro
 3. For ideation, issue intake, PRD, roadmap, and architecture tradeoff work, read \`${installPaths.contextDir}/docs/strategy/README.md\` when it exists, then load the relevant strategy docs it points to
 4. Treat \`projects.md\` and \`decisions.md\` as optional supporting docs when present
 5. Check \`${installPaths.contextDir}/skills/_catalog.md\` for project catalog entries
-6. Prefer deeper sub-project context when working inside a nested app with its own \`.jarvis/context/\`
+6. For QA, testing, CI, deployment, or release work, read \`${installPaths.contextDir}/docs/standards/qa-process.md\`, \`${installPaths.contextDir}/docs/standards/testing-strategy.md\`, and \`${installPaths.contextDir}/docs/standards/ci-process.md\` when present
+7. For substantial skill-backed work, read \`${installPaths.contextDir}/docs/standards/skill-feedback-protocol.md\`
+8. Prefer deeper sub-project context when working inside a nested app with its own \`.jarvis/context/\`
 
 ### Skills
 
 - Global skills live in \`~/.agents/skills/\`
 - Project-local skills live in \`${installPaths.skillsDir}/\` when present
 - Run \`pnpm skills:register\` after adding or updating project-local skills
-- Run \`pnpm harness:verify\` to confirm Harnessy, community, and supported agent parity
+- Run \`pnpm harness:verify\` to confirm Harnessy and supported agent parity
+- Before finalizing skill-backed work, capture reusable skill lessons with \`skill-feedback\` or the shared trace recorder. Do not create empty traces for uneventful successful runs.
 
 ### Context Vault
 
@@ -43,7 +46,15 @@ This repo is Harnessy-managed. Use this file as the canonical Harnessy agent pro
 - Standard strategy folder: \`${installPaths.contextDir}/docs/strategy/\`
 - Memory scope registry: \`${installPaths.contextDir}/scopes/_scopes.yaml\`
 - Technical debt register: \`${installPaths.contextDir}/technical-debt.md\`
+- Runtime profiles: \`${installPaths.contextDir}/profiles/qa.json\`, \`${installPaths.contextDir}/profiles/ci.json\`, \`${installPaths.contextDir}/profiles/deploy.json\`
 - Template token \`{{global}}\` is Jarvis templating; treat it as a no-op in raw files
+
+### Testing And Deployment
+
+- Prefer full integration and container-backed tests over mocks. Use Testcontainers first, Docker Compose when a full multi-service stack is needed, and document any mock exception.
+- Treat QA drift, test-quality validation, semantic versioning, packaging, deployment, smoke checks, rollback, and evidence capture as CI/profile-driven gates.
+- Local deployment overrides must run the same gates as CI unless the profile explicitly documents a stronger break-glass policy.
+- Treat missed skill steps, brittle assumptions, manual workarounds, deterministic-command gaps, provider/runtime gaps, security/package issues, and repeated user corrections as mandatory skill feedback capture triggers.
 
 ### Conventions
 

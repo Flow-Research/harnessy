@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import plistlib
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -35,6 +36,20 @@ CRON_STATE_DIR = Path.home() / ".agents" / "cron"
 SCHEDULES_PATH = CRON_STATE_DIR / "schedules.json"
 LOG_PATH = CRON_STATE_DIR / "flow-cron.log"
 CRON_TAG = "# flow-harness"
+CRON_ENV_KEYS = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "FLOW_CRON_PROMPT_RUNNER",
+    "HARNESSY_AI_PROVIDER",
+    "FLOW_AI_PROVIDER",
+    "HARNESSY_AI_PROVIDER_ORDER",
+    "FLOW_AI_PROVIDER_ORDER",
+)
+CRON_ENV_PREFIXES = (
+    "FATHOM_",
+    "JARVIS_FATHOM_",
+)
 
 LAUNCHD_PREFIX = "com.flow-harness"
 LAUNCHD_DIR = Path.home() / "Library" / "LaunchAgents"
@@ -83,6 +98,7 @@ def find_all_schedules() -> list[dict[str, Any]]:
                     "description": entry.get("description", ""),
                     "enabled": entry.get("enabled", False),
                     "attempts": entry.get("attempts", ""),
+                    "timeout": entry.get("timeout", ""),
                     "source": f"skill:{skill_name}",
                     "source_path": str(manifest_path),
                 })
@@ -107,6 +123,7 @@ def find_all_schedules() -> list[dict[str, Any]]:
                     "description": entry.get("description", ""),
                     "enabled": entry.get("enabled", False),
                     "attempts": entry.get("attempts", ""),
+                    "timeout": entry.get("timeout", ""),
                     "source": "project",
                     "source_path": str(project_cron),
                 })
@@ -168,7 +185,35 @@ def detect_project_dir() -> str:
 
 def collect_path_dirs() -> str:
     """Capture the current PATH for use in scheduled jobs."""
-    return os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    # Codex injects short-lived helper directories into PATH for the current
+    # session. launchd jobs need stable paths that survive beyond this process.
+    parts = [part for part in path.split(":") if "/.codex/tmp/arg0/" not in part]
+    return ":".join(part for part in parts if part)
+
+
+def build_cron_environment(path: str | None = None) -> dict[str, str]:
+    """Environment shared by launchd and crontab installs."""
+    provider = os.environ.get("FLOW_CRON_AI_PROVIDER", "auto")
+    provider_order = os.environ.get("FLOW_CRON_AI_PROVIDER_ORDER")
+    if provider_order is None:
+        provider_order = "codex,opencode,claude" if provider == "auto" else provider
+    prompt_runner = os.environ.get("FLOW_CRON_PROMPT_RUNNER", "codex")
+    env = {
+        "PATH": path or collect_path_dirs(),
+        "HOME": str(Path.home()),
+        "LANG": "en_US.UTF-8",
+        "FLOW_CRON_PROMPT_RUNNER": prompt_runner,
+        "HARNESSY_AI_PROVIDER": provider,
+        "FLOW_AI_PROVIDER": provider,
+        "HARNESSY_AI_PROVIDER_ORDER": provider_order,
+        "FLOW_AI_PROVIDER_ORDER": provider_order,
+    }
+    cron_env = {key: env[key] for key in CRON_ENV_KEYS}
+    for key, value in os.environ.items():
+        if key.startswith(CRON_ENV_PREFIXES):
+            cron_env[key] = value
+    return cron_env
 
 
 def build_shell_command(schedule: dict, project_dir: str) -> str:
@@ -186,20 +231,90 @@ def build_shell_command(schedule: dict, project_dir: str) -> str:
     exec_script = os.path.join(project_dir, "tools", "flow-install", "scripts", "flow-cron-exec")
     attempts = schedule.get("attempts", "")
     attempts_flag = f' --attempts {attempts}' if attempts else ""
+    timeout = schedule.get("timeout", "")
+    timeout_flag = f' --timeout {timeout}' if timeout else ""
 
     if entry_type == "shell":
         inner_cmd = command
     else:
-        inner_cmd = (
-            f'claude -p --dangerously-skip-permissions '
-            f'"{command}"'
-        )
+        inner_cmd = build_prompt_command(command, project_dir)
 
     return (
         f'cd "{project_dir}" && '
-        f'python3 "{exec_script}" --task "{task_id}"{attempts_flag} -- '
-        f'/bin/zsh -c \'{inner_cmd}\''
+        f'python3 "{exec_script}" --task "{task_id}"{attempts_flag}{timeout_flag} -- '
+        f'/bin/zsh -c {shlex.quote(inner_cmd)}'
     )
+
+
+def build_prompt_command(prompt: str, project_dir: str) -> str:
+    """Build the command used for prompt-type cron entries.
+
+    Prompt schedules need an agent CLI rather than a plain shell. Codex is the
+    default cron runner so scheduled jobs do not depend on Claude Code auth.
+    Claude remains available only as an explicit opt-in override for older
+    machines.
+    """
+    runner = os.environ.get("FLOW_CRON_PROMPT_RUNNER", "codex").strip().lower()
+
+    if runner == "claude":
+        cmd = [
+            os.environ.get("FLOW_CRON_CLAUDE_CMD", "claude"),
+            "-p",
+            "--dangerously-skip-permissions",
+            prompt,
+        ]
+        return " ".join(shlex.quote(part) for part in cmd)
+
+    if runner == "opencode":
+        cmd = [
+            os.environ.get("FLOW_CRON_OPENCODE_CMD", "opencode"),
+            "run",
+            "--dir",
+            project_dir,
+            prompt,
+        ]
+        return " ".join(shlex.quote(part) for part in cmd)
+
+    if runner != "codex":
+        raise ValueError(f"Unsupported FLOW_CRON_PROMPT_RUNNER: {runner}")
+
+    codex_prompt = (
+        "Run this scheduled Harnessy cron prompt non-interactively. "
+        "Execute the requested task from the repository root and stop when it "
+        "is complete.\n\n"
+        f"{prompt}"
+    )
+    cmd = [
+        os.environ.get("FLOW_CRON_CODEX_CMD", "codex"),
+        "exec",
+        "-C",
+        project_dir,
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--color",
+        "never",
+    ]
+
+    # Cron jobs already execute trusted local declarations. Bypassing Codex's
+    # sandbox preserves the older `claude --dangerously-skip-permissions`
+    # behavior for jobs that need user-level state such as ~/.jarvis.
+    if os.environ.get("FLOW_CRON_CODEX_BYPASS_SANDBOX", "1") not in {"0", "false", "False"}:
+        cmd.append("--dangerously-bypass-approvals-and-sandbox")
+    else:
+        cmd.extend(
+            [
+                "-s",
+                os.environ.get("FLOW_CRON_CODEX_SANDBOX", "workspace-write"),
+                "-a",
+                os.environ.get("FLOW_CRON_CODEX_APPROVAL", "never"),
+            ]
+        )
+
+    model = os.environ.get("FLOW_CRON_CODEX_MODEL") or os.environ.get("HARNESSY_AI_CODEX_MODEL")
+    if model:
+        cmd.extend(["--model", model])
+    cmd.append(codex_prompt)
+    return " ".join(shlex.quote(part) for part in cmd)
 
 
 # ── launchd (macOS) ─────────────────────────────────────────────────────
@@ -287,11 +402,7 @@ def build_launchd_plist(schedule: dict, project_dir: str) -> dict:
         "Label": label,
         "ProgramArguments": ["/bin/zsh", "-c", shell_cmd],
         "StartCalendarInterval": calendar if len(calendar) > 1 else calendar[0],
-        "EnvironmentVariables": {
-            "PATH": path,
-            "HOME": str(Path.home()),
-            "LANG": "en_US.UTF-8",
-        },
+        "EnvironmentVariables": build_cron_environment(path),
         "WorkingDirectory": project_dir,
         "StandardOutPath": str(LOG_PATH),
         "StandardErrorPath": str(LOG_PATH),
@@ -524,15 +635,14 @@ def write_crontab(content: str) -> None:
 def remove_flow_path(crontab: str) -> str:
     lines = crontab.splitlines()
     cleaned = []
-    skip_next = False
+    skip_env_block = False
     for line in lines:
         if "# flow-harness-path" in line:
-            skip_next = True
+            skip_env_block = True
             continue
-        if skip_next and line.startswith("PATH="):
-            skip_next = False
+        if skip_env_block and any(line.startswith(f"{key}=") for key in CRON_ENV_KEYS):
             continue
-        skip_next = False
+        skip_env_block = False
         cleaned.append(line)
     return "\n".join(cleaned) + "\n" if cleaned else ""
 
@@ -572,8 +682,8 @@ def install_crontab(enabled: list[dict], project_dir: str) -> None:
     cleaned = remove_flow_entries(current)
     cleaned = remove_flow_path(cleaned)
 
-    path_dirs = collect_path_dirs()
-    path_line = f"# flow-harness-path\nPATH={path_dirs}\n"
+    env_lines = "\n".join(f"{key}={value}" for key, value in build_cron_environment().items())
+    path_line = f"# flow-harness-path\n{env_lines}\n"
 
     entries = []
     for s in enabled:

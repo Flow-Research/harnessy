@@ -1,6 +1,6 @@
 """Tests for Task model."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -24,8 +24,8 @@ class TestTask:
             priority=Priority.HIGH,
             tags=["work", "urgent"],
             is_done=False,
-            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            updated_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
     def test_create_task_with_all_fields(self, sample_task: Task) -> None:
@@ -41,7 +41,7 @@ class TestTask:
 
     def test_create_task_minimal_fields(self) -> None:
         """Test task creation with only required fields."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         task = Task(
             id="task-123",
             space_id="space-456",
@@ -72,7 +72,7 @@ class TestTask:
 
     def test_computed_field_is_moveable_false(self) -> None:
         """Test is_moveable returns False when bar_movement in tags."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         task = Task(
             id="task-123",
             space_id="space-456",
@@ -85,7 +85,7 @@ class TestTask:
 
     def test_title_validation_empty(self) -> None:
         """Test title cannot be empty."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             Task(
                 id="task-123",
@@ -98,7 +98,7 @@ class TestTask:
 
     def test_title_validation_too_long(self) -> None:
         """Test title cannot exceed 500 characters."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             Task(
                 id="task-123",
@@ -111,7 +111,7 @@ class TestTask:
 
     def test_description_validation_too_long(self) -> None:
         """Test description cannot exceed 10000 characters."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             Task(
                 id="task-123",
@@ -125,7 +125,7 @@ class TestTask:
 
     def test_tags_validation_too_many(self) -> None:
         """Test cannot have more than 50 tags."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             Task(
                 id="task-123",
@@ -139,7 +139,7 @@ class TestTask:
 
     def test_tags_validation_tag_too_long(self) -> None:
         """Test individual tag cannot exceed 100 characters."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         with pytest.raises(ValidationError) as exc_info:
             Task(
                 id="task-123",
@@ -168,7 +168,7 @@ class TestTask:
 
     def test_task_with_priority_enum(self) -> None:
         """Test task works with Priority enum values."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         for priority in Priority:
             task = Task(
                 id="task-123",

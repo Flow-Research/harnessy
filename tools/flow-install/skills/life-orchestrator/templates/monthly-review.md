@@ -4,7 +4,7 @@
 
 ---
 
-## Accomplishments
+## What Changed
 
 {{accomplishments}}
 
@@ -24,7 +24,7 @@
 
 ---
 
-## Recommended Priorities for {{next_month}}
+## What To Prioritize In {{next_month}}
 
 {{recommended_priorities}}
 
@@ -36,12 +36,12 @@
 
 ---
 
-## Evidence of Progress
+## Proof Of Progress
 
 {{evidence_of_progress}}
 
 ---
 
-## Warnings
+## Watchlist
 
 {{warnings}}

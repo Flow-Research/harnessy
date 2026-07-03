@@ -49,7 +49,6 @@ jobs:
         run: |
           docker run --rm \
             -v "${WORKSPACE}:/source/harnessy:ro" \
-            -e SKIP_COMMUNITY=1 \
             harnessy-verify \
             bash /source/harnessy/tests/harness/run-ci-verify.sh
 
@@ -80,6 +79,5 @@ jobs:
           if [ "${WITH_CLAUDE}" = "true" ]; then FLAGS="${FLAGS} --with-claude"; fi
           docker run --rm \
             -v "${WORKSPACE}:/source/harnessy:ro" \
-            -e SKIP_COMMUNITY=1 \
             harnessy-verify \
             bash /source/harnessy/tests/harness/run-ci-verify.sh ${FLAGS}

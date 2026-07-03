@@ -18,7 +18,6 @@ import {
 } from "./agents.mjs";
 
 const projectRoot = process.cwd();
-const GLOBAL_COMMUNITY_METADATA = path.join(process.env.HOME, ".agents", "community-install.json");
 const DEFAULT_INSTALL_PATHS = {
   agentsFile: "AGENTS.md",
   contextDir: ".jarvis/context",
@@ -168,48 +167,6 @@ const run = async () => {
     else fail("Codex skill link for local skill", skill);
     if (opencodePaths.includes(normalizedGlobal)) pass("OpenCode can resolve local skill via global copy", skill);
     else opencodeCheck("OpenCode can resolve local skill", skill);
-  }
-
-  const globalCommunityMetadata = await readJsonSafe(GLOBAL_COMMUNITY_METADATA);
-  const communityConfig = (lockfile?.communitySkills && lockfile.communitySkills.mode !== "none")
-    ? { ...(globalCommunityMetadata || {}), ...lockfile.communitySkills }
-    : (globalCommunityMetadata || { mode: "none", expected: [], strict: false });
-  let expectedCommunitySkills = Array.isArray(communityConfig.expected) ? [...communityConfig.expected] : [];
-  if (communityConfig.mode === "full" && expectedCommunitySkills.length === 0 && communityConfig.sourceDir) {
-    const communityEntries = await fs.readdir(communityConfig.sourceDir, { withFileTypes: true }).catch(() => []);
-    expectedCommunitySkills = communityEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  }
-  if (communityConfig.mode === "none") {
-    pass("Community skills not required", "mode=none");
-  } else if (expectedCommunitySkills.length === 0) {
-    warn("Community skill expectations not declared", "mode=" + String(communityConfig.mode || "unknown"));
-  }
-  for (const skill of expectedCommunitySkills) {
-    const globalSkillDir = path.join(GLOBAL_SKILLS_DIR, skill);
-    const skillMdPath = path.join(globalSkillDir, "SKILL.md");
-    const missing = !(await pathExists(globalSkillDir));
-    if (missing && communityConfig.strict) fail("Required community skill installed globally", skill);
-    else if (missing) warn("Optional community skill missing globally", skill);
-    else pass("Community skill installed globally", skill);
-
-    if (!missing) {
-      if (await pathExists(skillMdPath)) pass("Community skill has SKILL.md", skill);
-      else if (communityConfig.strict) fail("Community skill has SKILL.md", skill);
-      else warn("Community skill has SKILL.md", skill);
-
-      if (opencodePaths.includes(normalizedGlobal) && await pathExists(skillMdPath)) pass("OpenCode can resolve community skill", skill);
-      else if (!opencodeAvailable) warn("OpenCode can resolve community skill", skill);
-      else if (communityConfig.strict) fail("OpenCode can resolve community skill", skill);
-      else warn("OpenCode can resolve community skill", skill);
-
-      if (await pathExists(path.join(GLOBAL_CLAUDE_SKILLS_DIR, skill))) pass("Claude skill link for community skill", skill);
-      else if (communityConfig.strict) fail("Claude skill link for community skill", skill);
-      else warn("Claude skill link for community skill", skill);
-
-      if (await pathExists(path.join(GLOBAL_CODEX_SKILLS_DIR, skill))) pass("Codex skill link for community skill", skill);
-      else if (communityConfig.strict) fail("Codex skill link for community skill", skill);
-      else warn("Codex skill link for community skill", skill);
-    }
   }
 
   const failures = checks.filter((check) => !check.ok);

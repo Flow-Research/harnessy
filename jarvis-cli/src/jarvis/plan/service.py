@@ -9,13 +9,13 @@ import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from ..services.task_service import TaskService
 from ..models.plan import WeeklyPlan
-from .alignment import calculate_alignment, build_task_reality
+from ..services.task_service import TaskService
+from .alignment import build_task_reality, calculate_alignment
 from .context_parser import parse_context
+from .formatter import format_plan_for_file
 from .gaps import detect_gaps
 from .generator import PlanGenerator
-from .formatter import format_plan_for_file
 
 logger = logging.getLogger(__name__)
 

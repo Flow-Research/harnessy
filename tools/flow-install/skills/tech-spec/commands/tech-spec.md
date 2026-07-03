@@ -197,7 +197,11 @@ Create `technical_spec.md` following the template in `templates/technical_spec.m
 Once validation passes:
 
 1. Write final `technical_spec.md` to the specs folder
-2. Produce implementation-ready status report
+2. Run text hygiene before delivery:
+   ```bash
+   jarvis text-hygiene clean path/to/technical_spec.md --report
+   ```
+3. Produce implementation-ready status report
 
 ## Tags
 
@@ -272,4 +276,3 @@ python3 "${AGENTS_SKILLS_ROOT}/_shared/trace_capture.py" capture \
     --skill "tech-spec" --gate "run_retrospective" --gate-type "retrospective" \
     --outcome "approved" --feedback "<user's feedback>"
 ```
-

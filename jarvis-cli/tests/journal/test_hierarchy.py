@@ -54,13 +54,9 @@ class TestGetJournalCollection:
         result = hierarchy.get_journal_collection()
 
         assert result == "journal_id_123"
-        mock_client.get_or_create_collection.assert_called_once_with(
-            "space_123", "Journal"
-        )
+        mock_client.get_or_create_collection.assert_called_once_with("space_123", "Journal")
 
-    def test_caches_journal_id(
-        self, hierarchy: JournalHierarchy, mock_client: MagicMock
-    ) -> None:
+    def test_caches_journal_id(self, hierarchy: JournalHierarchy, mock_client: MagicMock) -> None:
         """Test that journal ID is cached."""
         hierarchy.get_journal_collection()
         hierarchy.get_journal_collection()
@@ -83,9 +79,7 @@ class TestGetYearContainer:
             "space_123", "journal_id_123", "2026"
         )
 
-    def test_caches_year_id(
-        self, hierarchy: JournalHierarchy, mock_client: MagicMock
-    ) -> None:
+    def test_caches_year_id(self, hierarchy: JournalHierarchy, mock_client: MagicMock) -> None:
         """Test that year ID is cached."""
         hierarchy.get_year_container(2026)
         hierarchy.get_year_container(2026)
@@ -128,9 +122,7 @@ class TestGetMonthContainer:
         calls = mock_client.get_or_create_container.call_args_list
         assert calls[-1][0] == ("space_123", "year_2026", "January")
 
-    def test_caches_month_id(
-        self, hierarchy: JournalHierarchy, mock_client: MagicMock
-    ) -> None:
+    def test_caches_month_id(self, hierarchy: JournalHierarchy, mock_client: MagicMock) -> None:
         """Test that month ID is cached."""
         hierarchy.get_month_container(2026, 1)
         hierarchy.get_month_container(2026, 1)
@@ -165,9 +157,9 @@ class TestGetMonthContainer:
             "December",
         ]
 
-        mock_client.get_or_create_container.side_effect = (
-            ["year_2026"] + [f"month_{i}" for i in range(12)]
-        )
+        mock_client.get_or_create_container.side_effect = ["year_2026"] + [
+            f"month_{i}" for i in range(12)
+        ]
 
         for month_num, expected_name in enumerate(expected_months, 1):
             hierarchy._month_cache.clear()  # Clear cache for each test
@@ -242,9 +234,7 @@ class TestCreateEntry:
 class TestClearCache:
     """Tests for clear_cache method."""
 
-    def test_clears_all_caches(
-        self, hierarchy: JournalHierarchy, mock_client: MagicMock
-    ) -> None:
+    def test_clears_all_caches(self, hierarchy: JournalHierarchy, mock_client: MagicMock) -> None:
         """Test that all caches are cleared."""
         # Populate caches
         mock_client.get_or_create_container.side_effect = [

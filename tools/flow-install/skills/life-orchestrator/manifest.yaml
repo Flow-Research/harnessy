@@ -8,7 +8,7 @@ description: "Monthly, weekly, and daily life orchestration — reads priorities
 install_scope: global
 permissions: [terminal, filesystem, network]
 data_categories: [personal]
-egress: [api.anthropic.com]
+egress: [api.anthropic.com, api.openai.com]
 invoke: /life
 location: tools/flow-install/skills/life-orchestrator
 traces:
@@ -35,6 +35,7 @@ schedule:
     type: shell
     command: 'python3 "${AGENTS_SKILLS_ROOT:-$HOME/.agents/skills}/life-orchestrator/scripts/daily-brief"'
     description: "Daily focus brief at 05:30 (chief-of-staff synthesis)"
+    timeout: 2400
     enabled: false
   - name: weekly-plan
     cron: "0 18 * * 0"
@@ -50,10 +51,18 @@ schedule:
     enabled: false
 dependencies:
   - tool: claude
-    description: "Claude Code CLI for monthly/weekly reviews"
+    description: "Optional AI provider for briefs and plans"
     check: "claude --version"
-    required: true
+    required: false
+  - tool: codex
+    description: "Optional AI provider for briefs and plans"
+    check: "codex --version"
+    required: false
+  - tool: opencode
+    description: "Optional AI provider for briefs and plans"
+    check: "opencode --version"
+    required: false
   - tool: python3
-    description: "Python 3 for collect-state and daily-brief scripts"
+    description: "Python 3 for collect-state, daily-brief, and AI runner scripts"
     check: "python3 --version"
     required: true

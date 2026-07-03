@@ -1,9 +1,8 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from jarvis.models import PlanApplyResult, SchedulePlan
-
 
 PLAN_DIR = Path.home() / ".jarvis" / "plans"
 DEFAULT_MAX_PLANS = 120
@@ -71,13 +70,13 @@ def prune_plans(
         return {"removed": 0}
 
     removed = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(days=max_age_days)
 
     plan_files = [p for p in PLAN_DIR.glob("*.json") if not p.name.endswith(".apply.json")]
 
     for plan_file in plan_files:
-        modified = datetime.fromtimestamp(plan_file.stat().st_mtime, tz=timezone.utc)
+        modified = datetime.fromtimestamp(plan_file.stat().st_mtime, tz=UTC)
         if modified < cutoff:
             removed += _remove_plan_artifacts(plan_file.stem)
 

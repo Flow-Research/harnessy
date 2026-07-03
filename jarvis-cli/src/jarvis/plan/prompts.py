@@ -124,7 +124,7 @@ Output as JSON:
 {{
   "questions": [
     {{
-      "question": "The business research tasks conflict with your shipping focus. Are these urgent this week?",
+      "question": "Business research conflicts with shipping focus. Is it urgent this week?",
       "context": "9 business tasks scheduled but focus mode is Shipping"
     }}
   ]

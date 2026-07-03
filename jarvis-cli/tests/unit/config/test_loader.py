@@ -10,6 +10,12 @@ from jarvis.config.loader import (
     clear_config_cache,
     get_backend_token,
     get_config,
+    get_fathom_api_key,
+    get_fathom_webhook_secret,
+    get_whatsapp_access_token,
+    get_whatsapp_app_secret,
+    get_whatsapp_phone_number_id,
+    get_whatsapp_verify_token,
     init_config,
     load_config,
     redact_token,
@@ -158,6 +164,170 @@ class TestRedactToken:
     def test_redact_empty_token(self) -> None:
         """Test redacting an empty token."""
         assert redact_token("") == "****"
+
+
+class TestGetFathomApiKey:
+    """Test Fathom API key resolution for single and multi-account setups."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> Generator[None, None, None]:
+        clear_config_cache()
+        yield
+        clear_config_cache()
+
+    def test_fallback_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        load_config(config_path=Path("/tmp/nonexistent-fathom-config.yaml"), reload=True)
+        monkeypatch.setenv("FATHOM_API_KEY", "secret_fathom")
+        assert get_fathom_api_key() == "secret_fathom"
+
+    def test_named_account_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+fathom:
+  default_account: work
+  accounts:
+    work:
+      email: "me@work.com"
+      api_key_env_var: "FATHOM_API_KEY_WORK"
+"""
+        )
+        load_config(config_path=config_file, reload=True)
+        monkeypatch.setenv("FATHOM_API_KEY_WORK", "work_secret")
+        assert get_fathom_api_key() == "work_secret"
+        assert get_fathom_api_key("work") == "work_secret"
+
+    def test_named_account_managed_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+fathom:
+  default_account: work
+  accounts:
+    work:
+      email: "me@work.com"
+      api_key_env_var: "FATHOM_API_KEY_WORK"
+"""
+        )
+        load_config(config_path=config_file, reload=True)
+        monkeypatch.delenv("FATHOM_API_KEY_WORK", raising=False)
+        managed_env = tmp_path / "fathom.zsh"
+        managed_env.write_text('export FATHOM_API_KEY_WORK="work_secret"\n', encoding="utf-8")
+        monkeypatch.setattr("jarvis.config.loader.default_env_file_path", lambda: managed_env)
+        assert get_fathom_api_key() == "work_secret"
+
+    def test_unknown_account_raises(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("fathom: {}")
+        load_config(config_path=config_file, reload=True)
+        with pytest.raises(ConfigError) as exc_info:
+            get_fathom_api_key("missing")
+        assert "Unknown Fathom account" in str(exc_info.value)
+
+
+class TestGetFathomWebhookSecret:
+    """Test Fathom webhook secret resolution for single and multi-account setups."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> Generator[None, None, None]:
+        clear_config_cache()
+        yield
+        clear_config_cache()
+
+    def test_fallback_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        load_config(config_path=Path("/tmp/nonexistent-fathom-config.yaml"), reload=True)
+        monkeypatch.setenv("FATHOM_WEBHOOK_SECRET", "secret_hook")
+        assert get_fathom_webhook_secret() == "secret_hook"
+
+    def test_named_account_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+fathom:
+  accounts:
+    work:
+      email: "me@work.com"
+      api_key_env_var: "FATHOM_API_KEY_WORK"
+      webhook_secret_env_var: "FATHOM_WEBHOOK_SECRET_WORK"
+"""
+        )
+        load_config(config_path=config_file, reload=True)
+        monkeypatch.setenv("FATHOM_WEBHOOK_SECRET_WORK", "hook_secret")
+        assert get_fathom_webhook_secret("work") == "hook_secret"
+
+    def test_named_account_managed_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+fathom:
+  accounts:
+    work:
+      email: "me@work.com"
+      api_key_env_var: "FATHOM_API_KEY_WORK"
+      webhook_secret_env_var: "FATHOM_WEBHOOK_SECRET_WORK"
+"""
+        )
+        load_config(config_path=config_file, reload=True)
+        monkeypatch.delenv("FATHOM_WEBHOOK_SECRET_WORK", raising=False)
+        managed_env = tmp_path / "fathom.zsh"
+        managed_env.write_text(
+            'export FATHOM_WEBHOOK_SECRET_WORK="hook_secret"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("jarvis.config.loader.default_env_file_path", lambda: managed_env)
+        assert get_fathom_webhook_secret("work") == "hook_secret"
+
+
+class TestGetWhatsAppConfigValues:
+    """Test WhatsApp account secret and ID resolution."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> Generator[None, None, None]:
+        clear_config_cache()
+        yield
+        clear_config_cache()
+
+    def test_named_account_env_vars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """
+whatsapp:
+  default_account: personal
+  accounts:
+    personal:
+      provider: meta
+      phone_number_id: "phone_123"
+      business_account_id: "waba_456"
+      access_token_env_var: "WA_TOKEN_PERSONAL"
+      app_secret_env_var: "WA_APP_SECRET_PERSONAL"
+      verify_token_env_var: "WA_VERIFY_PERSONAL"
+"""
+        )
+        load_config(config_path=config_file, reload=True)
+        monkeypatch.setenv("WA_TOKEN_PERSONAL", "token")
+        monkeypatch.setenv("WA_APP_SECRET_PERSONAL", "secret")
+        monkeypatch.setenv("WA_VERIFY_PERSONAL", "verify")
+
+        assert get_whatsapp_access_token() == "token"
+        assert get_whatsapp_app_secret("personal") == "secret"
+        assert get_whatsapp_verify_token("personal") == "verify"
+        assert get_whatsapp_phone_number_id("personal") == "phone_123"
+
+    def test_unknown_account_raises(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("whatsapp: {}")
+        load_config(config_path=config_file, reload=True)
+
+        with pytest.raises(ConfigError) as exc_info:
+            get_whatsapp_access_token("missing")
+
+        assert "Unknown WhatsApp account" in str(exc_info.value)
 
 
 class TestInitConfig:

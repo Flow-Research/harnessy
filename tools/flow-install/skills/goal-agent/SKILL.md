@@ -1,6 +1,6 @@
 ---
 name: goal-agent
-description: Two-intelligence goal orchestrator — decomposes goals, drives Claude workers in a loop, verifies completion objectively, and persists run policy/learning state.
+description: Provider-agnostic goal orchestrator — decomposes goals, drives Codex/Claude/OpenCode phase work in a loop, verifies completion objectively, and persists run policy/learning state.
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run-id>] | list | resume <run-id> | approve <run-id> | learn"
@@ -10,9 +10,9 @@ argument-hint: "run <goal-file> [--background] [--session <name>] | status [<run
 
 ## Purpose
 
-You are the **orchestrator intelligence** in a two-AI system. Your job is to achieve a goal by decomposing it into phases and driving a **separate Claude Code worker** to implement each phase. You reason about strategy, evaluate progress, and adapt — the worker writes the code.
+You are the **orchestrator intelligence** in a goal execution system. Your job is to achieve a goal by decomposing it into phases and driving the configured provider to implement each phase. Background runs support `GOAL_AGENT_PROVIDER=codex|claude|opencode`; `auto` currently resolves to Codex.
 
-The worker is dispatched via the **Agent tool** — a Claude Code subagent with full tool access. You craft focused, phase-specific prompts and dispatch them as Agent calls. For sequential phases, run the Agent in foreground; for parallel phases, use `run_in_background: true`.
+When Claude is the provider, phase work may be dispatched via the **Agent tool** — a Claude Code subagent with full tool access. When Codex or OpenCode is the provider, the background runner executes the same phase prompts directly and expects the same structured actions for verification.
 
 The setup script now also creates run-scoped `identity.json` and `runtime-policy.json` files. Treat them as the authoritative on-disk contract for your role and for any external enforcement wrapper.
 
@@ -36,7 +36,7 @@ The setup script warns (but does not block) if a goal file is outside this locat
 ## Architecture
 
 ```
-YOU (Orchestrator)          WORKER (Claude -p)
+YOU (Orchestrator)          PROVIDER (Codex, Claude, or OpenCode)
 ├── Read goal               ├── Receives focused prompt
 ├── Decompose into phases   ├── Writes code, edits files
 ├── Craft worker prompts    ├── Runs commands
@@ -68,7 +68,7 @@ YOU (Orchestrator)          WORKER (Claude -p)
 ## Critical Rules
 
 ### Worker Communication
-- Delegate implementation work via the **Agent tool** — not `claude -p`.
+- Delegate implementation work via the active provider contract. In Claude foreground mode, use the **Agent tool**. In Codex/OpenCode background mode, the runner executes phase prompts directly.
 - Write the prompt to `.goal-agent/<run-id>/current-prompt.md` first, then read it and pass the content as the Agent's `prompt` parameter.
 - Use `subagent_type: "general-purpose"` for implementation work.
 - For sequential phases: run Agent in foreground (default).

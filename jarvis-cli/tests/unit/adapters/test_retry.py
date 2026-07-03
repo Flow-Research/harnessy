@@ -128,6 +128,7 @@ class TestWithRetry:
 
     def test_max_delay_caps_backoff(self) -> None:
         """Test max_delay caps the exponential backoff."""
+
         @with_retry(max_attempts=4, base_delay=1.0, max_delay=2.5, exponential_base=2.0)
         def always_fail() -> str:
             raise ConnectionError("Connection refused")
@@ -194,13 +195,17 @@ class TestCalculateDelay:
     def test_rate_limit_with_retry_after(self) -> None:
         """Test delay calculation with retry_after."""
         exc = RateLimitError("Rate limited", retry_after=5.0)
-        delay = _calculate_delay(exc, attempt=0, base_delay=1.0, max_delay=30.0, exponential_base=2.0)
+        delay = _calculate_delay(
+            exc, attempt=0, base_delay=1.0, max_delay=30.0, exponential_base=2.0
+        )
         assert delay == 5.0
 
     def test_rate_limit_retry_after_capped(self) -> None:
         """Test retry_after is capped by max_delay."""
         exc = RateLimitError("Rate limited", retry_after=60.0)
-        delay = _calculate_delay(exc, attempt=0, base_delay=1.0, max_delay=30.0, exponential_base=2.0)
+        delay = _calculate_delay(
+            exc, attempt=0, base_delay=1.0, max_delay=30.0, exponential_base=2.0
+        )
         assert delay == 30.0
 
     def test_exponential_backoff_calculation(self) -> None:

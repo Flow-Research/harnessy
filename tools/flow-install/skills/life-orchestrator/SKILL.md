@@ -10,15 +10,15 @@ argument-hint: "monthly | weekly | daily | status | feedback \"...\""
 
 ## Purpose
 
-You are the user's chief-of-staff intelligence. You read their priorities, survey their project landscape, and produce rhythmic outputs — monthly reviews, weekly plans, and daily focus briefs — so they always know what matters today.
+You are the user's practical planning partner. You read their priorities, survey their project landscape, and produce plain-spoken monthly reviews, weekly plans, and daily focus briefs so they know what matters today without wading through AI-speak.
 
 ## Three Rhythms
 
 | Rhythm  | Input                              | Output                        | Cost      |
 |---------|-------------------------------------|-------------------------------|-----------|
 | Monthly | All project state + priorities.md   | Monthly review with goal-agent | Expensive |
-| Weekly  | Monthly review + current state      | Weekly plan                    | Medium    |
-| Daily   | collect-state script + priorities   | Daily brief + Anytype journal  | Cheap     |
+| Weekly  | Monthly review + current state      | Weekly plan via Harnessy AI runner | Medium |
+| Daily   | collect-state script + priorities   | Daily brief + Anytype journal via Harnessy AI runner | Cheap |
 
 ## Data Flow
 
@@ -29,7 +29,7 @@ priorities.md (the user's voice — the primary input)
 collect-state script --> project repos, calendars, tasks
       |
       v
-Claude brief (chief-of-staff prompt)
+Harnessy AI runner (Claude, Codex, or OpenCode)
       |
       v
 ~/.agents/life/YYYY/Mon/  (structured output)
@@ -42,13 +42,21 @@ Anytype journal (via Jarvis CLI)
 
 1. **The user's voice is primary.** `priorities.md` is always read first. It sets the lens through which all project state is interpreted.
 2. **Rhythms compound.** Monthly reviews feed weekly plans, which feed daily briefs. Each layer adds specificity without repeating context.
-3. **Cost-aware.** Monthly runs are expensive (full goal-agent). Weekly runs are moderate (focused Claude session). Daily runs are cheap (scripted collection + short prompt).
+3. **Cost-aware.** Monthly runs are expensive (full goal-agent). Weekly runs are moderate (focused AI synthesis). Daily runs are cheap (scripted collection + short prompt).
 4. **Journal integration.** Daily briefs are written to Anytype via `jarvis journal write` for long-term searchability.
+
+## Provider Configuration
+
+Daily and weekly synthesis use `${AGENTS_SKILLS_ROOT}/_shared/ai_runner.py`.
+
+- `HARNESSY_AI_PROVIDER=auto|claude|codex|opencode` controls the runtime.
+- `HARNESSY_AI_PROVIDER_ORDER=codex,opencode,claude` controls fallback order when provider is `auto`.
+- `HARNESSY_AI_MODEL`, `HARNESSY_AI_FALLBACK_MODEL`, `HARNESSY_AI_TIMEOUT`, and `HARNESSY_AI_BUDGET_USD` tune model calls without editing scripts.
 
 ## Inputs
 
 - Subcommand and arguments: `$ARGUMENTS`
-- Priorities file: `~/.agents/life/priorities.md`
+- Priorities file: `.jarvis/context/private/$USER/priorities.md` in the active project root, with `~/.agents/life/priorities.md` retained as a legacy fallback for weekly planning
 - Templates: `${AGENTS_SKILLS_ROOT}/life-orchestrator/templates/`
 - Scripts: `${AGENTS_SKILLS_ROOT}/life-orchestrator/scripts/`
 

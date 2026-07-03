@@ -66,8 +66,31 @@ uv run python -m jarvis <command>
 | `jarvis journal read <n>` | Read entry by number |
 | `jarvis journal search <query>` | Search entries |
 | `jarvis journal insights` | AI analysis of entries |
+| `jarvis meeting ingest <source>` | Normalize a meeting transcript and write it to configured destinations |
+| `jarvis meeting fathom list` | List recent Fathom meetings and recording IDs |
+| `jarvis meeting fathom ingest <recording_id>` | Pull a Fathom meeting directly into Jarvis destinations |
+| `jarvis meeting fathom start` | Launch the webhook receiver and cloudflared tunnel in tmux |
+| `jarvis meeting fathom webhook serve` | Run a local Fathom webhook receiver |
+| `jarvis meeting fathom webhook ingest-inbox` | Ingest archived Fathom webhook payloads |
+| `jarvis whatsapp setup` | Show Meta WhatsApp Cloud API setup/config guidance |
+| `jarvis whatsapp webhook serve` | Run a local WhatsApp webhook receiver |
+| `jarvis whatsapp webhook status` | Show WhatsApp webhook config and inbox health |
+| `jarvis whatsapp webhook ingest-inbox` | Ingest archived WhatsApp webhook payloads |
+| `jarvis whatsapp send` | Send a free-form WhatsApp reply inside the service window |
+| `jarvis whatsapp send-template` | Send an approved WhatsApp template |
+| `jarvis whatsapp threads list` | List local WhatsApp conversation threads |
+| `jarvis whatsapp threads read <id>` | Read a local WhatsApp conversation thread |
 | `jarvis task create` | Create a new task in AnyType |
 | `jarvis t` | Alias for `task create` (quick capture) |
+| `jarvis content package <path>` | Build a journal-ready `journal.md` package for a content piece |
+| `jarvis content verify <path>` | Check required files and canonical wording before publish/sync |
+| `jarvis content publish-draft <path>` | Package, verify, optionally journal, sync, and dedupe a content draft |
+| `jarvis content audit-anytype <path>` | Audit a synced content Collection for duplicate Anytype links |
+| `jarvis text-hygiene check <path>` | Report configured AI-speak patterns in generated text |
+| `jarvis text-hygiene clean <path>` | Remove configured AI-speak patterns from generated text |
+| `jarvis sync run` | Sync a local folder tree into Anytype Collections, Pages, and file objects |
+| `jarvis sync dedupe` | Remove duplicate Collection links using sync state as truth |
+| `jarvis sync preset add` | Save a reusable local source to Anytype destination sync preset |
 | `jarvis object get <id>` | Fetch and display any object by ID or URL |
 | `jarvis object edit <id>` | Edit object properties (interactive or --set) |
 | `jarvis o <id>` | Quick object lookup/edit alias |
@@ -84,6 +107,7 @@ uv run python -m jarvis <command>
 | `jarvis status` | Show connection status and backend capabilities |
 | `jarvis config show` | Display current configuration |
 | `jarvis config capabilities` | Show backend capabilities |
+| `jarvis config fathom-setup` | Interactively configure Fathom accounts, env files, and shell activation |
 
 ### Task Commands
 
@@ -125,6 +149,91 @@ jarvis object edit bafyreig... --set name="New Title" --set priority=1
 jarvis o bafyreig... --set done=true
 ```
 
+### Sync Commands
+
+```bash
+# Plan a local folder → Anytype Collection sync without connecting or writing
+jarvis sync run --source ./notes --destination "root_obj:space_id" --dry-run
+
+# Apply the sync without an interactive confirmation prompt
+jarvis sync run --source ./notes --destination "root_obj:space_id" --yes
+
+# Add another text extension for a one-off sync
+jarvis sync run --source ./repo --destination "root_obj:space_id" --include-extension py --dry-run
+
+# Upload non-text files as native Anytype file objects (default)
+jarvis sync run --source ./notes --destination "root_obj:space_id" --unsupported-mode upload --yes
+
+# Represent non-text files as metadata placeholder pages instead
+jarvis sync run --source ./notes --destination "root_obj:space_id" --unsupported-mode stub --yes
+
+# Delete Anytype objects previously synced by this preset when they disappear locally
+jarvis sync run --preset flow-context --prune --yes
+
+# Remove stale duplicate Collection links caused by interrupted/failed syncs
+jarvis sync dedupe --preset flow-content --dry-run
+jarvis sync dedupe --source ./drafts --destination "root_obj:space_id" --path 2026/Jun/01-harnessy --yes
+
+# Save a reusable sync preset
+jarvis sync preset add
+jarvis sync preset list
+```
+
+`jarvis sync` maps local directories to AnyType Collections, supported text
+files to Pages, and non-text files to native AnyType file objects by default.
+Files outside the include-extension list, or files that cannot be read as UTF-8
+text, can be handled with `--unsupported-mode upload`, `warn`, `stub`, or
+`error`. `upload` is the default; `stub` creates metadata placeholder Pages when
+you want the tree shape without uploading the binary content.
+
+### Content Commands
+
+```bash
+# Build a single journal-ready package from a content piece folder
+jarvis content package drafts/2026/Jun/01-harnessy
+
+# Verify canonical wording before publishing
+jarvis content verify drafts/2026/Jun/01-harnessy \
+  --require "agent capability harness" \
+  --forbid "software project harness"
+
+# Package, verify, sync to Anytype, then clean duplicate Collection links
+jarvis content publish-draft drafts/2026/Jun/01-harnessy \
+  --require "agent capability harness" \
+  --forbid "software project harness"
+
+# Audit Anytype links for one synced content piece
+jarvis content audit-anytype drafts/2026/Jun/01-harnessy
+```
+
+`jarvis content package` writes `journal.md` beside `index.md` and platform
+drafts. `content verify` checks configured text hygiene patterns by default;
+`publish-draft` cleans those patterns before packaging, verification, optional
+Journal write via `--journal`, `jarvis sync run`, and `jarvis sync dedupe`. Use
+`--no-hygiene` to skip this layer, or `--hygiene-config` to point at a specific
+pattern registry. Use `--sync-source` plus `--sync-destination` when there is no
+named sync preset.
+
+### Text Hygiene Commands
+
+```bash
+# Report AI-speak patterns without writing files
+jarvis text-hygiene check README.md docs/
+
+# Remove configured patterns from generated Markdown/text
+jarvis text-hygiene clean product_spec.md technical_spec.md --report
+
+# Use a specific personal or project pattern registry
+jarvis text-hygiene clean README.md \
+  --config .jarvis/context/private/julian/style/ai-speak-patterns.yaml \
+  --report
+```
+
+Personal patterns are loaded from
+`.jarvis/context/private/${FLOW_USER:-${USER}}/style/ai-speak-patterns.yaml`
+when present. The cleaner skips YAML frontmatter, fenced code blocks, and inline
+code.
+
 ### Journal Commands
 
 ```bash
@@ -142,6 +251,77 @@ jarvis journal list
 
 # Read specific entry (by list number)
 jarvis journal read 1
+```
+
+### Meeting Commands
+
+```bash
+# Ingest a transcript file into private context
+jarvis meeting ingest ./meeting-notes.md
+
+# Pipe transcript text from stdin
+cat transcript.txt | jarvis meeting ingest - --resolver stdin --dest private-context
+
+# Write a normalized meeting artifact into a wiki domain
+jarvis meeting ingest ./fathom-export.md --dest wiki --wiki-domain accelerate-africa
+
+# Discover recent Fathom meetings you can ingest
+jarvis meeting fathom list --limit 10
+
+# Use a named Fathom account from config
+jarvis meeting fathom list --account work --limit 10
+
+# Pull a Fathom meeting directly by recording ID
+jarvis meeting fathom ingest 123456789 --dest private-context
+
+# Run a local webhook receiver for cloudflared/ngrok/devtunnels
+jarvis meeting fathom webhook serve --account work --port 8765
+
+# Launch the webhook + tunnel stack in tmux
+jarvis meeting fathom start --account work --auto-ingest --dest private-context
+
+# Fully automated: receive, archive, and immediately ingest to markdown
+jarvis meeting fathom webhook serve --account work --port 8765 --auto-ingest --dest private-context
+
+# Ingest archived webhook payloads after they arrive
+jarvis meeting fathom webhook ingest-inbox --account work
+```
+
+### WhatsApp Commands
+
+```bash
+# Show the Meta Cloud API config shape and setup checklist
+jarvis whatsapp setup --account personal
+
+# Run a local receiver behind an HTTPS tunnel
+jarvis whatsapp webhook serve --account personal --port 8787
+
+# Check webhook config, env vars, and local inbox counts
+jarvis whatsapp webhook status --account personal --json
+
+# Ingest archived webhook payloads into local threads and memory
+jarvis whatsapp webhook ingest-inbox --account personal --dest team-inbox --dest memory
+
+# Send a free-form reply when the local 24-hour service window is open
+jarvis whatsapp send --account personal --to +234... --text "Got it"
+
+# Send an approved template for outbound starts or delayed replies
+jarvis whatsapp send-template --account personal --to +234... --template daily_brief
+
+# Review local-first team inbox threads
+jarvis whatsapp threads list --account personal
+jarvis whatsapp threads read wa-123
+jarvis whatsapp threads set-status wa-123 --status done
+```
+
+### Fathom Setup
+
+```bash
+# Interactively configure Fathom accounts and env activation
+jarvis config fathom-setup
+
+# Target a specific shell profile
+jarvis config fathom-setup --shell-profile ~/.zshrc
 ```
 
 ### Android Commands

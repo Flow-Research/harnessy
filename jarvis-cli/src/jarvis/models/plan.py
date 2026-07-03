@@ -149,11 +149,7 @@ class GapAnalysis:
 
     @property
     def total_gaps(self) -> int:
-        return (
-            len(self.goals_without_tasks)
-            + len(self.focus_conflicts)
-            + len(self.schedule_issues)
-        )
+        return len(self.goals_without_tasks) + len(self.focus_conflicts) + len(self.schedule_issues)
 
     @classmethod
     def empty(cls) -> "GapAnalysis":

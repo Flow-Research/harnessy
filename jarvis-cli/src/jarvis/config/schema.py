@@ -90,6 +90,85 @@ class AnalyticsConfig(BaseModel):
     metrics_file: str = Field(default="~/.jarvis/metrics.json")
 
 
+class FathomAccountConfig(BaseModel):
+    """Configuration for a single Fathom account."""
+
+    email: str | None = Field(default=None, description="Google/Fathom account email")
+    api_key_env_var: str = Field(
+        default="FATHOM_API_KEY",
+        description="Environment variable holding the API key for this account",
+    )
+    webhook_secret_env_var: str = Field(
+        default="FATHOM_WEBHOOK_SECRET",
+        description="Environment variable holding the webhook signing secret for this account",
+    )
+    webhook_id: str | None = Field(
+        default=None,
+        description="Last Fathom webhook ID registered for this account",
+    )
+    webhook_destination_url: str | None = Field(
+        default=None,
+        description="Last Fathom webhook destination URL registered for this account",
+    )
+
+
+class FathomConfig(BaseModel):
+    """Configuration for one or more Fathom accounts."""
+
+    default_account: str | None = Field(
+        default=None,
+        description="Default named Fathom account to use when none is specified",
+    )
+    accounts: dict[str, FathomAccountConfig] = Field(default_factory=dict)
+
+
+class WhatsAppAccountConfig(BaseModel):
+    """Configuration for a single WhatsApp channel account."""
+
+    provider: Literal["meta"] = Field(
+        default="meta",
+        description="WhatsApp provider adapter. Meta Cloud API is the canonical provider.",
+    )
+    phone_number_id: str | None = Field(
+        default=None,
+        description="Meta WhatsApp Cloud API phone number ID used for outbound sends",
+    )
+    business_account_id: str | None = Field(
+        default=None,
+        description="Meta WhatsApp Business Account ID for this channel",
+    )
+    access_token_env_var: str = Field(
+        default="JARVIS_WHATSAPP_META_TOKEN",
+        description="Environment variable holding the Meta Cloud API access token",
+    )
+    app_secret_env_var: str = Field(
+        default="JARVIS_WHATSAPP_META_APP_SECRET",
+        description="Environment variable holding the Meta app secret for webhook signatures",
+    )
+    verify_token_env_var: str = Field(
+        default="JARVIS_WHATSAPP_VERIFY_TOKEN",
+        description="Environment variable holding the Meta webhook verification token",
+    )
+    api_version: str = Field(
+        default="v24.0",
+        description="Meta Graph API version segment used for outbound sends",
+    )
+    webhook_destination_url: str | None = Field(
+        default=None,
+        description="Last public HTTPS webhook URL registered in Meta",
+    )
+
+
+class WhatsAppConfig(BaseModel):
+    """Configuration for one or more WhatsApp channel accounts."""
+
+    default_account: str | None = Field(
+        default=None,
+        description="Default named WhatsApp account to use when none is specified",
+    )
+    accounts: dict[str, WhatsAppAccountConfig] = Field(default_factory=dict)
+
+
 class JarvisConfig(BaseSettings):
     """Root configuration model for Jarvis.
 
@@ -114,6 +193,8 @@ class JarvisConfig(BaseSettings):
     backends: BackendsConfig = Field(default_factory=BackendsConfig)
     content: ContentConfig = Field(default_factory=ContentConfig)
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
+    fathom: FathomConfig = Field(default_factory=FathomConfig)
+    whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
 
     @field_validator("active_backend")
     @classmethod

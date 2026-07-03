@@ -163,7 +163,9 @@ def get_package_name(apk_path: str | Path, *, aapt_path: str | None = None) -> s
     return match.group(1)
 
 
-def launch_app(package_name: str, *, adb_path: str | None = None, serial: str | None = None) -> None:
+def launch_app(
+    package_name: str, *, adb_path: str | None = None, serial: str | None = None
+) -> None:
     """Launch an installed Android application."""
     adb = adb_path or _find_adb()
     command = _adb_command(adb, serial) + [
