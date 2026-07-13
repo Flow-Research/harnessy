@@ -49,7 +49,13 @@ DEFAULT_CONFIG = {
     "max_loops": 5.0,
     "max_regression_rate": 0.1,
     "max_human_intervention": 0.5,
+    # Cost normalization. target_cost is the per-run USD budget the cost
+    # dimension (c) is normalized against: a run at target_cost maps to c=1.0.
+    # When runs carry token counts instead of a direct cost_usd, they are
+    # priced with these per-1K-token rates (0 = disabled).
     "target_cost": 1.0,
+    "price_per_1k_input": 0.0,
+    "price_per_1k_output": 0.0,
     "evaluation_window": 3,
     # Layer 1 exponents
     "layer_1": {"f": 0.35, "p": 0.25, "q": 0.25, "r": 0.15},
@@ -134,6 +140,51 @@ def load_runs(skill: Optional[str] = None) -> List[Dict[str, Any]]:
     return runs
 
 
+# --- Cost extraction ---
+
+def _run_tokens(run: Dict[str, Any]) -> Optional[Dict[str, int]]:
+    """Extract input/output token counts from a run record, if present.
+
+    Accepts either flat keys (tokens_in / tokens_out) or a nested
+    `tokens: {"in": ..., "out": ...}` object.
+    """
+    tokens = run.get("tokens")
+    if isinstance(tokens, dict):
+        tin = tokens.get("in", tokens.get("input"))
+        tout = tokens.get("out", tokens.get("output"))
+    else:
+        tin = run.get("tokens_in")
+        tout = run.get("tokens_out")
+    if tin is None and tout is None:
+        return None
+    return {"in": int(tin or 0), "out": int(tout or 0)}
+
+
+def run_cost_usd(run: Dict[str, Any], config: Dict[str, Any]) -> Optional[float]:
+    """Compute a single run's cost in USD, or None if the run has no cost data.
+
+    Resolution order:
+      1. explicit `cost_usd`
+      2. token counts priced with configured per-1K rates
+      3. legacy `cost` field (back-compat)
+    A run with no cost signal returns None so it is excluded from the average
+    rather than being counted as free.
+    """
+    if run.get("cost_usd") is not None:
+        return float(run["cost_usd"])
+
+    tokens = _run_tokens(run)
+    if tokens is not None:
+        price_in = config.get("price_per_1k_input", 0.0)
+        price_out = config.get("price_per_1k_output", 0.0)
+        return (tokens["in"] / 1000.0) * price_in + (tokens["out"] / 1000.0) * price_out
+
+    if run.get("cost") is not None:
+        return float(run["cost"])
+
+    return None
+
+
 # --- Variable extraction ---
 
 def extract_variables(
@@ -185,10 +236,17 @@ def extract_variables(
             human_total_total += htotal
     h = human_triggered_total / human_total_total if human_total_total > 0 else 0.0
 
-    # c = normalized cost (deferred — uses placeholder)
+    # c = normalized cost. Averaged only over runs that carry a cost signal
+    # (cost_usd, token counts, or legacy cost); runs without cost data are
+    # excluded so missing instrumentation reads as c=0 rather than free.
     target_cost = config.get("target_cost", DEFAULT_CONFIG["target_cost"])
-    avg_cost = sum(r.get("cost", 0.0) for r in runs) / len(runs) if runs else 0.0
+    run_costs = [rc for rc in (run_cost_usd(run, config) for run in runs) if rc is not None]
+    avg_cost = sum(run_costs) / len(run_costs) if run_costs else 0.0
     c = min(avg_cost / target_cost, 1.0) if target_cost > 0 else 0.0
+
+    token_totals = [_run_tokens(run) for run in runs]
+    total_tokens_in = sum(t["in"] for t in token_totals if t)
+    total_tokens_out = sum(t["out"] for t in token_totals if t)
 
     return {
         "f": round(f, 4),
@@ -205,6 +263,10 @@ def extract_variables(
             "tests_total": tests_total_total,
             "human_gates_triggered": human_triggered_total,
             "human_gates_total": human_total_total,
+            "runs_with_cost": len(run_costs),
+            "avg_cost_usd": round(avg_cost, 6),
+            "total_tokens_in": total_tokens_in,
+            "total_tokens_out": total_tokens_out,
         },
     }
 
@@ -591,6 +653,139 @@ def command_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- Git revert safety ---
+
+def _git(args: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=check)
+
+
+def tag_exists(tag: str) -> bool:
+    """Return True if the given ref resolves to a commit."""
+    return _git(["rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}"], check=False).returncode == 0
+
+
+def _files_at_ref(ref: str, path: str) -> set:
+    result = _git(["ls-tree", "-r", "--name-only", ref, "--", path], check=False)
+    if result.returncode != 0:
+        return set()
+    return {line for line in result.stdout.splitlines() if line.strip()}
+
+
+def _tracked_files_now(path: str) -> set:
+    result = _git(["ls-files", "--", path], check=False)
+    return {line for line in result.stdout.splitlines() if line.strip()}
+
+
+def _untracked_files_now(path: str) -> set:
+    result = _git(["ls-files", "--others", "--exclude-standard", "--", path], check=False)
+    return {line for line in result.stdout.splitlines() if line.strip()}
+
+
+def reverts_dir() -> Path:
+    return autoflow_state_dir() / "reverts"
+
+
+def build_revert_plan(skill: str, tag: str) -> Dict[str, Any]:
+    """Describe what a revert to `tag` would change, without touching anything.
+
+    Orphan files exist in the working tree now but not in the snapshot tag,
+    so a path-scoped `git checkout` would leave them behind. They are what
+    makes a naive revert incomplete.
+    """
+    skill_path = str(skills_root() / skill)
+    at_tag = _files_at_ref(tag, skill_path)
+    tracked_now = _tracked_files_now(skill_path)
+
+    diff = _git(["diff", "--stat", tag, "--", skill_path], check=False)
+    return {
+        "skill": skill,
+        "tag": tag,
+        "tag_exists": tag_exists(tag),
+        "skill_path": skill_path,
+        "restore_files": sorted(at_tag),
+        "orphan_tracked": sorted(tracked_now - at_tag),
+        "orphan_untracked": sorted(_untracked_files_now(skill_path)),
+        "diffstat": diff.stdout.strip() if diff.returncode == 0 else "",
+    }
+
+
+def write_revert_evidence(skill: str, tag: str, plan: Dict[str, Any]) -> Path:
+    """Persist an auditable record of what a revert discarded."""
+    d = reverts_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    skill_path = plan["skill_path"]
+
+    diff = _git(["diff", tag, "--", skill_path], check=False)
+    (d / f"{skill}_{ts}.diff").write_text(diff.stdout if diff.returncode == 0 else "")
+
+    manifest_path = d / f"{skill}_{ts}.json"
+    manifest = {
+        "skill": skill,
+        "tag": tag,
+        "reverted_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "restore_files": plan["restore_files"],
+        "orphan_tracked": plan["orphan_tracked"],
+        "orphan_untracked": plan["orphan_untracked"],
+        "diffstat": plan["diffstat"],
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return manifest_path
+
+
+def perform_revert(skill: str, tag: str, clean: bool = False) -> Dict[str, Any]:
+    """Restore a skill's files to a snapshot tag, with evidence.
+
+    Returns a result dict. On failure the returned dict contains an "error"
+    key and no mutation beyond what git itself applied.
+    """
+    skill_path = str(skills_root() / skill)
+
+    if not tag_exists(tag):
+        return {"error": f"Snapshot tag not found: {tag}", "reverted": False}
+
+    plan = build_revert_plan(skill, tag)
+    evidence = write_revert_evidence(skill, tag, plan)
+
+    try:
+        _git(["checkout", tag, "--", skill_path])
+    except subprocess.CalledProcessError as e:
+        return {"error": f"Git revert failed: {e.stderr.strip()}", "reverted": False,
+                "evidence": str(evidence)}
+
+    removed: List[str] = []
+    if clean:
+        for f in plan["orphan_tracked"]:
+            if _git(["rm", "-f", "--", f], check=False).returncode == 0:
+                removed.append(f)
+        for f in plan["orphan_untracked"]:
+            try:
+                Path(f).unlink()
+                removed.append(f)
+            except OSError:
+                pass
+
+    return {
+        "reverted": True,
+        "tag": tag,
+        "restored": len(plan["restore_files"]),
+        "orphan_tracked": plan["orphan_tracked"],
+        "orphan_untracked": plan["orphan_untracked"],
+        "removed_orphans": removed,
+        "evidence": str(evidence),
+    }
+
+
+def _classify_decision(delta: float, epsilon: float, gates_passed: bool) -> tuple:
+    if not gates_passed:
+        return "revert", "hard constraint gate failed"
+    if delta > epsilon:
+        return "keep", f"delta {delta:+.4f} exceeds epsilon {epsilon}"
+    if delta < -epsilon:
+        return "revert", f"delta {delta:+.4f} below negative epsilon {-epsilon}"
+    return "keep", f"delta {delta:+.4f} within noise band (no regression)"
+
+
 def command_decide(args: argparse.Namespace) -> int:
     """Make binary keep/revert decision.
 
@@ -599,6 +794,10 @@ def command_decide(args: argparse.Namespace) -> int:
       2. If ΔS > ε → KEEP
       3. If ΔS < -ε → REVERT
       4. If |ΔS| ≤ ε → KEEP (no regression, within noise)
+
+    A revert restores the skill to its snapshot tag. --dry-run reports the
+    decision and the revert plan (files to restore, orphan files that would
+    survive) without touching git or ratchet state.
     """
     skill = args.skill
 
@@ -616,31 +815,43 @@ def command_decide(args: argparse.Namespace) -> int:
     gates_passed = state.get("gates_passed", True)
     tag = state.get("snapshot_tag")
 
-    # Decision
-    if not gates_passed:
-        decision = "revert"
-        reason = "hard constraint gate failed"
-    elif delta > epsilon:
-        decision = "keep"
-        reason = f"delta {delta:+.4f} exceeds epsilon {epsilon}"
-    elif delta < -epsilon:
-        decision = "revert"
-        reason = f"delta {delta:+.4f} below negative epsilon {-epsilon}"
-    else:
-        decision = "keep"
-        reason = f"delta {delta:+.4f} within noise band (no regression)"
+    decision, reason = _classify_decision(delta, epsilon, gates_passed)
 
-    # Execute decision
+    # Dry run: report the decision and, for a revert, the plan — mutate nothing.
+    if args.dry_run:
+        result: Dict[str, Any] = {
+            "dry_run": True,
+            "decision": decision,
+            "reason": reason,
+            "delta": delta,
+            "tag": tag,
+        }
+        if decision == "revert" and tag:
+            result["revert_plan"] = build_revert_plan(skill, tag)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"=== {skill} Ratchet Decision (dry-run): would {decision.upper()} ===")
+            print(f"  Reason: {reason}")
+            if decision == "revert" and tag:
+                plan = result["revert_plan"]
+                if not plan["tag_exists"]:
+                    print(f"  ⚠ snapshot tag missing: {tag}")
+                print(f"  Would restore {len(plan['restore_files'])} file(s) from {tag}")
+                orphans = plan["orphan_tracked"] + plan["orphan_untracked"]
+                if orphans:
+                    print(f"  ⚠ {len(orphans)} orphan file(s) would remain (use --clean to remove):")
+                    for f in orphans:
+                        print(f"      {f}")
+        return 0
+
+    # Execute revert.
+    revert_result: Optional[Dict[str, Any]] = None
     if decision == "revert" and tag:
-        skill_path = skills_root() / skill
-        try:
-            subprocess.run(
-                ["git", "checkout", tag, "--", str(skill_path)],
-                check=True, capture_output=True, text=True,
-            )
-        except subprocess.CalledProcessError as e:
+        revert_result = perform_revert(skill, tag, clean=args.clean)
+        if revert_result.get("error"):
             print(json.dumps({
-                "error": f"Git revert failed: {e.stderr.strip()}",
+                "error": revert_result["error"],
                 "decision": decision,
                 "reason": reason,
             }), file=sys.stderr)
@@ -651,6 +862,9 @@ def command_decide(args: argparse.Namespace) -> int:
     state["decision"] = decision
     state["reason"] = reason
     state["decided_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if revert_result:
+        state["revert_evidence"] = revert_result.get("evidence")
+        state["orphan_files"] = revert_result.get("orphan_tracked", []) + revert_result.get("orphan_untracked", [])
     save_ratchet_state(skill, state)
 
     result = {
@@ -661,6 +875,8 @@ def command_decide(args: argparse.Namespace) -> int:
         "delta": delta,
         "tag": tag,
     }
+    if revert_result:
+        result["revert"] = revert_result
 
     if args.json:
         print(json.dumps(result, indent=2))
@@ -671,8 +887,13 @@ def command_decide(args: argparse.Namespace) -> int:
         print(f"  Baseline:  {state.get('baseline_score', '?')}")
         print(f"  Candidate: {state.get('candidate_score', '?')}")
         print(f"  Delta:     {delta:+.4f}")
-        if decision == "revert":
+        if decision == "revert" and revert_result:
             print(f"  Reverted to: {tag}")
+            print(f"  Restored:    {revert_result.get('restored', 0)} file(s)")
+            print(f"  Evidence:    {revert_result.get('evidence')}")
+            orphans = revert_result.get("orphan_tracked", []) + revert_result.get("orphan_untracked", [])
+            if orphans and not args.clean:
+                print(f"  ⚠ {len(orphans)} orphan file(s) left behind (use --clean to remove)")
 
     return 0
 
@@ -856,13 +1077,19 @@ def parse_args() -> argparse.Namespace:
         "Make keep/revert decision",
         "Make the binary keep/revert decision from the latest evaluation. A "
         "failed gate or a delta below -epsilon reverts the skill to its snapshot "
-        "tag; otherwise the change is kept. Requires 'snapshot' then 'evaluate'.",
+        "tag; otherwise the change is kept. A revert writes an evidence diff to "
+        ".jarvis/context/autoflow/reverts/. Requires 'snapshot' then 'evaluate'.",
         "examples:\n"
         "  ratchet.py decide --skill issue-flow\n"
-        "  ratchet.py decide --skill issue-flow --json",
+        "  ratchet.py decide --skill issue-flow --dry-run\n"
+        "  ratchet.py decide --skill issue-flow --clean --json",
     )
     dc.add_argument("--skill", required=True, help="Skill name to decide on")
     dc.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    dc.add_argument("--dry-run", action="store_true",
+                    help="Report the decision and revert plan without mutating git or state.")
+    dc.add_argument("--clean", action="store_true",
+                    help="On revert, also remove orphan files not present in the snapshot tag.")
 
     # status
     st = add(

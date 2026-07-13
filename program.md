@@ -32,6 +32,17 @@ S = f^0.35 · p^0.20 · q^0.20 · (1-r)^0.10 · (1-h)^0.10 · (1-c)^0.05
 
 Adds **h** (human intervention rate) and **c** (normalized cost).
 
+**Cost normalization** — `c` is the average per-run cost divided by
+`target_cost` (a per-run USD budget), capped at 1.0. Run records supply cost
+via `cost_usd`, or via `tokens_in`/`tokens_out` priced with the rates below.
+Runs with no cost signal are excluded from the average (never counted as free).
+
+```
+target_cost: 1.0            # per-run USD budget; a run at budget → c = 1.0
+price_per_1k_input: 0.0     # $ per 1K input tokens (0 = disabled)
+price_per_1k_output: 0.0    # $ per 1K output tokens (0 = disabled)
+```
+
 ### Hard Constraints (vetoes — reject improvement if violated)
 
 These are disqualifying, not "a little bad." Any violation rejects the

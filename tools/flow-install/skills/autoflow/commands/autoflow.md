@@ -450,9 +450,23 @@ Append to `.jarvis/context/autoflow/runs.ndjson`:
   "tests_total": 18,
   "regression_detected": false,
   "catastrophic_failure": false,
-  "approval_checkpoint": "after-spec"
+  "approval_checkpoint": "after-spec",
+  "cost_usd": 0.42,
+  "tokens_in": 180000,
+  "tokens_out": 24000
 }
 ```
+
+**Cost fields (optional, power the `c` dimension of the Layer-2 ratchet metric):**
+
+- `cost_usd` — total model spend for the run, in USD. Used directly if present.
+- `tokens_in` / `tokens_out` — token counts (also accepted as a nested
+  `"tokens": {"in": ..., "out": ...}`). When `cost_usd` is absent, cost is
+  derived from these using the `price_per_1k_input` / `price_per_1k_output`
+  rates in `program.md`. Runs with no cost signal are excluded from the cost
+  average rather than counted as free, so `c` stays honest until
+  instrumentation lands. `c` is normalized against `target_cost` (per-run USD
+  budget).
 
 ### State: EVALUATE_QUALITY
 
