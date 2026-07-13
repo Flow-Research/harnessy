@@ -94,6 +94,17 @@ Decision logic:
 3. ΔS < -ε → **REVERT**
 4. |ΔS| ≤ ε → **KEEP** (no regression)
 
+### History
+
+Every `score` invocation is appended to an append-only log at
+`.jarvis/context/autoflow/score_history.ndjson` (one JSON object per line:
+timestamp, skill, layer, score, and the individual variables). Inspect the
+trend at any time:
+```bash
+python3 "${AGENTS_SKILLS_ROOT}/_shared/ratchet.py" history --skill <name> --last 10
+```
+Pass `score --no-history` to compute a score without recording it.
+
 ## The Metric
 
 ### Layer 1 (default — start here)

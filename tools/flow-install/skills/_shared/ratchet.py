@@ -108,6 +108,10 @@ def runs_path() -> Path:
     return autoflow_state_dir() / "runs.ndjson"
 
 
+def score_history_path() -> Path:
+    return autoflow_state_dir() / "score_history.ndjson"
+
+
 # --- Run record loading ---
 
 def load_runs(skill: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -310,6 +314,64 @@ def save_ratchet_state(skill: str, state: Dict[str, Any]) -> None:
     path.write_text(json.dumps(state, indent=2) + "\n")
 
 
+# --- Score history (append-only) ---
+
+def append_score_history(
+    skill: str,
+    layer: int,
+    score: float,
+    variables: Dict[str, Any],
+) -> Path:
+    """Append one score computation to the append-only history log.
+
+    Each line is a self-contained JSON object with the timestamp, skill,
+    layer, composite score, and the individual normalized variables. The file
+    is opened in append mode and never truncated, so it forms a durable
+    time-series of how a skill's ratchet score evolves across runs.
+    """
+    path = score_history_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    entry: Dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "skill": skill,
+        "layer": layer,
+        "score": score,
+        "f": variables.get("f"),
+        "p": variables.get("p"),
+        "q": variables.get("q"),
+        "r": variables.get("r"),
+    }
+    # Layer-2 variables are only meaningful when present.
+    if layer >= 2:
+        entry["h"] = variables.get("h")
+        entry["c"] = variables.get("c")
+
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+    return path
+
+
+def load_score_history(skill: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Load score history entries, optionally filtered by skill."""
+    path = score_history_path()
+    if not path.exists():
+        return []
+    entries: List[Dict[str, Any]] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if skill and record.get("skill") != skill:
+            continue
+        entries.append(record)
+    return entries
+
+
 # --- CLI commands ---
 
 def command_score(args: argparse.Namespace) -> int:
@@ -323,6 +385,9 @@ def command_score(args: argparse.Namespace) -> int:
     config = dict(DEFAULT_CONFIG)
     variables = extract_variables(runs, traces, config)
     score = compute_score(variables, layer=layer)
+
+    if not args.no_history:
+        append_score_history(skill, layer, score, variables)
 
     result = {
         "skill": skill,
@@ -643,49 +708,192 @@ def command_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_history(args: argparse.Namespace) -> int:
+    """Show the recorded score history as a time-series trend."""
+    entries = load_score_history(args.skill)
+    if args.last:
+        entries = entries[-args.last:]
+
+    if args.json:
+        print(json.dumps({"skill": args.skill, "count": len(entries), "history": entries}, indent=2))
+        return 0
+
+    if not entries:
+        print(f"=== {args.skill} Score History ===")
+        print("  (no history yet — run 'ratchet.py score' first)")
+        return 0
+
+    print(f"=== {args.skill} Score History (last {len(entries)}) ===")
+    prev: Optional[float] = None
+    for entry in entries:
+        score = entry.get("score", 0.0)
+        ts = str(entry.get("timestamp", ""))[:19]
+        # Sparkline-style bar over the [0, 1] score range.
+        filled = int(round(score * 20))
+        bar = "█" * filled + "░" * (20 - filled)
+        if prev is None:
+            arrow = " "
+        elif score > prev:
+            arrow = "↑"
+        elif score < prev:
+            arrow = "↓"
+        else:
+            arrow = "="
+        print(f"  {ts}  {bar}  {score:.4f} {arrow}  (L{entry.get('layer', 1)})")
+        prev = score
+
+    return 0
+
+
 # --- Argument parsing ---
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Autoresearch ratchet: multiplicative composite metric with hard constraint gates"
+        prog="ratchet.py",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Autoresearch ratchet: multiplicative composite metric with hard "
+            "constraint gates.\n\n"
+            "Runs the keep/revert loop for a skill: snapshot a baseline, let new "
+            "runs accumulate, evaluate the candidate against the baseline, and "
+            "make a binary keep/revert decision. 'score' and 'gates' are "
+            "read-only inspections; 'history' shows the recorded score trend."
+        ),
+        epilog=(
+            "examples:\n"
+            "  ratchet.py score --skill issue-flow\n"
+            "  ratchet.py score --skill issue-flow --layer 2 --verbose\n"
+            "  ratchet.py history --skill issue-flow --last 10\n"
+            "  ratchet.py snapshot --skill issue-flow\n"
+            "  ratchet.py evaluate --skill issue-flow --window 3\n"
+            "  ratchet.py decide --skill issue-flow\n\n"
+            "Run 'ratchet.py <command> --help' for command-specific options."
+        ),
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", metavar="<command>", required=True)
+
+    def add(name: str, help_text: str, description: str, epilog: str):
+        return subparsers.add_parser(
+            name,
+            help=help_text,
+            description=description,
+            epilog=epilog,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
 
     # score
-    sc = subparsers.add_parser("score", help="Compute composite score")
-    sc.add_argument("--skill", required=True)
-    sc.add_argument("--layer", type=int, default=1, choices=[1, 2])
-    sc.add_argument("--json", action="store_true")
+    sc = add(
+        "score",
+        "Compute composite score",
+        "Compute the multiplicative composite ratchet score from recorded runs "
+        "and traces. Each invocation is appended to the score history log "
+        "(disable with --no-history).",
+        "examples:\n"
+        "  ratchet.py score --skill issue-flow\n"
+        "  ratchet.py score --skill issue-flow --layer 2 --verbose\n"
+        "  ratchet.py score --skill issue-flow --json --no-history",
+    )
+    sc.add_argument("--skill", required=True, help="Skill name to score (e.g. issue-flow)")
+    sc.add_argument("--layer", type=int, default=1, choices=[1, 2],
+                    help="Metric layer: 1 (f/p/q/r) or 2 (adds h/c). Default: 1")
+    sc.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     sc.add_argument(
         "--verbose",
         action="store_true",
         help="Print a per-variable breakdown (raw value, weight, weighted contribution).",
     )
+    sc.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Do not append this computation to score_history.ndjson.",
+    )
 
     # gates
-    gt = subparsers.add_parser("gates", help="Check hard constraint gates")
-    gt.add_argument("--skill", required=True)
-    gt.add_argument("--json", action="store_true")
+    gt = add(
+        "gates",
+        "Check hard constraint gates",
+        "Check the hard constraint gates (catastrophic failure, regression rate, "
+        "human intervention rate). Any failing gate is a veto that rejects a "
+        "candidate regardless of its score.",
+        "examples:\n"
+        "  ratchet.py gates --skill issue-flow\n"
+        "  ratchet.py gates --skill issue-flow --json",
+    )
+    gt.add_argument("--skill", required=True, help="Skill name to check")
+    gt.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     # snapshot
-    sn = subparsers.add_parser("snapshot", help="Snapshot skill state before improvement")
-    sn.add_argument("--skill", required=True)
+    sn = add(
+        "snapshot",
+        "Snapshot skill state before improvement",
+        "Snapshot the current skill state before an improvement: creates a git "
+        "tag at ratchet/<skill>/<timestamp> and records the baseline score in "
+        "ratchet state. Run this before editing a skill.",
+        "examples:\n"
+        "  ratchet.py snapshot --skill issue-flow",
+    )
+    sn.add_argument("--skill", required=True, help="Skill name to snapshot")
 
     # evaluate
-    ev = subparsers.add_parser("evaluate", help="Evaluate improvement impact")
-    ev.add_argument("--skill", required=True)
-    ev.add_argument("--window", type=int, required=True, help="Number of post-improvement runs to evaluate")
-    ev.add_argument("--json", action="store_true")
+    ev = add(
+        "evaluate",
+        "Evaluate improvement impact",
+        "Evaluate the candidate against the baseline over a window of "
+        "post-snapshot runs. Reports the score delta versus epsilon and whether "
+        "the hard gates pass. Requires a prior 'snapshot'.",
+        "examples:\n"
+        "  ratchet.py evaluate --skill issue-flow --window 3\n"
+        "  ratchet.py evaluate --skill issue-flow --window 5 --json",
+    )
+    ev.add_argument("--skill", required=True, help="Skill name to evaluate")
+    ev.add_argument("--window", type=int, required=True,
+                    help="Number of post-improvement runs to evaluate")
+    ev.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     # decide
-    dc = subparsers.add_parser("decide", help="Make keep/revert decision")
-    dc.add_argument("--skill", required=True)
-    dc.add_argument("--json", action="store_true")
+    dc = add(
+        "decide",
+        "Make keep/revert decision",
+        "Make the binary keep/revert decision from the latest evaluation. A "
+        "failed gate or a delta below -epsilon reverts the skill to its snapshot "
+        "tag; otherwise the change is kept. Requires 'snapshot' then 'evaluate'.",
+        "examples:\n"
+        "  ratchet.py decide --skill issue-flow\n"
+        "  ratchet.py decide --skill issue-flow --json",
+    )
+    dc.add_argument("--skill", required=True, help="Skill name to decide on")
+    dc.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     # status
-    st = subparsers.add_parser("status", help="Show ratchet state")
-    st.add_argument("--skill", required=True)
-    st.add_argument("--json", action="store_true")
+    st = add(
+        "status",
+        "Show ratchet state",
+        "Show the current ratchet cycle state for a skill: snapshot tag, "
+        "baseline and candidate scores, delta, decision, and progress toward "
+        "the evaluation window.",
+        "examples:\n"
+        "  ratchet.py status --skill issue-flow\n"
+        "  ratchet.py status --skill issue-flow --json",
+    )
+    st.add_argument("--skill", required=True, help="Skill name to inspect")
+    st.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    # history
+    hi = add(
+        "history",
+        "Show recorded score history",
+        "Show the append-only score history recorded by 'score' as a time-series "
+        "trend, with a per-entry bar and an up/down/flat marker relative to the "
+        "previous entry.",
+        "examples:\n"
+        "  ratchet.py history --skill issue-flow\n"
+        "  ratchet.py history --skill issue-flow --last 10\n"
+        "  ratchet.py history --skill issue-flow --json",
+    )
+    hi.add_argument("--skill", required=True, help="Skill name to show history for")
+    hi.add_argument("--last", type=int, default=None,
+                    help="Show only the most recent N entries")
+    hi.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     return parser.parse_args()
 
@@ -699,6 +907,7 @@ def main() -> int:
         "evaluate": command_evaluate,
         "decide": command_decide,
         "status": command_status,
+        "history": command_history,
     }
     handler = commands.get(args.command)
     if not handler:
